@@ -1,0 +1,30 @@
+/* Global styles for the entire application */
+
+/* Reset browser defaults and set base font */
+body {
+  margin: 0;  /* Remove default margin */
+  padding: 0; /* Remove default padding */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  /* Font stack: Try these fonts in order until one is found */
+  -webkit-font-smoothing: antialiased;  /* Smoother text on Mac/iOS */
+  -moz-osx-font-smoothing: grayscale;   /* Smoother text on Firefox/Mac */
+  background-color: #282c34;  /* Dark background */
+  color: white;  /* White text */
+}
+
+/* Code elements (for displaying code snippets) */
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+  /* Monospace font stack for code */
+}
+
+/* Box sizing: include padding and border in element's width/height */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  /* Makes CSS layouts much easier! */
+}

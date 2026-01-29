@@ -1,0 +1,94 @@
+# Spring Boot Configuration File
+# YAML format: Key-value pairs with indentation (like Python)
+
+# Spring Framework configuration
+spring:
+
+  # Application name (appears in logs and metrics)
+  application:
+    name: anime-tracker-backend
+
+  # Database connection (DataSource)
+  datasource:
+    # JDBC URL: How to connect to the database
+    # ${VARIABLE} pulls from environment variables (set in docker-compose.yml)
+    # If env var is missing, use default after ":-"
+    url: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://localhost:5432/animetracker}
+
+    # Database username
+    username: ${SPRING_DATASOURCE_USERNAME:-anime_user}
+
+    # Database password (NEVER hardcode passwords! Use env vars.)
+    password: ${SPRING_DATASOURCE_PASSWORD:-anime_pass123}
+
+    # Driver class (PostgreSQL JDBC driver)
+    # Spring Boot auto-detects this, but explicit is better
+    driver-class-name: org.postgresql.Driver
+
+  # JPA (Java Persistence API) configuration
+  jpa:
+    # Hibernate DDL (Data Definition Language) mode
+    # Options: create, create-drop, update, validate, none
+    # - create: Drop tables and recreate on startup (DANGEROUS! Deletes data)
+    # - update: Update schema automatically (not recommended for production)
+    # - validate: Only check that entities match the database (our choice)
+    # - none: Do nothing
+    # We use "validate" because Flyway manages schema changes
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-validate}
+
+    # Show SQL queries in logs (helpful for learning and debugging)
+    show-sql: ${SPRING_JPA_SHOW_SQL:-true}
+
+    # Format SQL queries (pretty print)
+    properties:
+      hibernate:
+        format_sql: true
+        # Dialect: Tell Hibernate we're using PostgreSQL
+        # This affects how SQL queries are generated
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # Flyway configuration (database migrations)
+  flyway:
+    # Enable Flyway
+    enabled: true
+
+    # Location of migration scripts
+    # Spring Boot automatically looks in src/main/resources/db/migration/
+    locations: classpath:db/migration
+
+    # Baseline version (starting point)
+    baseline-on-migrate: true
+    baseline-version: 0
+
+    # Validate migrations on startup
+    validate-on-migrate: true
+
+# Server configuration (embedded Tomcat)
+server:
+  # Port number (default is 8080)
+  port: ${SERVER_PORT:-8080}
+
+  # Error handling: Include error details in responses (for debugging)
+  # In production, set this to "never" for security
+  error:
+    include-message: always
+    include-stacktrace: on_param  # Include stack trace if "?trace=true" in URL
+
+# Logging configuration
+logging:
+  level:
+    # Root logger (default for everything)
+    root: INFO
+
+    # Our application's logs (more detailed)
+    com.animetracker: DEBUG
+
+    # Hibernate SQL logs (shows generated SQL)
+    org.hibernate.SQL: DEBUG
+
+    # Hibernate parameter values (shows values in SQL queries)
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+    # Spring Framework logs (less verbose)
+    org.springframework: INFO

@@ -1,0 +1,47 @@
+/* Styles for the App component */
+
+.App {
+  text-align: center;  /* Center all text */
+}
+
+.App-header {
+  background-color: #282c34;  /* Dark background */
+  min-height: 100vh;  /* Full viewport height */
+  display: flex;  /* Flexbox layout */
+  flex-direction: column;  /* Stack children vertically */
+  align-items: center;  /* Center horizontally */
+  justify-content: center;  /* Center vertically */
+  font-size: calc(10px + 2vmin);  /* Responsive font size */
+  color: white;
+}
+
+.App-header h1 {
+  margin-bottom: 2rem;  /* Space below heading */
+  font-size: 3rem;  /* Large heading */
+}
+
+.status-ok {
+  color: #4CAF50;  /* Green for success */
+  font-weight: bold;
+  font-size: 1.5rem;
+  margin: 1rem 0;
+}
+
+.status-error {
+  color: #f44336;  /* Red for error */
+  font-weight: bold;
+  font-size: 1.5rem;
+  margin: 1rem 0;
+}
+
+.error-message {
+  color: #ff9800;  /* Orange for warning */
+  font-size: 1rem;
+  margin-top: 0.5rem;
+}
+
+.subtitle {
+  color: #aaa;  /* Light gray */
+  font-size: 1rem;
+  margin-top: 2rem;
+}

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- POM = Project Object Model: Maven's configuration file -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Parent: Inherit from Spring Boot's parent POM -->
+    <!-- This gives us default versions for all Spring Boot dependencies -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.2</version>  <!-- Spring Boot version 3.2.2 -->
+        <relativePath/>
+    </parent>
+
+    <!-- Project coordinates (unique identifier) -->
+    <groupId>com.animetracker</groupId>         <!-- Like a company name -->
+    <artifactId>anime-tracker-backend</artifactId>  <!-- Like a product name -->
+    <version>1.0.0</version>                    <!-- Our version -->
+    <name>Anime Tracker Backend</name>
+    <description>Backend API for Anime List and Recommender</description>
+
+    <!-- Properties: Variables used throughout this file -->
+    <properties>
+        <!-- Java version: We're using Java 17 (LTS version) -->
+        <java.version>17</java.version>
+    </properties>
+
+    <!-- Dependencies: External libraries our project needs -->
+    <dependencies>
+
+        <!-- Spring Boot Web Starter: Includes Tomcat, Spring MVC, JSON support -->
+        <!-- This is what makes it a web application that can handle HTTP requests -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Data JPA: Object-Relational Mapping (ORM) -->
+        <!-- Lets you work with database using Java objects instead of SQL -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL Driver: Allows Java to connect to PostgreSQL database -->
+        <!-- Without this, Java doesn't know how to talk to PostgreSQL -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>  <!-- Only needed when app runs, not when compiling -->
+        </dependency>
+
+        <!-- Flyway: Database migration tool -->
+        <!-- Manages database schema changes over time (like Git for your database) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- Flyway PostgreSQL: Flyway support for PostgreSQL-specific features -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Spring Boot DevTools: Auto-restart when code changes (development only) -->
+        <!-- Makes development faster - you don't need to manually restart the app -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Boot Starter Test: Testing framework (JUnit, Mockito, etc.) -->
+        <!-- We'll use this in later milestones for unit tests -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>  <!-- Only used for tests, not in production -->
+        </dependency>
+
+    </dependencies>
+
+    <!-- Build configuration: How to compile and package the application -->
+    <build>
+        <plugins>
+            <!-- Spring Boot Maven Plugin: Packages app into an executable JAR -->
+            <!-- A JAR is like a ZIP file containing all your code and dependencies -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

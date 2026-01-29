@@ -1,0 +1,123 @@
+# Docker Compose version (this is just metadata)
+version: '3.8'
+
+# "services" means "containers" - we define 3 containers below
+services:
+
+  # Service 1: PostgreSQL Database
+  db:
+    # Use official PostgreSQL 15 image from Docker Hub
+    image: postgres:15-alpine
+
+    # Container name (easier to reference than auto-generated names)
+    container_name: animetracker-db
+
+    # Restart policy: always restart if it crashes
+    restart: unless-stopped
+
+    # Environment variables (configuration passed to the container)
+    environment:
+      # Database name to create on startup
+      POSTGRES_DB: animetracker
+      # Superuser username
+      POSTGRES_USER: anime_user
+      # Superuser password (IMPORTANT: Use strong passwords in production!)
+      POSTGRES_PASSWORD: anime_pass123
+
+    # Port mapping: host:container
+    # 5432 on your computer maps to 5432 inside the container
+    ports:
+      - "5432:5432"
+
+    # Volumes: Persist data even when container stops
+    # This maps a folder on your computer to the container's data folder
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    # Health check: Docker runs this command to verify the DB is ready
+    healthcheck:
+      # "pg_isready" is a PostgreSQL command that checks if DB accepts connections
+      test: ["CMD-SHELL", "pg_isready -U anime_user -d animetracker"]
+      interval: 10s        # Check every 10 seconds
+      timeout: 5s          # Wait 5 seconds for response
+      retries: 5           # Try 5 times before marking as unhealthy
+
+    # Networks: Connect this container to our custom network
+    networks:
+      - animetracker-network
+
+  # Service 2: Spring Boot Backend
+  backend:
+    # Build from Dockerfile in ./backend directory
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: animetracker-backend
+    restart: unless-stopped
+
+    # Environment variables for Spring Boot
+    environment:
+      # JDBC URL: How to connect to the database
+      # "db" is the service name above - Docker's DNS resolves it
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/animetracker
+      SPRING_DATASOURCE_USERNAME: anime_user
+      SPRING_DATASOURCE_PASSWORD: anime_pass123
+
+      # JPA/Hibernate settings
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate  # Don't auto-create tables (Flyway handles it)
+      SPRING_JPA_SHOW_SQL: "true"              # Log SQL queries (helpful for learning!)
+
+    # Port mapping: access backend at localhost:8080
+    ports:
+      - "8080:8080"
+
+    # depends_on: Start backend only after db is healthy
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - animetracker-network
+
+  # Service 3: React Frontend
+  frontend:
+    # Build from Dockerfile in ./frontend directory
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: animetracker-frontend
+    restart: unless-stopped
+
+    # Environment variable: Backend API URL
+    environment:
+      # React uses REACT_APP_ prefix for env vars
+      REACT_APP_API_URL: http://backend:8080
+
+    # Port mapping: access frontend at localhost:3000
+    ports:
+      - "3000:3000"
+
+    # Start frontend after backend is running
+    depends_on:
+      - backend
+
+    networks:
+      - animetracker-network
+
+    # For development: enable hot reload by mounting source code
+    # (We'll skip this for now to keep things simple)
+    # volumes:
+    #   - ./frontend/src:/app/src
+
+# Volumes: Named volumes that persist data
+volumes:
+  # This stores PostgreSQL data on your computer
+  # Even if you stop containers, data remains
+  postgres-data:
+
+# Networks: Custom network for our containers to communicate
+networks:
+  animetracker-network:
+    driver: bridge  # Bridge network allows containers to talk to each other

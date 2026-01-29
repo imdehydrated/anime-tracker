@@ -1,0 +1,21 @@
+# Maven build output
+# "target" folder contains compiled .class files and the final .jar file
+target/
+
+# Maven wrapper (we'll use Docker's Maven instead)
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE-specific files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Spring Boot specific
+# These files are generated when the app runs
+spring-boot-*.log
+*.log
