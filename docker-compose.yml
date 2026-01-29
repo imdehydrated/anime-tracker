@@ -58,6 +58,9 @@ services:
 
     # Environment variables for Spring Boot
     environment:
+      # Server port
+      SERVER_PORT: 8080
+
       # JDBC URL: How to connect to the database
       # "db" is the service name above - Docker's DNS resolves it
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/animetracker

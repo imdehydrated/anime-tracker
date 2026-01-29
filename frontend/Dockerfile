@@ -15,7 +15,7 @@ COPY package*.json ./
 # - Faster (uses package-lock.json exactly)
 # - More reliable (always produces same node_modules)
 # - Better for CI/CD and Docker
-RUN npm ci
+RUN npm install
 
 # Copy the rest of the source code
 COPY public ./public

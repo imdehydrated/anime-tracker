@@ -60,12 +60,6 @@
             <artifactId>flyway-core</artifactId>
         </dependency>
 
-        <!-- Flyway PostgreSQL: Flyway support for PostgreSQL-specific features -->
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-database-postgresql</artifactId>
-        </dependency>
-
         <!-- Spring Boot DevTools: Auto-restart when code changes (development only) -->
         <!-- Makes development faster - you don't need to manually restart the app -->
         <dependency>
