@@ -1,5 +1,5 @@
 # Docker Compose version (this is just metadata)
-version: '3.8'
+# version: '3.8'
 
 # "services" means "containers" - we define 3 containers below
 services:

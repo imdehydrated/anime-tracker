@@ -45,4 +45,4 @@ Currently in Milestone 1: Project foundation with Docker Compose, Spring Boot, a
 
 ## Author
 
-Built as a portfolio project to demonstrate full-stack development skills.
+Built as a portfolio project to learn new technologies and develop full-stack skills.
