@@ -41,7 +41,7 @@ animetracker/
 
 ## Development Status
 
-Currently in Milestone 1: Project foundation with Docker Compose, Spring Boot, and React.
+Currently working on database development.
 
 ## Author
 

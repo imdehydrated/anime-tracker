@@ -55,7 +55,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Anime Tracker</h1>
+        <h1>AniRec</h1>
 
         {/* Conditional rendering: Show status or error */}
         <p className={error ? 'status-error' : 'status-ok'}>
