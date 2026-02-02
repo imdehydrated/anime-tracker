@@ -2,8 +2,8 @@
 -- This table stores each anime in a user's personal list
 
 CREATE TABLE anime_list_entries (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
     anilist_id INTEGER NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'plan_to_watch',
     score INTEGER CHECK (score >= 1 AND score <= 10),
