@@ -69,6 +69,13 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Spring Security: Authentication, authorization, and password hashing -->
+        <!-- We're using it initially just for BCrypt password hashing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
         <!-- Spring Boot Starter Test: Testing framework (JUnit, Mockito, etc.) -->
         <!-- We'll use this in later milestones for unit tests -->
         <dependency>
