@@ -84,6 +84,28 @@
             <scope>test</scope>  <!-- Only used for tests, not in production -->
         </dependency>
 
+        <!-- JWT (JSON Web Token) libraries for authentication -->
+        <!-- jjwt-api: The interfaces and classes we use in our code -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.3</version>
+        </dependency>
+        <!-- jjwt-impl: The actual implementation (only needed at runtime) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.3</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- jjwt-jackson: JSON serialization for JWT (only needed at runtime) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.3</version>
+            <scope>runtime</scope>
+        </dependency>
+
     </dependencies>
 
     <!-- Build configuration: How to compile and package the application -->

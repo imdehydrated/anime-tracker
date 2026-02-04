@@ -92,3 +92,7 @@ logging:
 
     # Spring Framework logs (less verbose)
     org.springframework: INFO
+  
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET}

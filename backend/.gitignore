@@ -19,3 +19,5 @@ mvnw.cmd
 # These files are generated when the app runs
 spring-boot-*.log
 *.log
+
+.env

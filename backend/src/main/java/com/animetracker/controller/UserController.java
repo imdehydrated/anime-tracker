@@ -1,13 +1,21 @@
 package com.animetracker.controller;
 
-import com.animetracker.entity.User;
-import com.animetracker.service.UserService;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.animetracker.config.JwtUtil;
+import com.animetracker.entity.User;
+import com.animetracker.service.UserService;
 
 /**
  * REST Controller for User operations.
@@ -20,10 +28,12 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+    private final JwtUtil jwtUtil;
 
     // Constructor injection
-    public UserController(UserService userService) {
+    public UserController(UserService userService, JwtUtil jwtUtil) {
         this.userService = userService;
+        this.jwtUtil = jwtUtil;
     }
 
     /**
@@ -86,6 +96,65 @@ public class UserController {
             })
             .orElse(ResponseEntity.notFound().build());
     }
+
+    /**
+     * Authenticate a user and return a JWT token.
+     *
+     * POST /api/users/login
+     *
+     * Request body (JSON):
+     * {
+     *   "email": "user@example.com",
+     *   "password": "userpassword"
+     * }
+     *
+     * Success Response (200 OK):
+     * {
+     *   "message": "Login successful",
+     *   "token": "eyJhbGciOiJIUzI1NiJ9...",
+     *   "email": "user@example.com"
+     * }
+     *
+     * Error Response (401 Unauthorized):
+     * {
+     *   "error": "Invalid email or password"
+     * }
+     *
+     * Flow:
+     * 1. Find user by email
+     * 2. If not found → return 401
+     * 3. Verify password against stored hash
+     * 4. If wrong → return 401
+     * 5. Generate JWT token
+     * 6. Return token to client
+     *
+     * @param request The login request containing email and password
+     * @return JWT token on success, error message on failure
+     */
+    public record LoginRequest(String email, String password) {}
+
+    @PostMapping("/login")
+    public ResponseEntity<?> loginUser(@RequestBody LoginRequest request) {
+        Optional<User> userOptional = userService.findByEmail(request.email());
+        if (userOptional.isEmpty()) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Invalid email or password");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+        }
+        User user = userOptional.get();
+        if (!userService.verifyPassword(request.password(), user.getPasswordHash())) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Invalid email or password");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+        }
+        String token = jwtUtil.generateToken(request.email());
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Login Successful");
+        response.put("token", token);
+        response.put("email", user.getEmail());
+        return ResponseEntity.ok(response);
+    }
+    
 
     /**
      * Request body for user registration.

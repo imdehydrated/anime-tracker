@@ -53,6 +53,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
 
+    env_file:
+      - .env
     container_name: animetracker-backend
     restart: unless-stopped
 
