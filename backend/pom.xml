@@ -11,7 +11,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.2</version>  <!-- Spring Boot version 3.2.2 -->
+        <version>3.5.10</version>  <!-- Spring Boot version 3.5.10 -->
         <relativePath/>
     </parent>
 
@@ -58,6 +58,13 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- Flyway PostgreSQL: Required since Flyway 10 (Spring Boot 3.3+) -->
+        <!-- Flyway modularized DB drivers, so each database needs its own module -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
         <!-- Spring Boot DevTools: Auto-restart when code changes (development only) -->
