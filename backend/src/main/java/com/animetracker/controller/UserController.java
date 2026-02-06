@@ -147,7 +147,7 @@ public class UserController {
             error.put("error", "Invalid email or password");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
         }
-        String token = jwtUtil.generateToken(request.email());
+        String token = jwtUtil.generateToken(user.getUsername());
         Map<String, Object> response = new HashMap<>();
         response.put("message", "Login Successful");
         response.put("token", token);

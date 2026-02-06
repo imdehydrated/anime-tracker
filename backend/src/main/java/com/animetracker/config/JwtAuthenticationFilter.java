@@ -39,13 +39,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // 4. Validate the token
             if (jwtUtil.validateToken(token)) {
-                // 5. Get the email from the token
-                String email = jwtUtil.getEmailFromToken(token);
+                // 5. Get the username from the token
+                String username = jwtUtil.getUsernameFromToken(token);
 
                 // 6. Create an Authentication object and set it in the SecurityContext
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
-                                email,           // principal (who is this user)
+                                username,           // principal (who is this user)
                                 null,            // credentials (not needed, token already validated)
                                 Collections.emptyList()  // authorities/roles (none for now)
                         );
