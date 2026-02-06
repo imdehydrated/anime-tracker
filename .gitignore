@@ -32,3 +32,8 @@ yarn-error.log*
 STUDY-GUIDE.md
 MILESTONES.md
 DEV-COMMANDS.md
+
+# Test JSON files for curl commands
+*.json
+!**/package.json
+!**/package-lock.json
