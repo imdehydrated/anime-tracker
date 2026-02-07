@@ -113,6 +113,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Spring WebFlux: Provides WebClient for making HTTP requests to external APIs -->
+        <!-- We use it to call AniList's GraphQL API from our backend -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
     </dependencies>
 
     <!-- Build configuration: How to compile and package the application -->

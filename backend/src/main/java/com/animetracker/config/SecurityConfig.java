@@ -43,6 +43,8 @@ public class SecurityConfig {
                 // Public routes - no token needed
                 .requestMatchers("/api/users/register", "/api/users/login").permitAll()
                 .requestMatchers("/api/health").permitAll()
+                .requestMatchers("/api/anime/search").permitAll()
+
 
                 // Everything else requires authentication
                 .anyRequest().authenticated()
