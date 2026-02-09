@@ -16,17 +16,17 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 function Search() {
-    // Search input and results
-    const [query, setQuery] = useState('');         // What the user types
-    const [results, setResults] = useState([]);      // Array of anime from AniList
-    const [loading, setLoading] = useState(false);   // Show "Searching..." during API call
-    const [error, setError] = useState('');
-    const [message, setMessage] = useState('');       // Success message after adding to list
+	// Search input and results
+	const [query, setQuery] = useState('');         // What the user types
+	const [results, setResults] = useState([]);      // Array of anime from AniList
+	const [loading, setLoading] = useState(false);   // Show "Searching..." during API call
+	const [error, setError] = useState('');
+	const [message, setMessage] = useState('');       // Success message after adding to list
 
-    // Get JWT token — needed for the "Add to List" POST request
-    const { token, isLoggedIn } = useAuth();
+	// Get JWT token — needed for the "Add to List" POST request
+	const { token, isLoggedIn } = useAuth();
 
-    /**
+	/**
 	 * handleSearch — Calls our backend search endpoint.
 	 *
 	 * This hits the PUBLIC /api/anime/search endpoint (no token needed).
@@ -34,15 +34,14 @@ function Search() {
 	 * a simplified JSON array of anime objects.
 	 */
 	const handleSearch = async (e) => {
-		e.preventDefault();          // Prevent form from reloading the page
+		e.preventDefault();
 		setError('');
 		setMessage('');
 		setLoading(true);
 
 		try {
-			// GET /api/anime/search?q=naruto — same endpoint we tested with curl
 			const { data } = await axios.get(`/api/anime/search?q=${encodeURIComponent(query)}`);
-			setResults(data);          // Store the array of anime results
+			setResults(data);
 		} catch (err) {
 			setError('Search failed. Try again.');
 		} finally {
@@ -56,16 +55,20 @@ function Search() {
 	 * Sends POST /api/users/list with the anime's AniList ID.
 	 * This is a PROTECTED endpoint — requires the JWT token in the header.
 	 *
-	 * @param {number} anilistId — the anime's ID from AniList (e.g., 20 for Naruto)
+	 * @param {object} anime — the full anime object from search results
 	 */
-	const handleAddToList = async (anilistId) => {
+	const handleAddToList = async (anime) => {
 		setMessage('');
 		setError('');
 
 		try {
-			// POST with JWT — same as: curl -H "Authorization: Bearer $TOKEN"
 			await axios.post('/api/users/list',
-				{ anilistId, status: 'PLAN_TO_WATCH' },   // Default status when adding
+				{
+					anilistId: anime.id,
+					status: 'PLAN_TO_WATCH',
+					title: anime.title.english || anime.title.romaji,
+					coverImage: anime.coverImage?.large
+				},
 				{ headers: { Authorization: `Bearer ${token}` } }
 			);
 			setMessage('Added to your list!');
@@ -74,11 +77,10 @@ function Search() {
 		}
 	};
 
-    return (
+	return (
 		<div className="page">
 			<h1>Search Anime</h1>
 
-			{/* Search form — onSubmit triggers handleSearch */}
 			<form onSubmit={handleSearch}>
 				<input
 					type="text"
@@ -88,41 +90,40 @@ function Search() {
 					required
 				/>
 				<button type="submit" disabled={loading}>
-					{/* Show different text while searching */}
 					{loading ? 'Searching...' : 'Search'}
 				</button>
 			</form>
 
-			{/* Feedback messages */}
 			{error && <p className="error-message">{error}</p>}
 			{message && <p className="success-message">{message}</p>}
 
-			{/* Search results — .map() loops through each anime */}
+			{/* Loop through search results and render a card for each anime */}
 			<div className="search-results">
 				{results.map((anime) => (
 					<div key={anime.id} className="anime-card">
-						{/* Cover image from AniList */}
+
 						{anime.coverImage && (
-							<img src={anime.coverImage.large} alt={anime.title.romaji} />
+							<img
+								src={anime.coverImage.large}
+								alt={anime.title.romaji}
+							/>
 						)}
 
 						<div className="anime-info">
-							{/* Show English title if available, fall back to Romaji */}
+							{/* English title if available, otherwise Japanese romanized */}
 							<h3>{anime.title.english || anime.title.romaji}</h3>
-
+							<p>{anime.genres && anime.genres.join(', ')}</p>
 							<p>
-								{/* Join genres array with commas: ["Action", "Adventure"] → "Action, Adventure" */}
-								{anime.genres && anime.genres.join(', ')}
+								Episodes: {anime.episodes || '?'} | Score: {anime.averageScore || '?'}/100
 							</p>
-							<p>Episodes: {anime.episodes || '?'} | Score: {anime.averageScore || '?'}/100</p>
 
-							{/* Only show Add button if logged in */}
 							{isLoggedIn && (
-								<button onClick={() => handleAddToList(anime.id)}>
+								<button onClick={() => handleAddToList(anime)}>
 									Add to List
 								</button>
 							)}
 						</div>
+
 					</div>
 				))}
 			</div>

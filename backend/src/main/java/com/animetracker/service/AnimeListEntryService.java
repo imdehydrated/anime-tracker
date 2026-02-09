@@ -38,10 +38,9 @@ public class AnimeListEntryService {
 
     /**
      * Adds an anime to a user's list
-     * 
-     * Temporary placeholder for anilist api access
      */
-    public AnimeListEntry addAnimeToList(String username, Integer anilistId, String status) {
+    public AnimeListEntry addAnimeToList(String username, Integer anilistId,
+            String status, String title, String coverImage) {
         User user = userRepository.findByUsername(username)
         .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -51,6 +50,8 @@ public class AnimeListEntryService {
 
         AnimeListEntry entry = new AnimeListEntry(user, anilistId);
         entry.setStatus(status);
+        entry.setTitle(title);
+        entry.setCoverImage(coverImage);
         return animeListEntryRepository.save(entry);
     }
 

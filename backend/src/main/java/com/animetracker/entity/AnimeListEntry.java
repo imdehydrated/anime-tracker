@@ -27,6 +27,12 @@ public class AnimeListEntry {
     @Column(name = "anilist_id", nullable = false)
     private Integer anilistId;
 
+    @Column(name = "title")
+    private String title;
+
+    @Column(name = "cover_image", length = 500)
+    private String coverImage;
+
     @Column(name = "status", nullable = false, length = 20)
     private String status = "plan_to_watch";
 
@@ -63,6 +69,22 @@ public class AnimeListEntry {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getCoverImage() {
+        return coverImage;
+    }
+
+    public void setCoverImage(String coverImage) {
+        this.coverImage = coverImage;
     }
 
     public User getUser() {

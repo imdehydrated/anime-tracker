@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import MyList from './pages/MyList';
 import Search from './pages/Search';
+import AnimeDetail from './pages/AnimeDetail';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/mylist" element={<MyList />} />
           <Route path="/search" element={<Search />} />
+          <Route path="/anime/:id" element={<AnimeDetail />}></Route>
         </Routes>
       </BrowserRouter>
     </AuthProvider>

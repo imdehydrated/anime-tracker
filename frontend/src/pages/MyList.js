@@ -1,83 +1,133 @@
 /**
- * MyList Page — Displays the logged-in user's anime list.
+ * MyList Page — Displays and manages the user's anime list.
  *
- * Flow:
- * 1. Component mounts → useEffect fires
- * 2. Fetches GET /api/users/list with JWT token in Authorization header
- * 3. Displays entries in a table, or "list is empty" message
- *
- * The JWT token is sent as: Authorization: Bearer <token>
- * This is the same format we used with curl testing.
+ * Features:
+ * - Shows anime with title and cover image (stored in DB)
+ * - Click anime title to navigate to detail page
+ * - Edit status, score, and episodes watched
+ * - Delete entries from list
+ * - Refetches list after each update/delete for simplicity
  */
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 
 function MyList() {
-  // Get the JWT token from AuthContext — needed for authenticated API calls
-  const { token } = useAuth();
+	const { token } = useAuth();
 
-  // State for the list data, loading indicator, and error messages
-  const [entries, setEntries] = useState([]);     // Array of anime list entries
-  const [loading, setLoading] = useState(true);   // Show "Loading..." initially
-  const [error, setError] = useState('');
+	const [entries, setEntries] = useState([]);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState('');
 
-  // useEffect with [token] dependency — fetches list on mount and when token changes
-  useEffect(() => {
-    async function fetchList() {
-      try {
-        // GET request with JWT token — same as: curl -H "Authorization: Bearer $TOKEN"
-        const { data } = await axios.get('/api/users/list', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setEntries(data);  // Store the response array in state
-      } catch (err) {
-        setError('Failed to load anime list');
-      } finally {
-        setLoading(false);  // Runs after both success and error — stops "Loading..." text
-      }
-    }
+	// Auth header reused by all API calls on this page
+	const authHeader = { headers: { Authorization: `Bearer ${token}` } };
 
-    fetchList();
-  }, [token]);  // Re-fetch if token changes (e.g., logout then login as different user)
+	// Fetch the user's list — called on mount and after updates/deletes
+	const fetchList = async () => {
+		try {
+			const { data } = await axios.get('/api/users/list', authHeader);
+			setEntries(data);
+		} catch (err) {
+			setError('Failed to load anime list');
+		} finally {
+			setLoading(false);
+		}
+	};
 
-  // Early return — show loading state before data arrives
-  if (loading) return <div className="page"><p>Loading...</p></div>;
+	useEffect(() => {
+		fetchList();
+	}, [token]);
 
-  return (
-    <div className="page">
-      <h1>My Anime List</h1>
+	// Update an entry's status, score, or episodes
+	const handleUpdate = async (entryId, updates) => {
+		try {
+			await axios.put(`/api/users/list/${entryId}`, updates, authHeader);
+			fetchList(); // Refetch to show updated data
+		} catch (err) {
+			setError('Failed to update entry');
+		}
+	};
 
-      {error && <p className="error-message">{error}</p>}
+	// Delete an entry from the list
+	const handleDelete = async (entryId) => {
+		try {
+			await axios.delete(`/api/users/list/${entryId}`, authHeader);
+			fetchList(); // Refetch to remove deleted entry
+		} catch (err) {
+			setError('Failed to delete entry');
+		}
+	};
 
-      {/* Conditional rendering — empty list message OR table of entries */}
-      {entries.length === 0 ? (
-        <p>Your list is empty. Search for anime to add some!</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>AniList ID</th>
-              <th>Status</th>
-              <th>Score</th>
-              <th>Episodes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* .map() loops through entries — key={entry.id} helps React track changes */}
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td>{entry.anilistId}</td>
-                <td>{entry.status}</td>
-                <td>{entry.score || '-'}</td>
-                <td>{entry.episodesWatched || 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
+  	if (loading) return <div className="page"><p>Loading...</p></div>;
+
+	return (
+		<div className="page">
+			<h1>My Anime List</h1>
+
+			{error && <p className="error-message">{error}</p>}
+
+			{entries.length === 0 ? (
+				<p>Your list is empty. <Link to="/search">Search for anime</Link> to add some!</p>
+			) : (
+				<div className="anime-list">
+					{entries.map((entry) => (
+						<div key={entry.id} className="anime-card">
+
+							{entry.coverImage && (
+								<img src={entry.coverImage} alt={entry.title} />
+							)}
+
+							<div className="anime-info">
+								{/* Clickable title — navigates to detail page */}
+								<h3>
+									<Link to={`/anime/${entry.anilistId}`}>
+										{entry.title || `AniList #${entry.anilistId}`}
+									</Link>
+								</h3>
+
+								{/* Status dropdown */}
+								<label>Status: </label>
+								<select
+									value={entry.status}
+									onChange={(e) => handleUpdate(entry.id, { status: e.target.value })}
+								>
+									<option value="WATCHING">Watching</option>
+									<option value="COMPLETED">Completed</option>
+									<option value="PLAN_TO_WATCH">Plan to Watch</option>
+									<option value="DROPPED">Dropped</option>
+									<option value="ON_HOLD">On Hold</option>
+								</select>
+
+								{/* Score input */}
+								<label> Score: </label>
+								<input
+									type="number"
+									min="0"
+									max="10"
+									value={entry.score || ''}
+									placeholder="-"
+									onChange={(e) => handleUpdate(entry.id, { score: parseInt(e.target.value) || null })}
+								/>
+
+								{/* Episodes input */}
+								<label> Episodes: </label>
+								<input
+									type="number"
+									min="0"
+									value={entry.episodesWatched || 0}
+									onChange={(e) => handleUpdate(entry.id, { episodesWatched: parseInt(e.target.value) || 0 })}
+								/>
+
+								<button onClick={() => handleDelete(entry.id)}>Delete</button>
+							</div>
+
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	);
 }
 
 export default MyList;

@@ -1,13 +1,14 @@
 package com.animetracker.service;
 
-import com.animetracker.dto.AniListResponse;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import com.animetracker.dto.AniListResponse;
 
 @Service
 public class AniListService {
@@ -21,7 +22,7 @@ public class AniListService {
                 .build();
     }
 
-        // The GraphQL query we send to AniList — asks for exactly the fields we need
+    // The GraphQL query we send to AniList — asks for exactly the fields we need
     private static final String SEARCH_QUERY = """
             query ($search: String) {
               Page(page: 1, perPage: 10) {
@@ -44,7 +45,7 @@ public class AniListService {
             }
             """;
 
-        // Called by the controller — searches AniList for anime matching the query
+    // Called by the controller — searches AniList for anime matching the query
     public List<AniListResponse.AnimeInfo> searchAnime(String query) {
         // Build the GraphQL request body: { "query": "...", "variables": { "search": "Naruto" } }
         Map<String, Object> requestBody = Map.of(
@@ -57,7 +58,7 @@ public class AniListService {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .retrieve()
-                .bodyToMono(AniListResponse.class)  // Deserialize JSON → AniListResponse
+                .bodyToMono(AniListResponse.class) // Deserialize JSON → AniListResponse
                 .block();                             // Wait for the response (synchronous)
 
         // Safely extract the media list, returning empty list if anything is null
@@ -68,5 +69,53 @@ public class AniListService {
         }
 
         return response.getData().getPage().getMedia();
+    }
+
+    // GraphQL query to fetch a single anime by its AniList ID
+    private static final String GET_BY_ID_QUERY = """
+            query ($id: Int) {
+              Page(page: 1, perPage: 1) {
+                media(id: $id, type: ANIME) {
+                  id
+                  title {
+                    romaji
+                    english
+                  }
+                  episodes
+                  averageScore
+                  coverImage {
+                    large
+                  }
+                  genres
+                  description
+                  status
+                }
+              }
+            }
+            """;
+
+    // Fetches a single anime by AniList ID — used by the detail page
+    public AniListResponse.AnimeInfo getAnimeById(Integer id) {
+        Map<String, Object> requestBody = Map.of(
+                "query", GET_BY_ID_QUERY,
+                "variables", Map.of("id", id)
+        );
+
+        AniListResponse response = webClient.post()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(AniListResponse.class)
+                .block();
+
+        if (response == null || response.getData() == null
+                || response.getData().getPage() == null
+                || response.getData().getPage().getMedia() == null
+                || response.getData().getPage().getMedia().isEmpty()) {
+            return null;
+        }
+
+        // Only one result — get the first (and only) item
+        return response.getData().getPage().getMedia().get(0);
     }
 }
