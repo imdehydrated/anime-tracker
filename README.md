@@ -20,6 +20,8 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - [x] Score and episode progress tracking
 - [x] Anime search (AniList GraphQL integration)
 - [x] React frontend with routing, auth context, and protected pages
+- [x] Search UI with add-to-list functionality
+- [x] Anime detail page with AniList link
 - [ ] Recommendation engine
 
 ## API Endpoints
@@ -33,6 +35,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 | PUT | `/api/users/list/{id}` | Yes | Update an entry (status, score, episodes) |
 | DELETE | `/api/users/list/{id}` | Yes | Remove an entry |
 | GET | `/api/anime/search?q=` | No | Search anime by title (AniList) |
+| GET | `/api/anime/{id}` | No | Get anime details by AniList ID |
 | GET | `/api/health` | No | Health check |
 
 ## Quick Start
@@ -61,13 +64,13 @@ animetracker/
 │   └── src/
 │       ├── context/        # Auth context (JWT state)
 │       ├── components/     # Reusable components (NavBar)
-│       └── pages/          # Page components (Home, Login, Register, MyList)
+│       └── pages/          # Page components (Home, Login, Register, MyList, Search, AnimeDetail)
 └── docker-compose.yml      # Docker orchestration (PostgreSQL + backend)
 ```
 
 ## Development Status
 
-Milestones 1-8 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration, React frontend with routing and auth). Next up: anime search UI and list management.
+Milestones 1-9 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration, React frontend, search UI and anime detail page). Next up: polish and deployment.
 
 ## Author
 
