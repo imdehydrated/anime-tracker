@@ -19,7 +19,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - [x] Status tracking (Watching, Completed, Plan to Watch, Dropped, On Hold)
 - [x] Score and episode progress tracking
 - [x] Anime search (AniList GraphQL integration)
-- [ ] React frontend with routing and auth
+- [x] React frontend with routing, auth context, and protected pages
 - [ ] Recommendation engine
 
 ## API Endpoints
@@ -42,7 +42,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 docker-compose up --build
 
 # Backend API: http://localhost:8080
-# Frontend: http://localhost:3000 (coming soon)
+# Frontend: http://localhost:3000
 ```
 
 ## Project Structure
@@ -57,13 +57,17 @@ animetracker/
 │       ├── repository/     # Data access layer
 │       ├── dto/            # Data transfer objects
 │       └── service/        # Business logic
-├── frontend/               # React frontend (coming soon)
+├── frontend/               # React frontend
+│   └── src/
+│       ├── context/        # Auth context (JWT state)
+│       ├── components/     # Reusable components (NavBar)
+│       └── pages/          # Page components (Home, Login, Register, MyList)
 └── docker-compose.yml      # Docker orchestration (PostgreSQL + backend)
 ```
 
 ## Development Status
 
-Milestones 1-7 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration). Currently moving into frontend development.
+Milestones 1-8 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration, React frontend with routing and auth). Next up: anime search UI and list management.
 
 ## Author
 
