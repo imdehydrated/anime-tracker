@@ -20,6 +20,7 @@ function NavBar() {
     <nav>
       {/* Home link always visible */}
       <Link to="/">Home</Link>
+      <Link to="/search">Search</Link>
 
       {/* Conditional links based on auth state */}
       {isLoggedIn ? (
