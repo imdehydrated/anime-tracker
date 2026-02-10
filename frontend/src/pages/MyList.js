@@ -172,14 +172,19 @@ function MyList() {
 												type="number"
 												min="0"
 												max={entry.totalEpisodes || undefined}
-												value={entry.episodesWatched || 0}
-												onChange={(e) => {
+												defaultValue={entry.episodesWatched || 0}
+												onBlur={(e) => {
 													let val = parseInt(e.target.value) || 0;
 													if (entry.totalEpisodes && val > entry.totalEpisodes) val = entry.totalEpisodes;
-													handleUpdate(entry.id, { episodesWatched: val });
+													if (val !== (entry.episodesWatched || 0)) {
+														handleUpdate(entry.id, { episodesWatched: val });
+													}
+												}}
+												onKeyDown={(e) => {
+													if (e.key === 'Enter') e.target.blur();
 												}}
 											/>
-											<span className="progress-total">/ {entry.totalEpisodes || '?'}</span>
+											{entry.totalEpisodes && <span className="progress-total">/ {entry.totalEpisodes}</span>}
 										</div>
 									</td>
 									<td className="col-actions">

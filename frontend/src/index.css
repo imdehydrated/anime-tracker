@@ -795,6 +795,7 @@ a:hover {
 	align-items: center;
 	gap: 0.75rem;
 	margin-top: 1rem;
+	flex-wrap: wrap;
 }
 
 .detail-actions .add-btn {
@@ -811,6 +812,28 @@ a:hover {
 
 .detail-actions .add-btn:hover {
 	background-color: #d63851;
+}
+
+.detail-actions a {
+	padding: 0.5rem 1.25rem;
+	border: 1px solid #2a2a3e;
+	border-radius: 4px;
+	color: #ccc;
+	font-size: 0.9rem;
+	text-decoration: none;
+	transition: all 0.2s;
+}
+
+.detail-actions a:hover {
+	border-color: #e94560;
+	color: #fff;
+	text-decoration: none;
+}
+
+.detail-actions .login-prompt {
+	margin: 0;
+	font-size: 0.9rem;
+	color: #999;
 }
 
 .on-list-badge {
