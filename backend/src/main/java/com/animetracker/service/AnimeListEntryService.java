@@ -72,9 +72,9 @@ public class AnimeListEntryService {
             throw new RuntimeException("Incorrect user's list");
         }
 
-        // Update
+        // Update — score is always set (can be null to clear it)
         if (status != null) entry.setStatus(status);
-        if (score != null) entry.setScore(score);
+        entry.setScore(score);
         if (episodesWatched != null) entry.setEpisodesWatched(episodesWatched);
         entry.setUpdatedAt(java.time.LocalDateTime.now());
 
