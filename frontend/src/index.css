@@ -505,3 +505,119 @@ a:hover {
 	text-align: center;
 	margin-top: 0.5rem;
 }
+
+/* Refresh button */
+.refresh-btn {
+	padding: 0.5rem 1.25rem;
+	background-color: #1a1a2e;
+	color: #ccc;
+	border: 1px solid #2a2a3e;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.85rem;
+	margin-bottom: 1.5rem;
+	transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+	border-color: #e94560;
+	color: #fff;
+}
+
+/* Blacklist / Not Interested button */
+.blacklist-btn {
+	background-color: transparent !important;
+	border: 1px solid #555 !important;
+	color: #999 !important;
+	margin-top: 0.25rem !important;
+}
+
+.blacklist-btn:hover {
+	border-color: #f44336 !important;
+	color: #f44336 !important;
+	background-color: transparent !important;
+}
+
+/* ===== MODAL ===== */
+.modal-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.7);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	z-index: 1000;
+}
+
+.modal {
+	background: #1a1a2e;
+	border: 1px solid #2a2a3e;
+	border-radius: 12px;
+	padding: 1.5rem;
+	width: 90%;
+	max-width: 500px;
+	max-height: 70vh;
+	overflow-y: auto;
+}
+
+.modal h2 {
+	margin: 0;
+}
+
+.modal .delete-btn {
+	background: none;
+	border: 1px solid #f44336;
+	color: #f44336;
+	padding: 0.3rem 0.6rem;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.8rem;
+	transition: all 0.2s;
+}
+
+.modal .delete-btn:hover {
+	background-color: #f44336;
+	color: #fff;
+}
+
+/* Blacklist cards inside modal */
+.blacklist-cards {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.blacklist-card {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	background-color: #0f0f1a;
+	border: 1px solid #2a2a3e;
+	border-radius: 8px;
+	padding: 0.75rem;
+}
+
+.blacklist-card img {
+	width: 50px;
+	height: 70px;
+	object-fit: cover;
+	border-radius: 4px;
+	flex-shrink: 0;
+}
+
+.blacklist-card-info {
+	flex: 1;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.blacklist-card-info h3 {
+	margin: 0;
+	font-size: 0.95rem;
+	color: #eee;
+}

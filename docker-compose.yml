@@ -95,10 +95,12 @@ services:
     container_name: animetracker-frontend
     restart: unless-stopped
 
-    # Environment variable: Backend API URL
+    # Environment variables
     environment:
       # React uses REACT_APP_ prefix for env vars
       REACT_APP_API_URL: http://backend:8080
+      # Enable polling for file changes (needed on Windows with Docker volumes)
+      WATCHPACK_POLLING: "true"
 
     # Port mapping: access frontend at localhost:3000
     ports:
@@ -111,10 +113,9 @@ services:
     networks:
       - animetracker-network
 
-    # For development: enable hot reload by mounting source code
-    # (We'll skip this for now to keep things simple)
-    # volumes:
-    #   - ./frontend/src:/app/src
+    # Mount source code so React hot-reloads on file save (no rebuild needed)
+    volumes:
+      - ./frontend/src:/app/src
 
 # Volumes: Named volumes that persist data
 volumes:

@@ -7,6 +7,7 @@ import Register from './pages/Register';
 import MyList from './pages/MyList';
 import Search from './pages/Search';
 import AnimeDetail from './pages/AnimeDetail';
+import Recommendations from './pages/Recommendations';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <Route path="/mylist" element={<MyList />} />
           <Route path="/search" element={<Search />} />
           <Route path="/anime/:id" element={<AnimeDetail />}></Route>
+          <Route path="/recommendations" element={<Recommendations />}></Route>
         </Routes>
       </BrowserRouter>
     </AuthProvider>

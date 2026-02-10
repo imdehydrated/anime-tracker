@@ -55,6 +55,7 @@ public class AnimeListEntryController {
             item.put("id", entry.getId());
             item.put("anilistId", entry.getAnilistId());
             item.put("title", entry.getTitle());
+            item.put("genres", entry.getGenres());
             item.put("coverImage", entry.getCoverImage());
             item.put("status", entry.getStatus());
             item.put("score", entry.getScore());
@@ -82,7 +83,7 @@ public class AnimeListEntryController {
             String username = getCurrentUsername();
             AnimeListEntry entry = animeListEntryService.addAnimeToList(
                     username, request.anilistId(), request.status(),
-                    request.title(), request.coverImage());
+                    request.title(), request.coverImage(), request.genres());
 
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Anime added to list");
@@ -101,7 +102,8 @@ public class AnimeListEntryController {
     }
 
     // Request body for adding an anime
-    public record AddAnimeRequest(Integer anilistId, String status, String title, String coverImage) {}
+    public record AddAnimeRequest(Integer anilistId, String status, String title,
+        String coverImage, String genres) {}
 
     /**
      * PUT /api/users/list/{id} — Update an anime list entry

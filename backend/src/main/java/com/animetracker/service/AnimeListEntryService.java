@@ -40,7 +40,7 @@ public class AnimeListEntryService {
      * Adds an anime to a user's list
      */
     public AnimeListEntry addAnimeToList(String username, Integer anilistId,
-            String status, String title, String coverImage) {
+            String status, String title, String coverImage, String genres) {
         User user = userRepository.findByUsername(username)
         .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -52,6 +52,7 @@ public class AnimeListEntryService {
         entry.setStatus(status);
         entry.setTitle(title);
         entry.setCoverImage(coverImage);
+        entry.setGenres(genres);
         return animeListEntryRepository.save(entry);
     }
 

@@ -29,6 +29,7 @@ function NavBar() {
           <>
             {/* <> is a Fragment — groups elements without adding extra DOM nodes */}
             <Link to="/mylist">My List</Link>
+            <Link to="/recommendations">For You</Link>
             <button onClick={logout}>Logout</button>
           </>
         ) : (

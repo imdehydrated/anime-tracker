@@ -22,7 +22,9 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - [x] React frontend with routing, auth context, and protected pages
 - [x] Search UI with add-to-list functionality
 - [x] Anime detail page with AniList link
-- [ ] Recommendation engine
+- [x] Genre-based recommendation engine (score-weighted algorithm)
+- [x] Blacklist management (hide unwanted recommendations)
+- [x] Refresh recommendations on demand
 
 ## API Endpoints
 
@@ -36,6 +38,10 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 | DELETE | `/api/users/list/{id}` | Yes | Remove an entry |
 | GET | `/api/anime/search?q=` | No | Search anime by title (AniList) |
 | GET | `/api/anime/{id}` | No | Get anime details by AniList ID |
+| GET | `/api/users/recommendations` | Yes | Get personalized anime recommendations |
+| POST | `/api/users/recommendations/blacklist` | Yes | Hide anime from recommendations |
+| GET | `/api/users/recommendations/blacklist` | Yes | View blacklisted anime |
+| DELETE | `/api/users/recommendations/blacklist/{id}` | Yes | Remove from blacklist |
 | GET | `/api/health` | No | Health check |
 
 ## Quick Start
@@ -64,13 +70,13 @@ animetracker/
 │   └── src/
 │       ├── context/        # Auth context (JWT state)
 │       ├── components/     # Reusable components (NavBar)
-│       └── pages/          # Page components (Home, Login, Register, MyList, Search, AnimeDetail)
+│       └── pages/          # Page components (Home, Login, Register, MyList, Search, AnimeDetail, Recommendations)
 └── docker-compose.yml      # Docker orchestration (PostgreSQL + backend)
 ```
 
 ## Development Status
 
-Milestones 1-9 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration, React frontend, search UI and anime detail page). Next up: polish and deployment.
+Milestones 1-10 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration, React frontend, search UI, anime detail page, and genre-based recommendation engine with blacklist). Next up: polish and deployment.
 
 ## Author
 

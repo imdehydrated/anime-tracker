@@ -46,6 +46,7 @@ function MyList() {
 	 * @param {object} updates — fields to change (e.g., { status: 'WATCHING' })
 	 */
 	const handleUpdate = async (entryId, updates) => {
+		setError('');
 		try {
 			await axios.put(`/api/users/list/${entryId}`, updates, authHeader);
 			fetchList(); // Refresh list to show updated values
@@ -110,14 +111,16 @@ function MyList() {
 								<option value="DROPPED">Dropped</option>
 							</select>
 
-							{/* Score input — 0 to 100, saves on change */}
-							<input
-								type="number"
-								min="0"
-								max="100"
-								value={entry.score || 0}
-								onChange={(e) => handleUpdate(entry.id, { score: parseInt(e.target.value) })}
-							/>
+							{/* Score dropdown — 1 to 10, saves on change */}
+							<select
+								value={entry.score || ''}
+								onChange={(e) => handleUpdate(entry.id, { score: e.target.value === '' ? null : parseInt(e.target.value) })}
+							>
+								<option value="">—</option>
+								{[1,2,3,4,5,6,7,8,9,10].map(n => (
+									<option key={n} value={n}>{n}</option>
+								))}
+							</select>
 
 							{/* Episodes watched input — saves on change */}
 							<input

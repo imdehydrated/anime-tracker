@@ -33,6 +33,10 @@ public class AnimeListEntry {
     @Column(name = "cover_image", length = 500)
     private String coverImage;
 
+    // Comma-separated genre list (e.g., "Action,Adventure,Sci-Fi")
+    @Column(name = "genres", length = 500)
+    private String genres;
+
     @Column(name = "status", nullable = false, length = 20)
     private String status = "plan_to_watch";
 
@@ -85,6 +89,14 @@ public class AnimeListEntry {
 
     public void setCoverImage(String coverImage) {
         this.coverImage = coverImage;
+    }
+
+    public String getGenres() {
+        return genres;
+    }
+
+    public void setGenres(String genres) {
+        this.genres = genres;
     }
 
     public User getUser() {

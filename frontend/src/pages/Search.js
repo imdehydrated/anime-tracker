@@ -53,7 +53,8 @@ function Search() {
 					anilistId: anime.id,
 					status: 'PLAN_TO_WATCH',
 					title: anime.title.english || anime.title.romaji,
-					coverImage: anime.coverImage?.large
+					coverImage: anime.coverImage?.large,
+					genres: anime.genres?.join(',')
 				},
 				{ headers: { Authorization: `Bearer ${token}` } }
 			);
