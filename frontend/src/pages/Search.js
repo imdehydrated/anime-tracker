@@ -102,12 +102,17 @@ function Search() {
 								Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100
 							</p>
 
-							{/* Only show "Add to List" if user is logged in */}
-							{isLoggedIn && (
+							{/* Show "Add to List" if logged in, otherwise prompt to login */}
+							{isLoggedIn ? (
 								<button onClick={() => handleAddToList(anime)}>
 									Add to List
 								</button>
+							) : (
+								<p className="login-prompt">
+									<a href="/login">Login</a> or <a href="/register">register</a> to add to your list
+								</p>
 							)}
+
 						</div>
 					</div>
 				))}

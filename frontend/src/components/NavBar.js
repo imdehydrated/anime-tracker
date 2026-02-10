@@ -22,7 +22,7 @@ function NavBar() {
       <Link to="/" className="navbar-brand">AniRec</Link>
 
       <div className='navbar-links'>
-        <Link to="/">Search</Link>
+        <Link to="/search">Search</Link>
 
         {/* Conditional links based on auth state */}
         {isLoggedIn ? (

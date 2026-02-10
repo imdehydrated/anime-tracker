@@ -15,7 +15,7 @@ function Home() {
 		<div className="page">
 			<div className="home">
 				<h1>AniRec</h1>
-				<p>Track your anime, discover new favorites, and never lose your place.</p>
+				<p>Track your anime and explore new shows.</p>
 
 				{/* Action buttons — styled as solid + outline pair */}
 				<div className="home-links">
