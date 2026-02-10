@@ -37,8 +37,12 @@ function MyList() {
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	useEffect(() => { fetchList(); }, []);
 
-	const handleUpdate = async (entryId, updates) => {
+	const handleUpdate = async (entryId, updates, entry) => {
 		setError('');
+		// Auto-fill progress when marking as completed
+		if (updates.status === 'COMPLETED' && entry?.totalEpisodes) {
+			updates.episodesWatched = entry.totalEpisodes;
+		}
 		try {
 			await axios.put(`/api/users/list/${entryId}`, updates, authHeader);
 			fetchList();
@@ -157,7 +161,7 @@ function MyList() {
 									<td className="col-status">
 										<select
 											value={entry.status}
-											onChange={(e) => handleUpdate(entry.id, { status: e.target.value })}
+											onChange={(e) => handleUpdate(entry.id, { status: e.target.value }, entry)}
 										>
 											<option value="WATCHING">Watching</option>
 											<option value="COMPLETED">Completed</option>
@@ -175,7 +179,9 @@ function MyList() {
 												defaultValue={entry.episodesWatched || 0}
 												onBlur={(e) => {
 													let val = parseInt(e.target.value) || 0;
+													if (val < 0) val = 0;
 													if (entry.totalEpisodes && val > entry.totalEpisodes) val = entry.totalEpisodes;
+													e.target.value = val;
 													if (val !== (entry.episodesWatched || 0)) {
 														handleUpdate(entry.id, { episodesWatched: val });
 													}
@@ -184,7 +190,7 @@ function MyList() {
 													if (e.key === 'Enter') e.target.blur();
 												}}
 											/>
-											{entry.totalEpisodes && <span className="progress-total">/ {entry.totalEpisodes}</span>}
+											{entry.totalEpisodes != null && <span className="progress-total">/ {entry.totalEpisodes}</span>}
 										</div>
 									</td>
 									<td className="col-actions">

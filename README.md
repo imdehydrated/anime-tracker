@@ -1,30 +1,54 @@
-# Anime Tracker
+# AniRec
 
-Full-stack anime list and recommendation application built with Spring Boot, React, and PostgreSQL.
+Full-stack anime list and recommendation application built with Spring Boot, React, and PostgreSQL. Track your anime, rate what you've watched, and get personalized recommendations based on your taste.
 
 ## Tech Stack
 
-- **Backend**: Spring Boot 3.2 (Java 17)
-- **Frontend**: React 18
+- **Backend**: Spring Boot 3.5 (Java 17)
+- **Frontend**: React 18 with React Router v6
 - **Database**: PostgreSQL 15
 - **Migrations**: Flyway
 - **Containerization**: Docker & Docker Compose
-- **API**: AniList GraphQL
+- **External API**: AniList GraphQL
 
 ## Features
 
-- [x] User registration with BCrypt password hashing
-- [x] JWT authentication with protected routes
-- [x] Personal anime list CRUD (Add, View, Update, Delete)
-- [x] Status tracking (Watching, Completed, Plan to Watch, Dropped, On Hold)
-- [x] Score and episode progress tracking
-- [x] Anime search (AniList GraphQL integration)
-- [x] React frontend with routing, auth context, and protected pages
-- [x] Search UI with add-to-list functionality
-- [x] Anime detail page with AniList link
-- [x] Genre-based recommendation engine (score-weighted algorithm)
-- [x] Blacklist management (hide unwanted recommendations)
-- [x] Refresh recommendations on demand
+### Anime List Management
+- MAL-style table layout with sortable, filterable columns
+- Status tracking (Watching, Completed, Plan to Watch, On Hold, Dropped)
+- Score rating (1-10) and episode progress tracking with auto-capping
+- Auto-fill progress when marking as completed
+- Inline editing — changes save immediately
+
+### Search & Discovery
+- Live search with debounced autocomplete (fires after 3+ characters)
+- Anime detail pages with synopsis, genres, episodes, and AniList links
+- Add to list directly from search results, detail pages, or recommendations
+
+### Recommendation Engine
+- Genre-weighted scoring algorithm based on your list and ratings
+- Parallel AniList API queries for fast results
+- Blacklist management to hide unwanted recommendations
+- Refresh on demand
+
+### User System
+- Registration with BCrypt password hashing
+- JWT authentication with protected routes
+- Per-user scoped data — users can only access their own list
+
+## Recommendation Algorithm
+
+AniRec uses a genre-weighted scoring algorithm to suggest anime:
+
+1. **Genre weighting** — Each anime on your list contributes its genres to a weight map. The weight is your score (1-10) for that anime, or a default of 5 if unscored. Higher-rated anime have more influence on your genre profile.
+
+2. **Top genre selection** — Genres are ranked by total accumulated weight. The top 5 represent your strongest preferences.
+
+3. **Candidate sourcing** — 5 parallel queries to the AniList API fetch 25 popular anime per top genre, sorted by popularity. This runs concurrently for speed.
+
+4. **Filtering** — Candidates already on your list or blacklist are excluded. Duplicates across genre queries are deduplicated.
+
+5. **Results** — Up to 10 unique recommendations are returned.
 
 ## API Endpoints
 
@@ -36,9 +60,9 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 | POST | `/api/users/list` | Yes | Add anime to your list |
 | PUT | `/api/users/list/{id}` | Yes | Update an entry (status, score, episodes) |
 | DELETE | `/api/users/list/{id}` | Yes | Remove an entry |
-| GET | `/api/anime/search?q=` | No | Search anime by title (AniList) |
+| GET | `/api/anime/search?q=` | No | Search anime by title |
 | GET | `/api/anime/{id}` | No | Get anime details by AniList ID |
-| GET | `/api/users/recommendations` | Yes | Get personalized anime recommendations |
+| GET | `/api/users/recommendations` | Yes | Get personalized recommendations |
 | POST | `/api/users/recommendations/blacklist` | Yes | Hide anime from recommendations |
 | GET | `/api/users/recommendations/blacklist` | Yes | View blacklisted anime |
 | DELETE | `/api/users/recommendations/blacklist/{id}` | Yes | Remove from blacklist |
@@ -47,37 +71,34 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 ## Quick Start
 
 ```bash
-# Start all services
+# Start all services (database, backend, frontend)
 docker-compose up --build
 
-# Backend API: http://localhost:8080
 # Frontend: http://localhost:3000
+# Backend API: http://localhost:8080
 ```
 
 ## Project Structure
 
 ```
 animetracker/
-├── backend/                # Spring Boot backend
+├── backend/                    # Spring Boot backend
 │   └── src/main/java/com/animetracker/
-│       ├── config/         # Security, JWT, filters
-│       ├── controller/     # REST controllers
-│       ├── model/          # JPA entities
-│       ├── repository/     # Data access layer
-│       ├── dto/            # Data transfer objects
-│       └── service/        # Business logic
-├── frontend/               # React frontend
+│       ├── config/             # Security, JWT, CORS, filters
+│       ├── controller/         # REST controllers
+│       ├── entity/             # JPA entities
+│       ├── repository/         # Data access layer
+│       ├── dto/                # AniList API response DTOs
+│       └── service/            # Business logic (list, recommendations, AniList)
+├── frontend/                   # React frontend
 │   └── src/
-│       ├── context/        # Auth context (JWT state)
-│       ├── components/     # Reusable components (NavBar)
-│       └── pages/          # Page components (Home, Login, Register, MyList, Search, AnimeDetail, Recommendations)
-└── docker-compose.yml      # Docker orchestration (PostgreSQL + backend)
+│       ├── context/            # Auth context (JWT state)
+│       ├── hooks/              # Shared hooks (useAuthHeader, useAddToList)
+│       ├── components/         # Reusable components (NavBar)
+│       └── pages/              # Page components
+└── docker-compose.yml          # Docker orchestration (DB + backend + frontend)
 ```
-
-## Development Status
-
-Milestones 1-10 complete (project setup, database schema, user auth, JWT login, protected routes, anime list CRUD, AniList API integration, React frontend, search UI, anime detail page, and genre-based recommendation engine with blacklist). Next up: polish and deployment.
 
 ## Author
 
-Built as a portfolio project to learn new technologies and develop full-stack skills.
+Built as a portfolio project to learn full-stack development, API integration, and recommendation systems.

@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -59,7 +60,7 @@ public class RecommendationService {
             }
 
             double weight = (entry.getScore() != null && entry.getScore() > 0)
-                    ? entry.getScore() : 50.0;
+                    ? entry.getScore() : 5.0;
 
             String[] genres = entry.getGenres().split(",");
             for (String genre : genres) {
@@ -95,17 +96,20 @@ public class RecommendationService {
 
         log.info("Excluding {} IDs (list + blacklist)", excludeIds.size());
 
-        // Query each top genre individually to get a broad candidate pool.
+        // Query each top genre in parallel to speed up recommendations.
         // genre_in with multiple genres is too restrictive (requires ALL to match).
+        Map<String, CompletableFuture<List<AniListResponse.AnimeInfo>>> futures = new HashMap<>();
+        for (String genre : topGenres) {
+            futures.put(genre, CompletableFuture.supplyAsync(
+                    () -> aniListService.searchByGenres(List.of(genre), 1, 25)));
+        }
+
+        // Wait for all to complete, then merge results
         Set<Integer> seenIds = new java.util.HashSet<>();
         List<AniListResponse.AnimeInfo> results = new ArrayList<>();
 
         for (String genre : topGenres) {
-            if (results.size() >= 15) break;
-
-            List<AniListResponse.AnimeInfo> candidates
-                    = aniListService.searchByGenres(List.of(genre), 1, 25);
-
+            List<AniListResponse.AnimeInfo> candidates = futures.get(genre).join();
             log.info("Genre '{}': got {} candidates from AniList", genre, candidates.size());
 
             for (AniListResponse.AnimeInfo anime : candidates) {
