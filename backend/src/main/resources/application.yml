@@ -96,3 +96,7 @@ logging:
 # JWT Configuration
 jwt:
   secret: ${JWT_SECRET}
+
+# OpenAI Configuration (for semantic recommendation engine)
+openai:
+  api-key: ${OPENAI_API_KEY:}

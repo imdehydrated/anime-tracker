@@ -7,7 +7,7 @@ services:
   # Service 1: PostgreSQL Database
   db:
     # Use official PostgreSQL 15 image from Docker Hub
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
 
     # Container name (easier to reference than auto-generated names)
     container_name: animetracker-db
@@ -62,6 +62,8 @@ services:
     environment:
       # Server port
       SERVER_PORT: 8080
+      # OpenAI API key for semantic recommendations
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # JDBC URL: How to connect to the database
       # "db" is the service name above - Docker's DNS resolves it

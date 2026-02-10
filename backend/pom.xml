@@ -120,6 +120,14 @@
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
+        <!-- pgvector: Java support for PostgreSQL vector type -->
+        <!-- Used for semantic recommendation engine (cosine similarity search) -->
+        <dependency>
+            <groupId>com.pgvector</groupId>
+            <artifactId>pgvector</artifactId>
+            <version>0.1.6</version>
+        </dependency>
+
     </dependencies>
 
     <!-- Build configuration: How to compile and package the application -->
