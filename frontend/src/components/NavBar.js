@@ -1,41 +1,36 @@
 /**
  * NavBar — Navigation bar shown on every page.
  *
- * Shows different links based on login state:
- * - Logged out: Home, Login, Register
- * - Logged in: Home, My List, Logout button
- *
- * Uses <Link> from React Router instead of <a> tags
- * so navigation happens without a full page reload (SPA behavior).
+ * Shows different links based on login state.
+ * Highlights the currently active nav link.
  */
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function NavBar() {
-  // Get auth state — isLoggedIn controls which links to show,
-  // logout is called when the Logout button is clicked
   const { isLoggedIn, logout } = useAuth();
+  const location = useLocation();
+
+  // Helper to add "active" class to current page link
+  const linkClass = (path) => location.pathname === path ? 'active' : '';
 
   return (
     <nav className='navbar'>
-      {/* Home link always visible */}
       <Link to="/" className="navbar-brand">AniRec</Link>
 
       <div className='navbar-links'>
-        <Link to="/search">Search</Link>
+        <Link to="/search" className={linkClass('/search')}>Search</Link>
 
-        {/* Conditional links based on auth state */}
         {isLoggedIn ? (
           <>
-            {/* <> is a Fragment — groups elements without adding extra DOM nodes */}
-            <Link to="/mylist">My List</Link>
-            <Link to="/recommendations">For You</Link>
+            <Link to="/mylist" className={linkClass('/mylist')}>My List</Link>
+            <Link to="/recommendations" className={linkClass('/recommendations')}>For You</Link>
             <button onClick={logout}>Logout</button>
           </>
         ) : (
           <>
-            <Link to="/login">Login</Link>
-            <Link to="/register">Register</Link>
+            <Link to="/login" className={linkClass('/login')}>Login</Link>
+            <Link to="/register" className={linkClass('/register')}>Register</Link>
           </>
         )}
       </div>

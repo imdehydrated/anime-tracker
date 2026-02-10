@@ -285,91 +285,179 @@ a:hover {
 }
 
 /* ===== COMPACT LIST (My List) ===== */
-.list-table {
-	width: 100%;
-	border-collapse: collapse;
-}
-
-.list-row {
+/* ===== LIST PAGE HEADER ===== */
+.list-page-header {
 	display: flex;
 	align-items: center;
-	gap: 1rem;
-	padding: 0.75rem 1rem;
+	justify-content: space-between;
+	margin-bottom: 0.5rem;
+}
+
+.list-page-header h1 {
+	margin-bottom: 0;
+}
+
+.add-to-list-nav {
+	padding: 0.5rem 1.25rem;
+	background-color: #e94560;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 0.9rem;
+	transition: background-color 0.2s;
+}
+
+.add-to-list-nav:hover {
+	background-color: #d63851;
+}
+
+/* ===== MAL-STYLE TABLE ===== */
+.mal-table {
+	width: 100%;
+	border-collapse: collapse;
+	border-radius: 8px;
+	overflow: hidden;
+}
+
+.mal-table thead tr {
+	background-color: #16213e;
+	border-bottom: 2px solid #2a2a3e;
+}
+
+.mal-table th {
+	padding: 0.6rem 0.75rem;
+	color: #999;
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	text-align: left;
+	white-space: nowrap;
+}
+
+.mal-table tbody tr {
 	background-color: #1a1a2e;
 	border-bottom: 1px solid #2a2a3e;
 	transition: background-color 0.2s;
 }
 
-.list-row:first-child {
-	border-radius: 8px 8px 0 0;
-}
-
-.list-row:last-child {
-	border-radius: 0 0 8px 8px;
+.mal-table tbody tr:last-child {
 	border-bottom: none;
 }
 
-.list-row:hover {
+.mal-table tbody tr:hover {
 	background-color: #16213e;
 }
 
-.list-row img {
-	width: 50px;
-	height: 70px;
+.mal-table td {
+	padding: 0.5rem 0.75rem;
+	vertical-align: middle;
+}
+
+/* Column widths */
+.col-num {
+	width: 40px;
+	text-align: center;
+	color: #666;
+	font-size: 0.85rem;
+}
+
+.col-image {
+	width: 60px;
+}
+
+.col-image img {
+	width: 48px;
+	height: 64px;
 	object-fit: cover;
 	border-radius: 4px;
-	flex-shrink: 0;
+	display: block;
 }
 
-.list-row .list-title {
-	flex: 1;
-	min-width: 0;
+.col-title {
+	min-width: 200px;
 }
 
-.list-row .list-title a {
+.col-title a {
 	color: #fff;
 	font-weight: 500;
 	text-decoration: none;
 	font-size: 0.95rem;
 }
 
-.list-row .list-title a:hover {
+.col-title a:hover {
 	color: #e94560;
 	text-decoration: none;
 }
 
-.list-row select,
-.list-row input[type="number"] {
+.col-score {
+	width: 80px;
+	text-align: center;
+}
+
+.col-status {
+	width: 140px;
+}
+
+.col-progress {
+	width: 110px;
+	text-align: center;
+}
+
+.progress-input {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.progress-total {
+	color: #666;
+	font-size: 0.8rem;
+	white-space: nowrap;
+}
+
+.col-actions {
+	width: 70px;
+	text-align: center;
+}
+
+/* Table form controls */
+.mal-table select,
+.mal-table input[type="number"] {
 	background-color: #0f0f1a;
 	border: 1px solid #2a2a3e;
 	color: #eee;
-	padding: 0.35rem 0.5rem;
+	padding: 0.3rem 0.4rem;
 	border-radius: 4px;
-	font-size: 0.85rem;
+	font-size: 0.8rem;
+	width: 100%;
 }
 
-.list-row select:focus,
-.list-row input[type="number"]:focus {
+.mal-table select:focus,
+.mal-table input[type="number"]:focus {
 	outline: none;
 	border-color: #e94560;
 }
 
-.list-row input[type="number"] {
-	width: 65px;
+.mal-table input[type="number"] {
+	width: 60px;
 }
 
-.list-row .delete-btn {
+.mal-table .delete-btn {
 	background: none;
 	border: 1px solid #f44336;
 	color: #f44336;
-	padding: 0.3rem 0.6rem;
+	padding: 0.25rem 0.5rem;
 	border-radius: 4px;
 	cursor: pointer;
-	font-size: 0.8rem;
+	font-size: 0.75rem;
 	transition: all 0.2s;
+	white-space: nowrap;
 }
 
-.list-row .delete-btn:hover {
+.mal-table .delete-btn:hover {
 	background-color: #f44336;
 	color: #fff;
 }
@@ -567,6 +655,22 @@ a:hover {
 	margin: 0;
 }
 
+.blacklist-search {
+	width: 100%;
+	padding: 0.5rem 0.75rem;
+	background-color: #0f0f1a;
+	border: 1px solid #2a2a3e;
+	border-radius: 4px;
+	color: #eee;
+	font-size: 0.85rem;
+	margin-bottom: 1rem;
+}
+
+.blacklist-search:focus {
+	outline: none;
+	border-color: #e94560;
+}
+
 .modal .delete-btn {
 	background: none;
 	border: 1px solid #f44336;
@@ -620,4 +724,125 @@ a:hover {
 	margin: 0;
 	font-size: 0.95rem;
 	color: #eee;
+}
+
+/* ===== ACTIVE NAV LINK ===== */
+.navbar-links a.active {
+	color: #e94560;
+	font-weight: 600;
+}
+
+/* ===== LIST FILTERS ===== */
+.list-filters {
+	display: flex;
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+	flex-wrap: wrap;
+}
+
+.list-filters input {
+	flex: 1;
+	min-width: 150px;
+	padding: 0.5rem 0.75rem;
+	background-color: #1a1a2e;
+	border: 1px solid #2a2a3e;
+	border-radius: 4px;
+	color: #eee;
+	font-size: 0.85rem;
+}
+
+.list-filters input:focus {
+	outline: none;
+	border-color: #e94560;
+}
+
+.list-filters select {
+	padding: 0.5rem 0.75rem;
+	background-color: #1a1a2e;
+	border: 1px solid #2a2a3e;
+	border-radius: 4px;
+	color: #eee;
+	font-size: 0.85rem;
+}
+
+.list-filters select:focus {
+	outline: none;
+	border-color: #e94560;
+}
+
+
+/* ===== BACK BUTTON ===== */
+.back-btn {
+	background: none;
+	border: 1px solid #2a2a3e;
+	color: #ccc;
+	padding: 0.4rem 1rem;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 0.85rem;
+	margin-bottom: 1rem;
+	transition: all 0.2s;
+}
+
+.back-btn:hover {
+	border-color: #e94560;
+	color: #fff;
+}
+
+/* ===== DETAIL PAGE ACTIONS ===== */
+.detail-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin-top: 1rem;
+}
+
+.detail-actions .add-btn {
+	padding: 0.5rem 1.25rem;
+	background-color: #e94560;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 0.9rem;
+	transition: background-color 0.2s;
+}
+
+.detail-actions .add-btn:hover {
+	background-color: #d63851;
+}
+
+.on-list-badge {
+	display: inline-block;
+	padding: 0.5rem 1.25rem;
+	background-color: rgba(76, 175, 80, 0.15);
+	color: #4caf50;
+	border: 1px solid #4caf50;
+	border-radius: 4px;
+	font-size: 0.85rem;
+	font-weight: 600;
+	text-align: center;
+	width: 100%;
+	margin-top: 0.5rem;
+}
+
+.detail-actions .on-list-badge {
+	width: auto;
+	margin-top: 0;
+}
+
+/* ===== ANIME DESCRIPTION ===== */
+.anime-description {
+	margin-top: 1rem;
+	color: #ccc;
+	line-height: 1.7;
+	max-height: 300px;
+	overflow-y: auto;
+	padding-right: 0.5rem;
+}
+
+.anime-description br {
+	display: block;
+	margin: 0.5rem 0;
 }

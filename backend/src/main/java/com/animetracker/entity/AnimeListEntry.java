@@ -46,6 +46,9 @@ public class AnimeListEntry {
     @Column(name = "episodes_watched", nullable = false)
     private Integer episodesWatched = 0;
 
+    @Column(name = "total_episodes")
+    private Integer totalEpisodes;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -137,6 +140,14 @@ public class AnimeListEntry {
 
     public void setEpisodesWatched(Integer episodesWatched) {
         this.episodesWatched = episodesWatched;
+    }
+
+    public Integer getTotalEpisodes() {
+        return totalEpisodes;
+    }
+
+    public void setTotalEpisodes(Integer totalEpisodes) {
+        this.totalEpisodes = totalEpisodes;
     }
 
     public LocalDateTime getCreatedAt() {

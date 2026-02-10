@@ -60,6 +60,7 @@ public class AnimeListEntryController {
             item.put("status", entry.getStatus());
             item.put("score", entry.getScore());
             item.put("episodesWatched", entry.getEpisodesWatched());
+            item.put("totalEpisodes", entry.getTotalEpisodes());
             item.put("createdAt", entry.getCreatedAt());
             item.put("updatedAt", entry.getUpdatedAt());
             return item;
@@ -83,7 +84,8 @@ public class AnimeListEntryController {
             String username = getCurrentUsername();
             AnimeListEntry entry = animeListEntryService.addAnimeToList(
                     username, request.anilistId(), request.status(),
-                    request.title(), request.coverImage(), request.genres());
+                    request.title(), request.coverImage(), request.genres(),
+                    request.totalEpisodes());
 
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Anime added to list");
@@ -103,18 +105,19 @@ public class AnimeListEntryController {
 
     // Request body for adding an anime
     public record AddAnimeRequest(Integer anilistId, String status, String title,
-        String coverImage, String genres) {}
+        String coverImage, String genres, Integer totalEpisodes) {}
 
     /**
-     * PUT /api/users/list/{id} — Update an anime list entry
+     * PUT /api/users/list/{id} — Update an anime list entry.
+     * Uses Map instead of a record so we can distinguish between
+     * "field not sent" (absent) and "field explicitly set to null" (present).
      */
     @PutMapping("/{id}")
     public ResponseEntity<?> updateEntry(@PathVariable Long id,
-                                          @RequestBody UpdateEntryRequest request) {
+                                          @RequestBody Map<String, Object> request) {
         try {
             String username = getCurrentUsername();
-            AnimeListEntry entry = animeListEntryService.updateEntry(
-                    username, id, request.status(), request.score(), request.episodesWatched());
+            AnimeListEntry entry = animeListEntryService.updateEntry(username, id, request);
 
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Entry updated");
@@ -130,9 +133,6 @@ public class AnimeListEntryController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
         }
     }
-
-    // Request body for updating an entry
-    public record UpdateEntryRequest(String status, Integer score, Integer episodesWatched) {}
 
     /**
      * DELETE /api/users/list/{id} — Remove an anime from user's list

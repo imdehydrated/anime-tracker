@@ -1,5 +1,6 @@
 package com.animetracker.service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,9 +21,9 @@ import com.animetracker.repository.UserRepository;
  *
  * Algorithm: 1. Get all entries from the user's list 2. Parse genres from each
  * entry (stored as comma-separated string) 3. Weight each genre by the entry's
- * score (default 50 if unscored) 4. Pick the top 3 genres by weighted total 5.
- * Query AniList for top-rated anime in those genres 6. Filter out anime already
- * on the user's list
+ * score (default 50 if unscored) 4. Pick the top 5 genres by weighted total 5.
+ * Query AniList for top-rated anime in those genres (multiple pages if needed)
+ * 6. Filter out anime already on the user's list or blacklist
  */
 @Service
 public class RecommendationService {
@@ -47,7 +48,7 @@ public class RecommendationService {
         List<AnimeListEntry> userList = animeListEntryService.getUserList(username);
 
         if (userList.isEmpty()) {
-            return List.of(); // No list = no recommendations
+            return List.of();
         }
 
         // Step 2-3: Tally genre weights (genre → total weighted score)
@@ -55,14 +56,12 @@ public class RecommendationService {
 
         for (AnimeListEntry entry : userList) {
             if (entry.getGenres() == null || entry.getGenres().isBlank()) {
-                continue; // Skip entries without genres
+                continue;
             }
 
-            // Score defaults to 50 if user hasn't rated it
             double weight = (entry.getScore() != null && entry.getScore() > 0)
                     ? entry.getScore() : 50.0;
 
-            // Split "Action,Adventure,Sci-Fi" → ["Action", "Adventure", "Sci-Fi"]
             String[] genres = entry.getGenres().split(",");
             for (String genre : genres) {
                 String trimmed = genre.trim();
@@ -71,7 +70,7 @@ public class RecommendationService {
         }
 
         if (genreWeights.isEmpty()) {
-            return List.of(); // No genres found
+            return List.of();
         }
 
         // Step 4: Pick top genres by weighted score
@@ -81,29 +80,37 @@ public class RecommendationService {
                 .map(Map.Entry::getKey)
                 .toList();
 
-        // Collect AniList IDs already on user's list (to exclude from results)
-        Set<Integer> userAnilistIds = userList.stream()
+        // Collect AniList IDs to exclude (user's list + blacklist)
+        Set<Integer> excludeIds = userList.stream()
                 .map(AnimeListEntry::getAnilistId)
                 .collect(Collectors.toSet());
 
-        // Also exclude blacklisted anime
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         blacklistRepository.findByUser(user).forEach(
-                bl -> userAnilistIds.add(bl.getAnilistId()));
+                bl -> excludeIds.add(bl.getAnilistId()));
 
-        // Step 5: Query AniList for top-rated anime in those genres
-        List<AniListResponse.AnimeInfo> candidates
-                = aniListService.searchByGenres(topGenres, 1, 25);
+        // Step 5-6: Fetch pages from AniList until we have 10 recommendations
+        // or run out of pages (max 4 pages to avoid excessive API calls)
+        List<AniListResponse.AnimeInfo> results = new ArrayList<>();
+        int maxPages = 4;
 
-        // Step 6: Filter out anime already on the user's list
-        return candidates.stream()
-                .filter(anime -> !userAnilistIds.contains(anime.getId()))
-                .limit(10)
-                .toList();
+        for (int page = 1; page <= maxPages && results.size() < 10; page++) {
+            List<AniListResponse.AnimeInfo> candidates
+                    = aniListService.searchByGenres(topGenres, page, 25);
+
+            if (candidates.isEmpty()) {
+                break; // No more results from AniList
+            }
+
+            candidates.stream()
+                    .filter(anime -> !excludeIds.contains(anime.getId()))
+                    .forEach(results::add);
+        }
+
+        return results.stream().limit(10).toList();
     }
 
-    // Adds an anime to the user's blacklist so it won't appear in recommendations
     public void blacklistAnime(String username, Integer anilistId, String title, String coverImage) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -113,7 +120,6 @@ public class RecommendationService {
         }
     }
 
-    // Returns all blacklisted AniList IDs for this user
     public List<Map<String, Object>> getBlacklist(String username) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -129,7 +135,6 @@ public class RecommendationService {
         }).toList();
     }
 
-    // Removes an anime from the user's blacklist
     public void removeFromBlacklist(String username, Long id) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));

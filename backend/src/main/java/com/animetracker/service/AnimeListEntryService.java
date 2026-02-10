@@ -40,7 +40,8 @@ public class AnimeListEntryService {
      * Adds an anime to a user's list
      */
     public AnimeListEntry addAnimeToList(String username, Integer anilistId,
-            String status, String title, String coverImage, String genres) {
+            String status, String title, String coverImage, String genres,
+            Integer totalEpisodes) {
         User user = userRepository.findByUsername(username)
         .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -53,29 +54,38 @@ public class AnimeListEntryService {
         entry.setTitle(title);
         entry.setCoverImage(coverImage);
         entry.setGenres(genres);
+        entry.setTotalEpisodes(totalEpisodes);
         return animeListEntryRepository.save(entry);
     }
 
     /**
-     * Updates an existing anime in the list
+     * Updates an existing anime in the list.
+     * Only updates fields that are explicitly present in the request map,
+     * so sending { status: "WATCHING" } won't wipe score or episodesWatched.
      */
     public AnimeListEntry updateEntry(String username, Long entryId,
-        String status, Integer score, Integer episodesWatched) {
+        java.util.Map<String, Object> updates) {
         User user = userRepository.findByUsername(username)
         .orElseThrow(() -> new RuntimeException("User not found"));
 
         AnimeListEntry entry = animeListEntryRepository.findById(entryId)
         .orElseThrow(() -> new RuntimeException("Entry not found"));
 
-        // Check entry
         if (!entry.getUser().getId().equals(user.getId())) {
             throw new RuntimeException("Incorrect user's list");
         }
 
-        // Update — score is always set (can be null to clear it)
-        if (status != null) entry.setStatus(status);
-        entry.setScore(score);
-        if (episodesWatched != null) entry.setEpisodesWatched(episodesWatched);
+        if (updates.containsKey("status")) {
+            entry.setStatus((String) updates.get("status"));
+        }
+        if (updates.containsKey("score")) {
+            Object scoreVal = updates.get("score");
+            entry.setScore(scoreVal == null ? null : ((Number) scoreVal).intValue());
+        }
+        if (updates.containsKey("episodesWatched")) {
+            Object epVal = updates.get("episodesWatched");
+            entry.setEpisodesWatched(epVal == null ? 0 : ((Number) epVal).intValue());
+        }
         entry.setUpdatedAt(java.time.LocalDateTime.now());
 
         return animeListEntryRepository.save(entry);
