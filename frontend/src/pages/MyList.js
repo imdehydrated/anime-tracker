@@ -1,65 +1,73 @@
 /**
- * MyList Page — Displays and manages the user's anime list.
+ * MyList Page — Displays the user's anime list in compact rows.
  *
- * Features:
- * - Shows anime with title and cover image (stored in DB)
- * - Click anime title to navigate to detail page
- * - Edit status, score, and episodes watched
- * - Delete entries from list
- * - Refetches list after each update/delete for simplicity
+ * Each row shows: thumbnail, clickable title, status dropdown,
+ * score input, episodes input, and a delete button.
+ * All changes (status, score, episodes) are saved immediately via PUT.
  */
 import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 function MyList() {
-	const { token } = useAuth();
-
+	// List entries fetched from the backend
 	const [entries, setEntries] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
 
-	// Auth header reused by all API calls on this page
+	// Auth header — reused for all protected API calls
+	const { token } = useAuth();
 	const authHeader = { headers: { Authorization: `Bearer ${token}` } };
 
-	// Fetch the user's list — called on mount and after updates/deletes
+	/**
+	 * fetchList — Loads the user's anime list from GET /api/users/list.
+	 * Called on mount and after any update/delete to keep UI in sync.
+	 */
 	const fetchList = async () => {
 		try {
 			const { data } = await axios.get('/api/users/list', authHeader);
 			setEntries(data);
 		} catch (err) {
-			setError('Failed to load anime list');
+			setError('Failed to load list');
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	useEffect(() => {
-		fetchList();
-	}, [token]);
+	// Fetch list on component mount
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(() => { fetchList(); }, []);
 
-	// Update an entry's status, score, or episodes
+	/**
+	 * handleUpdate — Sends a PUT request to update a single field.
+	 * After the update completes, refetches the full list.
+	 * @param {number} entryId — the database ID of the entry
+	 * @param {object} updates — fields to change (e.g., { status: 'WATCHING' })
+	 */
 	const handleUpdate = async (entryId, updates) => {
 		try {
 			await axios.put(`/api/users/list/${entryId}`, updates, authHeader);
-			fetchList(); // Refetch to show updated data
+			fetchList(); // Refresh list to show updated values
 		} catch (err) {
-			setError('Failed to update entry');
+			setError('Failed to update');
 		}
 	};
 
-	// Delete an entry from the list
+	/**
+	 * handleDelete — Removes an entry from the user's list.
+	 * Sends DELETE /api/users/list/{id}, then refreshes the list.
+	 */
 	const handleDelete = async (entryId) => {
 		try {
 			await axios.delete(`/api/users/list/${entryId}`, authHeader);
-			fetchList(); // Refetch to remove deleted entry
+			fetchList(); // Refresh list after removal
 		} catch (err) {
-			setError('Failed to delete entry');
+			setError('Failed to delete');
 		}
 	};
-
-  	if (loading) return <div className="page"><p>Loading...</p></div>;
+	// Loading and error states
+	if (loading) return <div className="page"><p className="loading">Loading...</p></div>;
 
 	return (
 		<div className="page">
@@ -67,61 +75,62 @@ function MyList() {
 
 			{error && <p className="error-message">{error}</p>}
 
+			{/* Empty state — show when user has no entries */}
 			{entries.length === 0 ? (
-				<p>Your list is empty. <Link to="/search">Search for anime</Link> to add some!</p>
+				<div className="empty-state">
+					<p>Your list is empty. <Link to="/search">Search for anime</Link> to get started!</p>
+				</div>
 			) : (
-				<div className="anime-list">
+				/* Compact row list — each entry is a horizontal row */
+				<div className="list-table">
 					{entries.map((entry) => (
-						<div key={entry.id} className="anime-card">
+						<div key={entry.id} className="list-row">
 
+							{/* Small thumbnail image */}
 							{entry.coverImage && (
 								<img src={entry.coverImage} alt={entry.title} />
 							)}
 
-							<div className="anime-info">
-								{/* Clickable title — navigates to detail page */}
-								<h3>
-									<Link to={`/anime/${entry.anilistId}`}>
-										{entry.title || `AniList #${entry.anilistId}`}
-									</Link>
-								</h3>
-
-								{/* Status dropdown */}
-								<label>Status: </label>
-								<select
-									value={entry.status}
-									onChange={(e) => handleUpdate(entry.id, { status: e.target.value })}
-								>
-									<option value="WATCHING">Watching</option>
-									<option value="COMPLETED">Completed</option>
-									<option value="PLAN_TO_WATCH">Plan to Watch</option>
-									<option value="DROPPED">Dropped</option>
-									<option value="ON_HOLD">On Hold</option>
-								</select>
-
-								{/* Score input */}
-								<label> Score: </label>
-								<input
-									type="number"
-									min="0"
-									max="10"
-									value={entry.score || ''}
-									placeholder="-"
-									onChange={(e) => handleUpdate(entry.id, { score: parseInt(e.target.value) || null })}
-								/>
-
-								{/* Episodes input */}
-								<label> Episodes: </label>
-								<input
-									type="number"
-									min="0"
-									value={entry.episodesWatched || 0}
-									onChange={(e) => handleUpdate(entry.id, { episodesWatched: parseInt(e.target.value) || 0 })}
-								/>
-
-								<button onClick={() => handleDelete(entry.id)}>Delete</button>
+							{/* Clickable title — links to anime detail page */}
+							<div className="list-title">
+								<Link to={`/anime/${entry.anilistId}`}>
+									{entry.title || `AniList #${entry.anilistId}`}
+								</Link>
 							</div>
 
+							{/* Status dropdown — saves on change */}
+							<select
+								value={entry.status}
+								onChange={(e) => handleUpdate(entry.id, { status: e.target.value })}
+							>
+								<option value="WATCHING">Watching</option>
+								<option value="COMPLETED">Completed</option>
+								<option value="PLAN_TO_WATCH">Plan to Watch</option>
+								<option value="ON_HOLD">On Hold</option>
+								<option value="DROPPED">Dropped</option>
+							</select>
+
+							{/* Score input — 0 to 100, saves on change */}
+							<input
+								type="number"
+								min="0"
+								max="100"
+								value={entry.score || 0}
+								onChange={(e) => handleUpdate(entry.id, { score: parseInt(e.target.value) })}
+							/>
+
+							{/* Episodes watched input — saves on change */}
+							<input
+								type="number"
+								min="0"
+								value={entry.episodesWatched || 0}
+								onChange={(e) => handleUpdate(entry.id, { episodesWatched: parseInt(e.target.value) })}
+							/>
+
+							{/* Delete button — red outline, fills red on hover */}
+							<button className="delete-btn" onClick={() => handleDelete(entry.id)}>
+								Delete
+							</button>
 						</div>
 					))}
 				</div>

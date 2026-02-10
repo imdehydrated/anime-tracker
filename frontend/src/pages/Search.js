@@ -1,40 +1,30 @@
 /**
  * Search Page — Search for anime and add them to your list.
  *
- * Flow:
- * 1. User types a search query and clicks Search
- * 2. GET /api/anime/search?q={query} fetches results from AniList (via our backend)
- * 3. Results display as cards with title, cover image, score, episodes
- * 4. "Add to List" button sends POST /api/users/list with the anime's AniList ID
- *
- * This page combines two API calls:
- * - Public endpoint (search) — no token needed
- * - Protected endpoint (add to list) — requires JWT token
+ * Uses the card grid layout for results (cover image cards in a responsive grid).
+ * Search is a public endpoint; adding to list requires JWT auth.
  */
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 function Search() {
-	// Search input and results
-	const [query, setQuery] = useState('');         // What the user types
-	const [results, setResults] = useState([]);      // Array of anime from AniList
-	const [loading, setLoading] = useState(false);   // Show "Searching..." during API call
+	// Search input and results state
+	const [query, setQuery] = useState('');
+	const [results, setResults] = useState([]);
+	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
-	const [message, setMessage] = useState('');       // Success message after adding to list
+	const [message, setMessage] = useState('');
 
-	// Get JWT token — needed for the "Add to List" POST request
+	// Auth context — token needed for "Add to List" POST request
 	const { token, isLoggedIn } = useAuth();
 
 	/**
-	 * handleSearch — Calls our backend search endpoint.
-	 *
-	 * This hits the PUBLIC /api/anime/search endpoint (no token needed).
-	 * The backend forwards the query to AniList's GraphQL API and returns
-	 * a simplified JSON array of anime objects.
+	 * handleSearch — Fetches anime from AniList via our backend.
+	 * Hits the public GET /api/anime/search endpoint (no token needed).
 	 */
 	const handleSearch = async (e) => {
-		e.preventDefault();
+		e.preventDefault(); // Prevent page reload on form submit
 		setError('');
 		setMessage('');
 		setLoading(true);
@@ -45,17 +35,13 @@ function Search() {
 		} catch (err) {
 			setError('Search failed. Try again.');
 		} finally {
-			setLoading(false);
+			setLoading(false); // Always stop loading spinner
 		}
 	};
 
 	/**
 	 * handleAddToList — Adds an anime to the user's list.
-	 *
-	 * Sends POST /api/users/list with the anime's AniList ID.
-	 * This is a PROTECTED endpoint — requires the JWT token in the header.
-	 *
-	 * @param {object} anime — the full anime object from search results
+	 * Sends POST /api/users/list with anime details (protected endpoint).
 	 */
 	const handleAddToList = async (anime) => {
 		setMessage('');
@@ -71,7 +57,7 @@ function Search() {
 				},
 				{ headers: { Authorization: `Bearer ${token}` } }
 			);
-			setMessage('Added to your list!');
+			setMessage(`Added "${anime.title.english || anime.title.romaji}" to your list!`);
 		} catch (err) {
 			setError(err.response?.data?.error || 'Failed to add to list');
 		}
@@ -81,7 +67,8 @@ function Search() {
 		<div className="page">
 			<h1>Search Anime</h1>
 
-			<form onSubmit={handleSearch}>
+			{/* Search bar — uses search-form class for flex layout */}
+			<form onSubmit={handleSearch} className="search-form">
 				<input
 					type="text"
 					placeholder="Search anime... (e.g., Naruto)"
@@ -94,36 +81,34 @@ function Search() {
 				</button>
 			</form>
 
+			{/* Status messages with styled backgrounds */}
 			{error && <p className="error-message">{error}</p>}
 			{message && <p className="success-message">{message}</p>}
 
-			{/* Loop through search results and render a card for each anime */}
-			<div className="search-results">
+			{/* Results displayed in a responsive card grid */}
+			<div className="card-grid">
 				{results.map((anime) => (
 					<div key={anime.id} className="anime-card">
-
+						{/* Cover image — fills card width, fixed height */}
 						{anime.coverImage && (
-							<img
-								src={anime.coverImage.large}
-								alt={anime.title.romaji}
-							/>
+							<img src={anime.coverImage.large} alt={anime.title.romaji} />
 						)}
 
-						<div className="anime-info">
-							{/* English title if available, otherwise Japanese romanized */}
+						{/* Card body — title, metadata, and add button */}
+						<div className="card-body">
 							<h3>{anime.title.english || anime.title.romaji}</h3>
 							<p>{anime.genres && anime.genres.join(', ')}</p>
 							<p>
-								Episodes: {anime.episodes || '?'} | Score: {anime.averageScore || '?'}/100
+								Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100
 							</p>
 
+							{/* Only show "Add to List" if user is logged in */}
 							{isLoggedIn && (
 								<button onClick={() => handleAddToList(anime)}>
 									Add to List
 								</button>
 							)}
 						</div>
-
 					</div>
 				))}
 			</div>

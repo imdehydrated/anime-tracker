@@ -1,35 +1,39 @@
 /**
- * Home Page — Landing page for the app.
+ * Home Page — Landing page with call-to-action buttons.
  *
- * Shows different content based on login state:
- * - Logged out: "Login | Register" links
- * - Logged in: "View My List" link
+ * Shows different buttons based on auth state:
+ * - Logged out: "Login" (solid) and "Register" (outline) buttons
+ * - Logged in: "View My List" (solid) and "Search Anime" (outline) buttons
  */
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function Home() {
-  // Get login state from AuthContext
-  const { isLoggedIn } = useAuth();
+	const { isLoggedIn } = useAuth();
 
-  return (
-    <div className="page">
-      <h1>Welcome to AniRec</h1>
-      <p>Your personal anime list and recommendation app.</p>
+	return (
+		<div className="page">
+			<div className="home">
+				<h1>AniRec</h1>
+				<p>Track your anime, discover new favorites, and never lose your place.</p>
 
-      {/* Conditional rendering — show different links based on auth state */}
-      {isLoggedIn ? (
-        <div>
-          <Link to="/mylist">View My List</Link>
-        </div>
-      ) : (
-        <div>
-          <p>Get started by creating an account or logging in.</p>
-          <Link to="/login">Login</Link> | <Link to="/register">Register</Link>
-        </div>
-      )}
-    </div>
-  );
+				{/* Action buttons — styled as solid + outline pair */}
+				<div className="home-links">
+					{isLoggedIn ? (
+						<>
+							<Link to="/mylist">View My List</Link>
+							<Link to="/search">Search Anime</Link>
+						</>
+					) : (
+						<>
+							<Link to="/login">Login</Link>
+							<Link to="/register">Register</Link>
+						</>
+					)}
+				</div>
+			</div>
+		</div>
+	);
 }
 
 export default Home;

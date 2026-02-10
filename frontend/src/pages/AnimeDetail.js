@@ -1,11 +1,9 @@
 /**
  * AnimeDetail Page — Shows full info about an anime from AniList.
  *
- * Uses React Router's useParams() to read the anime ID from the URL.
- * Example: /anime/20 → useParams() returns { id: "20" }
- *
- * Fetches fresh data from AniList via our backend's GET /api/anime/{id}
- * so the info is always up-to-date (not stored in our DB).
+ * Reads the anime ID from the URL via useParams() (e.g., /anime/20).
+ * Fetches fresh data from AniList via our backend's GET /api/anime/{id}.
+ * Layout: cover image on the left, info on the right (flex row).
  */
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
@@ -19,6 +17,7 @@ function AnimeDetail() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
 
+	// Fetch anime details on mount (or when ID changes)
 	useEffect(() => {
 		async function fetchAnime() {
 			try {
@@ -30,22 +29,25 @@ function AnimeDetail() {
 				setLoading(false);
 			}
 		}
-
 		fetchAnime();
 	}, [id]);
 
-	if (loading) return <div className="page"><p>Loading...</p></div>;
+	// Loading and error states with styled classes
+	if (loading) return <div className="page"><p className="loading">Loading...</p></div>;
 	if (error) return <div className="page"><p className="error-message">{error}</p></div>;
-	if (!anime) return <div className="page"><p>Anime not found</p></div>;
+	if (!anime) return <div className="page"><p className="error-message">Anime not found</p></div>;
 
 	return (
 		<div className="page">
+			{/* Flex layout: cover image left, info right */}
 			<div className="anime-detail">
 
+				{/* Cover image — fixed width, rounded corners */}
 				{anime.coverImage && (
 					<img src={anime.coverImage.large} alt={anime.title.romaji} />
 				)}
 
+				{/* Info section — title, metadata, description, external link */}
 				<div className="anime-info">
 					<h1>{anime.title.english || anime.title.romaji}</h1>
 
@@ -59,23 +61,20 @@ function AnimeDetail() {
 					<p><strong>Status:</strong> {anime.status}</p>
 					<p><strong>Genres:</strong> {anime.genres?.join(', ')}</p>
 
-					{/* Description from AniList contains HTML tags — dangerouslySetInnerHTML renders them */}
+					{/* Description from AniList contains HTML — render it safely */}
 					{anime.description && (
 						<div dangerouslySetInnerHTML={{ __html: anime.description }} />
 					)}
 
-					{/* Link to the anime's AniList page */}
-					<p>
-						<a
-							href={`https://anilist.co/anime/${anime.id}`}
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							View on AniList
-						</a>
-					</p>
+					{/* External link to AniList — opens in new tab */}
+					<a
+						href={`https://anilist.co/anime/${anime.id}`}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						View on AniList
+					</a>
 				</div>
-
 			</div>
 		</div>
 	);

@@ -1,84 +1,71 @@
 /**
- * Login Page — Form for user authentication.
+ * Login Page — Authenticates user and stores JWT token.
  *
- * Flow:
- * 1. User fills in email + password
- * 2. Form submits → POST /api/users/login via axios
- * 3. Backend returns JWT token
- * 4. Token saved to AuthContext (login function) + localStorage
- * 5. User redirected to /mylist
+ * Posts credentials to POST /api/users/login.
+ * On success, saves the JWT token via AuthContext and redirects to My List.
+ * Uses the auth-form class for centered card styling.
  */
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
 
 function Login() {
-  // Controlled form inputs — React state drives the input values
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+	const [email, setEmail] = useState('');
+	const [password, setPassword] = useState('');
+	const [error, setError] = useState('');
 
-  // login() from AuthContext — saves token to state + localStorage
-  const { login } = useAuth();
+	const { login } = useAuth();         // Saves token to context + localStorage
+	const navigate = useNavigate();       // Programmatic navigation after login
 
-  // useNavigate() — programmatic navigation (redirect after login)
-  const navigate = useNavigate();
+	/**
+	 * handleSubmit — Sends login credentials to the backend.
+	 * On success: stores JWT token and redirects to /mylist.
+	 * On failure: displays error message.
+	 */
+	const handleSubmit = async (e) => {
+		e.preventDefault(); // Prevent page reload
+		setError('');
 
-  /**
-   * Handle form submission.
-   * async because we're making an API call with await.
-   */
-  const handleSubmit = async (e) => {
-    e.preventDefault();  // Prevent default HTML form behavior (page reload)
-    setError('');        // Clear any previous error messages
+		try {
+			const { data } = await axios.post('/api/users/login', { email, password });
+			login(data.token);       // Store token in AuthContext
+			navigate('/mylist');      // Redirect to My List page
+		} catch (err) {
+			setError(err.response?.data?.error || 'Login failed');
+		}
+	};
 
-    try {
-      // POST to backend — axios auto-converts object to JSON
-      const { data } = await axios.post('/api/users/login', { email, password });
+	return (
+		<div className="page">
+			{/* Centered card form with dark background */}
+			<div className="auth-form">
+				<h1>Login</h1>
 
-      login(data.token);    // Save JWT token via AuthContext
-      navigate('/mylist');   // Redirect to anime list page
-    } catch (err) {
-      // err.response?.data?.error — optional chaining to safely access nested error
-      // If server returned an error message, show it; otherwise show generic message
-      setError(err.response?.data?.error || 'Login failed');
-    }
-  };
+				{error && <p className="error-message">{error}</p>}
 
-  return (
-    <div className="page">
-      <h1>Login</h1>
+				<form onSubmit={handleSubmit}>
+					<input
+						type="email"
+						placeholder="Email"
+						value={email}
+						onChange={(e) => setEmail(e.target.value)}
+						required
+					/>
+					<input
+						type="password"
+						placeholder="Password"
+						value={password}
+						onChange={(e) => setPassword(e.target.value)}
+						required
+					/>
+					<button type="submit">Login</button>
+				</form>
 
-      {/* Show error message if login failed */}
-      {error && <p className="error-message">{error}</p>}
-
-      {/* onSubmit calls handleSubmit when form is submitted */}
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}  // Update state on each keystroke
-            required  // Browser-level validation — won't submit if empty
-          />
-        </div>
-        <div>
-          <label>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </div>
-        <button type="submit">Login</button>
-      </form>
-
-      <p>Don't have an account? <Link to="/register">Register</Link></p>
-    </div>
-  );
+				<p>Don't have an account? <Link to="/register">Register</Link></p>
+			</div>
+		</div>
+	);
 }
 
 export default Login;

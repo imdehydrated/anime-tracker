@@ -17,24 +17,27 @@ function NavBar() {
   const { isLoggedIn, logout } = useAuth();
 
   return (
-    <nav>
+    <nav className='navbar'>
       {/* Home link always visible */}
-      <Link to="/">Home</Link>
-      <Link to="/search">Search</Link>
+      <Link to="/" className="navbar-brand">AniRec</Link>
 
-      {/* Conditional links based on auth state */}
-      {isLoggedIn ? (
-        <>
-          {/* <> is a Fragment — groups elements without adding extra DOM nodes */}
-          <Link to="/mylist">My List</Link>
-          <button onClick={logout}>Logout</button>
-        </>
-      ) : (
-        <>
-          <Link to="/login">Login</Link>
-          <Link to="/register">Register</Link>
-        </>
-      )}
+      <div className='navbar-links'>
+        <Link to="/">Search</Link>
+
+        {/* Conditional links based on auth state */}
+        {isLoggedIn ? (
+          <>
+            {/* <> is a Fragment — groups elements without adding extra DOM nodes */}
+            <Link to="/mylist">My List</Link>
+            <button onClick={logout}>Logout</button>
+          </>
+        ) : (
+          <>
+            <Link to="/login">Login</Link>
+            <Link to="/register">Register</Link>
+          </>
+        )}
+      </div>
     </nav>
   );
 }
