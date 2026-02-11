@@ -32,8 +32,8 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - Blacklist management to hide unwanted recommendations
 - Refresh on demand
 
-### AI-Powered Semantic Recommendations (In Progress)
-- Pick seed anime + describe what you're looking for in natural language
+### AI-Powered Semantic Recommendations
+- Pick seed anime, describe what you're looking for in natural language, or both — text-only queries work without seeds
 - OpenAI embeddings encode anime metadata (title, genres, tags, description) into vectors
 - pgvector cosine similarity finds the closest matches from a local database of embedded anime
 - Blends seed-based and query-based vectors for nuanced results
@@ -54,13 +54,12 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 4. **Filtering** — Candidates already on your list or blacklist are excluded and deduplicated.
 5. **Results** — Up to 10 unique recommendations are returned.
 
-### Semantic Search (In Progress)
+### Semantic Search
 
-1. **Seed selection** — User picks 1-5 anime they enjoy.
-2. **Context query** — Optional natural language description (e.g., "dark psychological thriller with antiheroes").
-3. **Vector blending** — Seed anime embeddings are averaged, then blended with the query embedding: `0.6 * seedAvg + 0.4 * queryVector`.
-4. **Cosine similarity** — pgvector searches the `anime_embeddings` table using an IVFFlat index for fast nearest-neighbor lookup.
-5. **Results** — Top 15 similar anime returned, excluding user's list, blacklist, and seeds.
+1. **Input** — Pick 1-5 seed anime, describe what you want in natural language, or both. Text-only queries work without any seeds.
+2. **Vector blending** — Seed anime embeddings are averaged, then blended with the query embedding: `0.6 * seedAvg + 0.4 * queryVector`. Text-only queries use the query embedding directly.
+3. **Cosine similarity** — pgvector searches the `anime_embeddings` table using an IVFFlat index for fast nearest-neighbor lookup.
+4. **Results** — Top 15 similar anime returned, excluding user's list, blacklist, and seeds.
 
 ## API Endpoints
 
@@ -75,7 +74,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 | GET | `/api/anime/search?q=` | No | Search anime by title |
 | GET | `/api/anime/{id}` | No | Get anime details by AniList ID |
 | GET | `/api/users/recommendations` | Yes | Get genre-based recommendations |
-| POST | `/api/users/recommendations/semantic` | Yes | Get AI semantic recommendations *(planned)* |
+| POST | `/api/users/recommendations/semantic` | Yes | Get AI semantic recommendations (seeds, text query, or both) |
 | POST | `/api/users/recommendations/blacklist` | Yes | Hide anime from recommendations |
 | GET | `/api/users/recommendations/blacklist` | Yes | View blacklisted anime |
 | DELETE | `/api/users/recommendations/blacklist/{id}` | Yes | Remove from blacklist |
