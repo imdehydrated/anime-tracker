@@ -142,6 +142,62 @@ public class AniListService {
             }
             """;
 
+    // GraphQL query for the embedding populator — includes tags (name + rank) for richer semantic signal.
+    // Tags are user-voted descriptors like "Time Travel", "Anti-Hero", "Mind Games" with a relevance rank.
+    // Sorted by POPULARITY_DESC so we embed the most popular anime first.
+    private static final String POPULATE_QUERY = """
+            query ($page: Int, $perPage: Int) {
+              Page(page: $page, perPage: $perPage) {
+                media(type: ANIME, sort: POPULARITY_DESC) {
+                  id
+                  title {
+                    romaji
+                    english
+                  }
+                  episodes
+                  averageScore
+                  coverImage {
+                    large
+                  }
+                  genres
+                  tags {
+                    name
+                    rank
+                  }
+                  description
+                  status
+                }
+              }
+            }
+            """;
+
+    /**
+     * Fetches a page of anime sorted by popularity (most popular first).
+     * Includes tags for richer embedding text. Used by the populator service
+     * to bulk-scrape anime for the embeddings database.
+     */
+    public List<AniListResponse.AnimeInfo> fetchPopularAnimePage(int page, int perPage) {
+        Map<String, Object> requestBody = Map.of(
+                "query", POPULATE_QUERY,
+                "variables", Map.of("page", page, "perPage", perPage)
+        );
+
+        AniListResponse response = webClient.post()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(AniListResponse.class)
+                .block();
+
+        if (response == null || response.getData() == null
+                || response.getData().getPage() == null
+                || response.getData().getPage().getMedia() == null) {
+            return Collections.emptyList();
+        }
+
+        return response.getData().getPage().getMedia();
+    }
+
     /**
      * Searches AniList for top-rated anime in the given genres. Used by
      * RecommendationService to find anime similar to the user's taste. Returns

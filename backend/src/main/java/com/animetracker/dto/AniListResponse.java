@@ -39,6 +39,7 @@ public class AniListResponse {
         private Integer averageScore;
         private AnimeCoverImage coverImage;
         private List<String> genres;
+        private List<AnimeTag> tags;  // Only populated by POPULATE_QUERY (includes tag name + rank)
         private String description;
         private String status;
 
@@ -60,6 +61,9 @@ public class AniListResponse {
 
         public List<String> getGenres() { return genres; }
         public void setGenres(List<String> genres) { this.genres = genres; }
+
+        public List<AnimeTag> getTags() { return tags; }
+        public void setTags(List<AnimeTag> tags) { this.tags = tags; }
 
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
@@ -88,5 +92,20 @@ public class AniListResponse {
 
         public String getLarge() { return large; }
         public void setLarge(String large) { this.large = large; }
+    }
+
+    // Matches { "name": "Time Travel", "rank": 95 }
+    // Tags are user-voted descriptors with a rank (0-100) indicating relevance.
+    // Only returned by the POPULATE_QUERY — existing queries don't request tags.
+    public static class AnimeTag {
+
+        private String name;
+        private Integer rank;
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public Integer getRank() { return rank; }
+        public void setRank(Integer rank) { this.rank = rank; }
     }
 }

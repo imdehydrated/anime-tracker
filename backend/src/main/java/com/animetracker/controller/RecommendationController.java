@@ -15,7 +15,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.SemanticRequest;
+import com.animetracker.service.AnimeEmbeddingPopulatorService;
 import com.animetracker.service.RecommendationService;
+import com.animetracker.service.SemanticRecommendationService;
 
 /**
  * REST Controller for anime recommendations.
@@ -28,9 +31,15 @@ import com.animetracker.service.RecommendationService;
 public class RecommendationController {
 
     private final RecommendationService recommendationService;
+    private final AnimeEmbeddingPopulatorService populatorService;
+    private final SemanticRecommendationService semanticService;
 
-    public RecommendationController(RecommendationService recommendationService) {
+    public RecommendationController(RecommendationService recommendationService,
+            AnimeEmbeddingPopulatorService populatorService,
+            SemanticRecommendationService semanticService) {
         this.recommendationService = recommendationService;
+        this.populatorService = populatorService;
+        this.semanticService = semanticService;
     }
 
     @GetMapping
@@ -65,6 +74,42 @@ public class RecommendationController {
         String username = getCurrentUsername();
         recommendationService.removeFromBlacklist(username, id);
         return ResponseEntity.ok(Map.of("message", "Removed from blacklist"));
+    }
+
+    /**
+     * POST /api/users/recommendations/semantic — AI-powered semantic search.
+     * Takes seed anime IDs + optional text query, returns similar anime via
+     * embeddings.
+     */
+    @PostMapping("/semantic")
+    public ResponseEntity<?> getSemanticRecommendations(@RequestBody SemanticRequest request) {
+        String username = getCurrentUsername();
+        int limit = (request.getLimit() != null) ? request.getLimit() : 15;
+
+        List<AniListResponse.AnimeInfo> results = semanticService.recommend(
+                username, request.getSeedIds(), request.getQuery(), limit);
+        return ResponseEntity.ok(results);
+    }
+
+    /**
+     * POST /api/users/recommendations/populate — trigger bulk embedding of
+     * anime. Fetches anime from AniList by popularity, embeds with OpenAI,
+     * stores in DB.
+     *
+     * @param request Optional body with "pages" (default 100 = 5,000 anime).
+     */
+    @PostMapping("/populate")
+    public ResponseEntity<?> populateEmbeddings(@RequestBody(required = false) Map<String, Object> request) {
+        int pages = 100; // default: 100 pages × 50 per page = 5,000 anime
+        if (request != null && request.get("pages") != null) {
+            pages = ((Number) request.get("pages")).intValue();
+        }
+
+        int embedded = populatorService.populate(pages);
+        return ResponseEntity.ok(Map.of(
+                "message", "Population complete",
+                "embedded", embedded
+        ));
     }
 
     // Same helper pattern as AnimeListEntryController
