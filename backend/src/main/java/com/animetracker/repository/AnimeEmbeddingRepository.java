@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.animetracker.entity.AnimeEmbedding;
 
@@ -53,6 +54,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 * Uses PostgreSQL's ON CONFLICT ... DO UPDATE for atomic upsert.
 	 * The embedding is passed as a string like "[0.1,0.2,...]" and cast to vector.
 	 */
+	@Transactional
 	@Modifying
 	@Query(value = """
 			INSERT INTO anime_embeddings
