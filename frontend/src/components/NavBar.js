@@ -25,6 +25,7 @@ function NavBar() {
           <>
             <Link to="/mylist" className={linkClass('/mylist')}>My List</Link>
             <Link to="/recommendations" className={linkClass('/recommendations')}>For You</Link>
+            <Link to="/smart-rec" className={linkClass('/smart-rec')}>Advanced Recommendations</Link>
             <button onClick={logout}>Logout</button>
           </>
         ) : (

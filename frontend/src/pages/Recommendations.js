@@ -16,6 +16,8 @@ import { useAuthHeader } from '../hooks/useAuthHeader';
 import { useAddToList } from '../hooks/useAddToList';
 import axios from 'axios';
 
+import AnimeRecItem from '../components/AnimeRecItem';
+
 function Recommendations() {
     const [recommendations, setRecommendations] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -118,34 +120,22 @@ function Recommendations() {
                     <p>Add some anime to <a href="/mylist">your list</a> and rate them to get personalized suggestions!</p>
                 </div>
             ) : (
-                <div className="card-grid">
+                <div className="smart-rec-results">
                     {recommendations.map((anime) => (
-                        <div key={anime.id} className="anime-card">
-                            {anime.coverImage && (
-                                <Link to={`/anime/${anime.id}`}>
-                                    <img src={anime.coverImage.large} alt={anime.title.romaji} />
-                                </Link>
+                        <AnimeRecItem key={anime.id} anime={anime}>
+                            {addedIds.has(anime.id) ? (
+                                <span className="on-list-badge">On Your List</span>
+                            ) : (
+                                <>
+                                    <button className="btn-primary" onClick={() => handleAddToList(anime)}>
+                                        Add to List
+                                    </button>
+                                    <button className="blacklist-btn" onClick={() => handleBlacklist(anime)}>
+                                        Not Interested
+                                    </button>
+                                </>
                             )}
-                            <div className="card-body">
-                                <h3><Link to={`/anime/${anime.id}`}>{anime.title.english || anime.title.romaji}</Link></h3>
-                                <p>{anime.genres && anime.genres.join(', ')}</p>
-                                <p>
-                                    Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100
-                                </p>
-                                {addedIds.has(anime.id) ? (
-                                    <span className="on-list-badge">On Your List</span>
-                                ) : (
-                                    <>
-                                        <button onClick={() => handleAddToList(anime)}>
-                                            Add to List
-                                        </button>
-                                        <button className="blacklist-btn" onClick={() => handleBlacklist(anime)}>
-                                            Not Interested
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        </div>
+                        </AnimeRecItem>
                     ))}
                 </div>
             )}
@@ -172,18 +162,18 @@ function Recommendations() {
                                     {blacklist
                                         .filter(item => (item.title || '').toLowerCase().includes(blacklistSearch.toLowerCase()))
                                         .map(item => (
-                                        <div key={item.id} className="blacklist-card">
-                                            {item.coverImage && (
-                                                <img src={item.coverImage} alt={item.title} />
-                                            )}
-                                            <div className="blacklist-card-info">
-                                                <h3><Link to={`/anime/${item.anilistId}`}>{item.title || `AniList #${item.anilistId}`}</Link></h3>
-                                                <button className="btn-danger" onClick={() => handleRemoveFromBlacklist(item.id)}>
-                                                    Remove
-                                                </button>
+                                            <div key={item.id} className="blacklist-card">
+                                                {item.coverImage && (
+                                                    <img src={item.coverImage} alt={item.title} />
+                                                )}
+                                                <div className="blacklist-card-info">
+                                                    <h3><Link to={`/anime/${item.anilistId}`}>{item.title || `AniList #${item.anilistId}`}</Link></h3>
+                                                    <button className="btn-danger" onClick={() => handleRemoveFromBlacklist(item.id)}>
+                                                        Remove
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
                                 </div>
                             </>
                         )}

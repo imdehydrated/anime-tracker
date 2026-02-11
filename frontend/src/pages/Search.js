@@ -6,11 +6,12 @@
  * Search is a public endpoint; adding to list requires JWT auth.
  */
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAuthHeader } from '../hooks/useAuthHeader';
 import { useAddToList } from '../hooks/useAddToList';
 import axios from 'axios';
+
+import AnimeCard from '../components/AnimeCard';
 
 function Search() {
 	const [query, setQuery] = useState('');
@@ -30,7 +31,7 @@ function Search() {
 				.then(({ data }) => {
 					setUserListIds(new Set(data.map(entry => entry.anilistId)));
 				})
-				.catch(() => {});
+				.catch(() => { });
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isLoggedIn]);
@@ -98,35 +99,21 @@ function Search() {
 
 			<div className="card-grid">
 				{results.map((anime) => (
-					<div key={anime.id} className="anime-card">
-						{anime.coverImage && (
-							<Link to={`/anime/${anime.id}`}>
-								<img src={anime.coverImage.large} alt={anime.title.romaji} />
-							</Link>
-						)}
-
-						<div className="card-body">
-							<h3><Link to={`/anime/${anime.id}`}>{anime.title.english || anime.title.romaji}</Link></h3>
-							<p>{anime.genres && anime.genres.join(', ')}</p>
-							<p>
-								Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100
-							</p>
-
-							{isLoggedIn ? (
-								userListIds.has(anime.id) ? (
-									<span className="on-list-badge">On Your List</span>
-								) : (
-									<button onClick={() => handleAddToList(anime)}>
-										Add to List
-									</button>
-								)
+					<AnimeCard key={anime.id} anime={anime}>
+						{isLoggedIn ? (
+							userListIds.has(anime.id) ? (
+								<span className="on-list-badge">On Your List</span>
 							) : (
-								<p className="login-prompt">
-									<a href="/login">Login</a> or <a href="/register">register</a> to add to your list
-								</p>
-							)}
-						</div>
-					</div>
+								<button onClick={() => handleAddToList(anime)}>
+									Add to List
+								</button>
+							)
+						) : (
+							<p className="login-prompt">
+								<a href="/login">Login</a> or <a href="/register">register</a> to add to your list
+							</p>
+						)}
+					</AnimeCard>
 				))}
 			</div>
 		</div>

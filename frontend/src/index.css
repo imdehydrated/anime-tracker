@@ -785,3 +785,213 @@ a:hover {
 	font-size: 0.95rem;
 	color: var(--text);
 }
+
+/* =====================
+   AnimeRecItem — list layout for recommendation results
+   ===================== */
+.anime-rec-item {
+	display: flex;
+	gap: 1rem;
+	background-color: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 1rem;
+}
+
+.anime-rec-item-image img {
+	width: 100px;
+	height: 140px;
+	object-fit: cover;
+	border-radius: 4px;
+	flex-shrink: 0;
+}
+
+.anime-rec-item-content {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.anime-rec-item-content h3 {
+	margin: 0;
+	font-size: 1.05rem;
+}
+
+.anime-rec-item-meta {
+	display: flex;
+	gap: 1rem;
+	font-size: 0.85rem;
+	color: var(--text-muted);
+}
+
+.anime-rec-item-desc {
+	font-size: 0.9rem;
+	color: var(--text-dim);
+	line-height: 1.5;
+	margin: 0.25rem 0;
+}
+
+.anime-rec-item-actions {
+	margin-top: auto;
+}
+
+/* =====================
+   SmartRec — AI recommendation page
+   ===================== */
+.smart-rec .page-subtitle {
+	color: var(--text-muted);
+	margin-top: -0.5rem;
+	margin-bottom: 1.5rem;
+}
+
+.smart-rec-section {
+	margin-bottom: 1.5rem;
+}
+
+.smart-rec-label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: 0.5rem;
+	color: var(--text);
+}
+
+/* Seed chips */
+.seed-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-bottom: 0.75rem;
+}
+
+.seed-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	background-color: var(--bg-hover);
+	border: 1px solid var(--accent);
+	border-radius: 20px;
+	padding: 0.3rem 0.75rem;
+	font-size: 0.85rem;
+	color: var(--text);
+}
+
+.seed-chip button {
+	background: none;
+	border: none;
+	color: var(--accent);
+	font-size: 1.1rem;
+	cursor: pointer;
+	padding: 0;
+	line-height: 1;
+}
+
+/* Seed picker dropdown */
+.seed-picker {
+	position: relative;
+}
+
+.seed-picker input {
+	width: 100%;
+	padding: 0.75rem;
+	background-color: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--text);
+	font-size: 0.9rem;
+	box-sizing: border-box;
+}
+
+.seed-picker input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.seed-dropdown-loading {
+	font-size: 0.85rem;
+	color: var(--text-muted);
+	padding: 0.5rem 0;
+}
+
+.seed-dropdown {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
+	background-color: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	max-height: 250px;
+	overflow-y: auto;
+	z-index: 10;
+}
+
+.seed-dropdown-item {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	width: 100%;
+	padding: 0.5rem 0.75rem;
+	background: none;
+	border: none;
+	border-bottom: 1px solid var(--border);
+	color: var(--text);
+	cursor: pointer;
+	text-align: left;
+	font-size: 0.9rem;
+}
+
+.seed-dropdown-item:hover {
+	background-color: var(--bg-hover);
+}
+
+.seed-dropdown-item:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.seed-dropdown-item img {
+	width: 35px;
+	height: 50px;
+	object-fit: cover;
+	border-radius: 3px;
+	flex-shrink: 0;
+}
+
+/* Context textarea */
+.smart-rec-context {
+	width: 100%;
+	padding: 0.75rem;
+	background-color: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--text);
+	font-family: inherit;
+	font-size: 0.9rem;
+	resize: vertical;
+	box-sizing: border-box;
+}
+
+.smart-rec-context:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+/* Search button */
+.smart-rec-btn {
+	width: 100%;
+	padding: 0.75rem;
+	font-size: 1rem;
+	margin-bottom: 1.5rem;
+}
+
+/* Results list */
+.smart-rec-results h2 {
+	margin-bottom: 1rem;
+}
+
+.smart-rec-results {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
