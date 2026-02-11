@@ -81,7 +81,7 @@ function MyList() {
 		<div className="page">
 			<div className="list-page-header">
 				<h1>My Anime List</h1>
-				<button className="add-to-list-nav" onClick={() => navigate('/search')}>
+				<button className="btn-primary add-to-list-nav" onClick={() => navigate('/search')}>
 					+ Add to Your List
 				</button>
 			</div>
@@ -194,7 +194,7 @@ function MyList() {
 										</div>
 									</td>
 									<td className="col-actions">
-										<button className="delete-btn" onClick={() => handleDelete(entry.id, entry.title)}>
+										<button className="btn-danger" onClick={() => handleDelete(entry.id, entry.title)}>
 											Delete
 										</button>
 									</td>

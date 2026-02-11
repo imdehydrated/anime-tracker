@@ -21,13 +21,13 @@ function Home() {
 				<div className="home-links">
 					{isLoggedIn ? (
 						<>
-							<Link to="/mylist">View My List</Link>
-							<Link to="/search">Search Anime</Link>
+							<Link to="/mylist" className="btn-primary">View My List</Link>
+							<Link to="/search" className="btn-outline">Search Anime</Link>
 						</>
 					) : (
 						<>
-							<Link to="/login">Login</Link>
-							<Link to="/register">Register</Link>
+							<Link to="/login" className="btn-primary">Login</Link>
+							<Link to="/register" className="btn-outline">Register</Link>
 						</>
 					)}
 				</div>

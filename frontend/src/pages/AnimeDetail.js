@@ -93,15 +93,14 @@ function AnimeDetail() {
 							onList ? (
 								<span className="on-list-badge">On Your List</span>
 							) : (
-								<button className="add-btn" onClick={handleAddToList}>Add to List</button>
+								<a className="btn-primary" href="#" onClick={(e) => { e.preventDefault(); handleAddToList(); }}>Add to List</a>
 							)
 						) : (
-							<p className="login-prompt">
-								<a href="/login">Login</a> to add to your list
-							</p>
+							<a className="btn-primary" href="/login">Login to Add to List</a>
 						)}
 
 						<a
+							className="btn-outline"
 							href={`https://anilist.co/anime/${anime.id}`}
 							target="_blank"
 							rel="noopener noreferrer"

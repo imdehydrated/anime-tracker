@@ -155,7 +155,7 @@ function Recommendations() {
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <h2>Hidden Anime</h2>
-                            <button className="delete-btn" onClick={() => { setShowBlacklist(false); setBlacklistSearch(''); }}>Close</button>
+                            <button className="btn-danger" onClick={() => { setShowBlacklist(false); setBlacklistSearch(''); }}>Close</button>
                         </div>
                         {blacklist.length === 0 ? (
                             <p>No hidden anime.</p>
@@ -178,7 +178,7 @@ function Recommendations() {
                                             )}
                                             <div className="blacklist-card-info">
                                                 <h3><Link to={`/anime/${item.anilistId}`}>{item.title || `AniList #${item.anilistId}`}</Link></h3>
-                                                <button className="delete-btn" onClick={() => handleRemoveFromBlacklist(item.id)}>
+                                                <button className="btn-danger" onClick={() => handleRemoveFromBlacklist(item.id)}>
                                                     Remove
                                                 </button>
                                             </div>
