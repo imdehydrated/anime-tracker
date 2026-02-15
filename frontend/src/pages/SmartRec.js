@@ -64,6 +64,9 @@ function SmartRec() {
 				query: context.trim() || null,
 				limit: 15,
 			};
+			if (fullListMode) {
+				body.useListOnly = true;
+			}
 			if (isLoggedIn && listWeight > 0) {
 				body.listWeight = listWeight;
 			}

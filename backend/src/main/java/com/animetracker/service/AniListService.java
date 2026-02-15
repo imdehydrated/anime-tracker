@@ -119,29 +119,6 @@ public class AniListService {
         return response.getData().getPage().getMedia().get(0);
     }
 
-    // GraphQL query for recommendations — finds top-rated anime matching given genres
-    private static final String GENRE_SEARCH_QUERY = """
-            query ($genres: [String], $page: Int, $perPage: Int) {
-              Page(page: $page, perPage: $perPage) {
-                media(genre_in: $genres, type: ANIME, sort: SCORE_DESC) {
-                  id
-                  title {
-                    romaji
-                    english
-                  }
-                  episodes
-                  averageScore
-                  coverImage {
-                    large
-                  }
-                  genres
-                  description
-                  status
-                }
-              }
-            }
-            """;
-
     // GraphQL query for the embedding populator — includes tags (name + rank) for richer semantic signal.
     // Tags are user-voted descriptors like "Time Travel", "Anti-Hero", "Mind Games" with a relevance rank.
     // Sorted by POPULARITY_DESC so we embed the most popular anime first.
@@ -180,33 +157,6 @@ public class AniListService {
         Map<String, Object> requestBody = Map.of(
                 "query", POPULATE_QUERY,
                 "variables", Map.of("page", page, "perPage", perPage)
-        );
-
-        AniListResponse response = webClient.post()
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(AniListResponse.class)
-                .block();
-
-        if (response == null || response.getData() == null
-                || response.getData().getPage() == null
-                || response.getData().getPage().getMedia() == null) {
-            return Collections.emptyList();
-        }
-
-        return response.getData().getPage().getMedia();
-    }
-
-    /**
-     * Searches AniList for top-rated anime in the given genres. Used by
-     * RecommendationService to find anime similar to the user's taste. Returns
-     * up to perPage results sorted by score descending.
-     */
-    public List<AniListResponse.AnimeInfo> searchByGenres(List<String> genres, int page, int perPage) {
-        Map<String, Object> requestBody = Map.of(
-                "query", GENRE_SEARCH_QUERY,
-                "variables", Map.of("genres", genres, "page", page, "perPage", perPage)
         );
 
         AniListResponse response = webClient.post()

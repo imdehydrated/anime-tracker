@@ -12,6 +12,7 @@
  */
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useAuthHeader } from '../hooks/useAuthHeader';
 import { useAddToList } from '../hooks/useAddToList';
 import axios from 'axios';
@@ -20,13 +21,14 @@ import AnimeRecItem from '../components/AnimeRecItem';
 
 function Recommendations() {
     const [recommendations, setRecommendations] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [blacklist, setBlacklist] = useState([]);
     const [showBlacklist, setShowBlacklist] = useState(false);
     const [blacklistSearch, setBlacklistSearch] = useState('');
     const [fetchError, setFetchError] = useState('');
     const [addedIds, setAddedIds] = useState(new Set());
 
+    const { isLoggedIn } = useAuth();
     const authHeader = useAuthHeader();
     const { addToList, message, error, clearMessages, setError } = useAddToList();
 
@@ -47,9 +49,10 @@ function Recommendations() {
     };
 
     useEffect(() => {
+        if (!isLoggedIn) return;
         fetchRecommendations();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isLoggedIn]);
 
     const handleAddToList = async (anime) => {
         const success = await addToList(anime);
@@ -92,6 +95,16 @@ function Recommendations() {
     };
 
     if (loading) return <div className="loading">Loading recommendations...</div>;
+    if (!isLoggedIn) {
+        return (
+            <div className="page">
+                <h1>Recommended For You</h1>
+                <p className="empty-state">
+                    <Link to="/login">Login</Link> to get personalized recommendations from your list.
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="page">
@@ -118,7 +131,7 @@ function Recommendations() {
             {recommendations.length === 0 && !fetchError ? (
                 <div className="empty-state">
                     <p>No recommendations yet.</p>
-                    <p>Add some anime to <a href="/mylist">your list</a> and rate them to get personalized suggestions!</p>
+                    <p>Add some anime to <Link to="/mylist">your list</Link> and rate them to get personalized suggestions!</p>
                 </div>
             ) : (
                 <div className="smart-rec-results">
