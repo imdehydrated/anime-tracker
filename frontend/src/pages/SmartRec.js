@@ -27,7 +27,7 @@ function SmartRec() {
 		if (isLoggedIn) {
 			axios.get('/api/users/list', authHeader)
 				.then(({ data }) => setUserListIds(new Set(data.map(entry => entry.anilistId))))
-				.catch(() => {});
+				.catch(() => { });
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isLoggedIn]);
@@ -55,7 +55,7 @@ function SmartRec() {
 				seedIds: seeds.map(s => s.id),
 				query: context.trim() || null,
 				limit: 15,
-			}, authHeader);
+			}, isLoggedIn ? authHeader : {});
 			setResults(data);
 		} catch (err) {
 			setSearchError(err.response?.data?.error || 'Search failed. Try again.');
@@ -70,17 +70,6 @@ function SmartRec() {
 			setAddedIds(prev => new Set([...prev, anime.id]));
 		}
 	};
-
-	if (!isLoggedIn) {
-		return (
-			<div className="page">
-				<h1>Smart Search</h1>
-				<div className="empty-state">
-					<p><a href="/login">Login</a> to use AI-powered recommendations.</p>
-				</div>
-			</div>
-		);
-	}
 
 	return (
 		<div className="page smart-rec">
@@ -163,12 +152,14 @@ function SmartRec() {
 					<h2>Results</h2>
 					{results.map(anime => (
 						<AnimeRecItem key={anime.id} anime={anime}>
-							{userListIds.has(anime.id) || addedIds.has(anime.id) ? (
-								<span className="on-list-badge">On Your List</span>
-							) : (
-								<button className="btn-primary" onClick={() => handleAddToList(anime)}>
-									Add to List
-								</button>
+							{isLoggedIn && (
+								userListIds.has(anime.id) || addedIds.has(anime.id) ? (
+									<span className="on-list-badge">On Your List</span>
+								) : (
+									<button className="btn-primary" onClick={() => handleAddToList(anime)}>
+										Add to List
+									</button>
+								)
 							)}
 						</AnimeRecItem>
 					))}

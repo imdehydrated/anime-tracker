@@ -42,6 +42,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 ### User System
 - Registration with BCrypt password hashing
 - JWT authentication with protected routes
+- Auto-logout on JWT expiry (token decoded client-side, 401 interceptor)
 - Per-user scoped data — users can only access their own list
 
 ## Recommendation Algorithms
@@ -59,7 +60,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 1. **Input** — Pick 1-5 seed anime, describe what you want in natural language, or both. Text-only queries work without any seeds.
 2. **Vector blending** — Seed anime embeddings are averaged, then blended with the query embedding: `0.6 * seedAvg + 0.4 * queryVector`. Text-only queries use the query embedding directly.
 3. **Cosine similarity** — pgvector searches the `anime_embeddings` table using an IVFFlat index for fast nearest-neighbor lookup.
-4. **Results** — Top 15 similar anime returned, excluding user's list, blacklist, and seeds.
+4. **Results** — Top 15 similar anime returned, excluding user's list, blacklist, and seeds. Works without login (anonymous users see results without list exclusions).
 
 ## API Endpoints
 
@@ -74,7 +75,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 | GET | `/api/anime/search?q=` | No | Search anime by title |
 | GET | `/api/anime/{id}` | No | Get anime details by AniList ID |
 | GET | `/api/users/recommendations` | Yes | Get genre-based recommendations |
-| POST | `/api/users/recommendations/semantic` | Yes | Get AI semantic recommendations (seeds, text query, or both) |
+| POST | `/api/users/recommendations/semantic` | No | Get AI semantic recommendations (seeds, text query, or both) |
 | POST | `/api/users/recommendations/blacklist` | Yes | Hide anime from recommendations |
 | GET | `/api/users/recommendations/blacklist` | Yes | View blacklisted anime |
 | DELETE | `/api/users/recommendations/blacklist/{id}` | Yes | Remove from blacklist |

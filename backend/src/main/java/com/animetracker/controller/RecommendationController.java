@@ -83,7 +83,11 @@ public class RecommendationController {
      */
     @PostMapping("/semantic")
     public ResponseEntity<?> getSemanticRecommendations(@RequestBody SemanticRequest request) {
-        String username = getCurrentUsername();
+        // Anonymous users get null username — service skips list/blacklist exclusion
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = (auth != null && auth.isAuthenticated()
+                && !"anonymousUser".equals(auth.getName())) ? auth.getName() : null;
+
         int limit = (request.getLimit() != null) ? request.getLimit() : 15;
 
         List<AniListResponse.AnimeInfo> results = semanticService.recommend(

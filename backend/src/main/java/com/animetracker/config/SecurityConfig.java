@@ -29,31 +29,27 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            // Disable CSRF - not needed with JWT (tokens prevent CSRF by design)
-            .csrf(csrf -> csrf.disable())
-
-            // Session management: STATELESS means Spring won't create HTTP sessions
-            // JWT is self-contained, so we don't need server-side sessions
-            .sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            )
-
-            // Define route access rules
-            .authorizeHttpRequests(auth -> auth
+                // Disable CSRF - not needed with JWT (tokens prevent CSRF by design)
+                .csrf(csrf -> csrf.disable())
+                // Session management: STATELESS means Spring won't create HTTP sessions
+                // JWT is self-contained, so we don't need server-side sessions
+                .sessionManagement(session
+                        -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                // Define route access rules
+                .authorizeHttpRequests(auth -> auth
                 // Public routes - no token needed
                 .requestMatchers("/api/users/register", "/api/users/login").permitAll()
+                .requestMatchers("/api/users/recommendations/semantic").permitAll()
                 .requestMatchers("/api/health").permitAll()
                 .requestMatchers("/api/anime/**").permitAll()
-
-
                 // Everything else requires authentication
                 .anyRequest().authenticated()
-            )
-
-            // Add our JWT filter BEFORE Spring's default authentication filter
-            // This ensures our filter runs first and sets up the SecurityContext
-            .addFilterBefore(jwtAuthenticationFilter,
-                    UsernamePasswordAuthenticationFilter.class);
+                )
+                // Add our JWT filter BEFORE Spring's default authentication filter
+                // This ensures our filter runs first and sets up the SecurityContext
+                .addFilterBefore(jwtAuthenticationFilter,
+                        UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
