@@ -2,6 +2,7 @@ package com.animetracker.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -39,10 +40,10 @@ public class SecurityConfig {
                 // Define route access rules
                 .authorizeHttpRequests(auth -> auth
                 // Public routes - no token needed
-                .requestMatchers("/api/users/register", "/api/users/login").permitAll()
-                .requestMatchers("/api/users/recommendations/semantic").permitAll()
-                .requestMatchers("/api/health").permitAll()
-                .requestMatchers("/api/anime/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/register", "/api/users/login").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/semantic").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/anime/**").permitAll()
                 // Everything else requires authentication
                 .anyRequest().authenticated()
                 )

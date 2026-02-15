@@ -7,17 +7,17 @@
  * Includes "Add to List" button and back navigation.
  */
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useAuthHeader } from '../hooks/useAuthHeader';
 import { useAddToList } from '../hooks/useAddToList';
-import axios from 'axios';
+import { getApiError } from '../api/client';
+import { getAnimeById } from '../api/animeApi';
+import { getUserList } from '../api/listApi';
 
 function AnimeDetail() {
 	const { id } = useParams();
 	const navigate = useNavigate();
 	const { isLoggedIn } = useAuth();
-	const authHeader = useAuthHeader();
 	const { addToList, message, error } = useAddToList();
 
 	const [anime, setAnime] = useState(null);
@@ -28,10 +28,10 @@ function AnimeDetail() {
 	useEffect(() => {
 		async function fetchAnime() {
 			try {
-				const { data } = await axios.get(`/api/anime/${id}`);
+				const data = await getAnimeById(id);
 				setAnime(data);
 			} catch (err) {
-				setFetchError('Anime not found');
+				setFetchError(getApiError(err, 'Anime not found'));
 			} finally {
 				setLoading(false);
 			}
@@ -40,13 +40,13 @@ function AnimeDetail() {
 
 		// Check if anime is already on user's list
 		if (isLoggedIn) {
-			axios.get('/api/users/list', authHeader)
-				.then(({ data }) => {
+			getUserList()
+				.then((data) => {
 					if (data.some(entry => entry.anilistId === parseInt(id))) {
 						setOnList(true);
 					}
 				})
-				.catch(() => {});
+				.catch(() => { });
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [id, isLoggedIn]);
@@ -93,10 +93,10 @@ function AnimeDetail() {
 							onList ? (
 								<span className="on-list-badge">On Your List</span>
 							) : (
-								<a className="btn-primary" href="#" onClick={(e) => { e.preventDefault(); handleAddToList(); }}>Add to List</a>
+								<button className="btn-primary" onClick={handleAddToList}>Add to List</button>
 							)
 						) : (
-							<a className="btn-primary" href="/login">Login to Add to List</a>
+							<Link className="btn-primary" to="/login">Login to Add to List</Link>
 						)}
 
 						<a

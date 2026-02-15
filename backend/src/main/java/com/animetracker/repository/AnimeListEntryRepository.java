@@ -22,6 +22,7 @@ public interface AnimeListEntryRepository extends JpaRepository<AnimeListEntry, 
     // Find a specific anime in a user's list
     // Spring generates: SELECT * FROM anime_list_entries WHERE user_id = ? AND anilist_id = ?
     Optional<AnimeListEntry> findByUserAndAnilistId(User user, Integer anilistId);
+    Optional<AnimeListEntry> findByIdAndUser(Long id, User user);
 
     // Check if a user already has this anime in their list
     // Spring generates: SELECT COUNT(*) > 0 FROM anime_list_entries WHERE user_id = ? AND anilist_id = ?

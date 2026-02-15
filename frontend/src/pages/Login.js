@@ -8,7 +8,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import { getApiError } from '../api/client';
+import { loginUser } from '../api/authApi';
 
 function Login() {
 	const [email, setEmail] = useState('');
@@ -28,11 +29,11 @@ function Login() {
 		setError('');
 
 		try {
-			const { data } = await axios.post('/api/users/login', { email, password });
+			const data = await loginUser(email, password);
 			login(data.token);       // Store token in AuthContext
 			navigate('/mylist');      // Redirect to My List page
 		} catch (err) {
-			setError(err.response?.data?.error || 'Login failed');
+			setError(getApiError(err, 'Login failed'));
 		}
 	};
 

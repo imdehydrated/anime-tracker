@@ -1,14 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import AnimeRecItem from '../components/AnimeRecItem';
+import BlacklistModal from '../components/BlacklistModal';
 import { useAuth } from '../context/AuthContext';
-import { useAuthHeader } from '../hooks/useAuthHeader';
+import { getApiError } from '../api/client';
+import { getUserList } from '../api/listApi';
+import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useDebounceSearch } from '../hooks/useDebounceSearch';
-import AnimeRecItem from '../components/AnimeRecItem';
-import axios from 'axios';
+import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
 
 const MAX_SEEDS = 5;
 
+/**
+ * SmartRec page:
+ * - Seed + text-query semantic search
+ * - Optional list influence blending
+ * - Shared blacklist modal/actions
+ */
 function SmartRec() {
 	const [seeds, setSeeds] = useState([]);
 	const [context, setContext] = useState('');
@@ -18,37 +26,41 @@ function SmartRec() {
 	const [searchError, setSearchError] = useState('');
 	const [addedIds, setAddedIds] = useState(new Set());
 
-	// Blacklist state
-	const [blacklist, setBlacklist] = useState([]);
-	const [showBlacklist, setShowBlacklist] = useState(false);
-	const [blacklistSearch, setBlacklistSearch] = useState('');
-
 	const { isLoggedIn } = useAuth();
-	const authHeader = useAuthHeader();
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
-	const { query, setQuery, results: suggestions, loading: suggestionsLoading, clearResults } = useDebounceSearch(300, 2);
+	const {
+		query,
+		setQuery,
+		results: suggestions,
+		loading: suggestionsLoading,
+		clearResults,
+	} = useDebounceSearch(300, 2);
+
 	const fullListMode = isLoggedIn && listWeight >= 1;
 
-	// Fetch user's list IDs to show "On Your List" badges
 	const [userListIds, setUserListIds] = useState(new Set());
+	const blacklist = useRecommendationBlacklist(
+		setError,
+		(animeId) => setResults((prev) => prev.filter((item) => item.id !== animeId))
+	);
+
 	useEffect(() => {
 		if (isLoggedIn) {
-			axios.get('/api/users/list', authHeader)
-				.then(({ data }) => setUserListIds(new Set(data.map(entry => entry.anilistId))))
+			getUserList()
+				.then((data) => setUserListIds(new Set(data.map((entry) => entry.anilistId))))
 				.catch(() => { });
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isLoggedIn]);
 
 	const handleSelectSeed = (anime) => {
 		if (seeds.length >= MAX_SEEDS) return;
-		if (seeds.some(s => s.id === anime.id)) return;
-		setSeeds(prev => [...prev, anime]);
+		if (seeds.some((seed) => seed.id === anime.id)) return;
+		setSeeds((prev) => [...prev, anime]);
 		clearResults();
 	};
 
 	const handleRemoveSeed = (id) => {
-		setSeeds(prev => prev.filter(s => s.id !== id));
+		setSeeds((prev) => prev.filter((seed) => seed.id !== id));
 	};
 
 	const handleSearch = async () => {
@@ -60,7 +72,7 @@ function SmartRec() {
 
 		try {
 			const body = {
-				seedIds: seeds.map(s => s.id),
+				seedIds: seeds.map((seed) => seed.id),
 				query: context.trim() || null,
 				limit: 15,
 			};
@@ -70,11 +82,11 @@ function SmartRec() {
 			if (isLoggedIn && listWeight > 0) {
 				body.listWeight = listWeight;
 			}
-			const { data } = await axios.post('/api/users/recommendations/semantic',
-				body, isLoggedIn ? authHeader : {});
+
+			const data = await getSemanticRecommendations(body);
 			setResults(data);
 		} catch (err) {
-			setSearchError(err.response?.data?.error || 'Search failed. Try again.');
+			setSearchError(getApiError(err, 'Search failed. Try again.'));
 		} finally {
 			setSearching(false);
 		}
@@ -83,40 +95,7 @@ function SmartRec() {
 	const handleAddToList = async (anime) => {
 		const success = await addToList(anime);
 		if (success) {
-			setAddedIds(prev => new Set([...prev, anime.id]));
-		}
-	};
-
-	const handleBlacklist = async (anime) => {
-		clearMessages();
-		setSearchError('');
-
-		try {
-			await axios.post('/api/users/recommendations/blacklist',
-				{ anilistId: anime.id, title: anime.title.english || anime.title.romaji, coverImage: anime.coverImage?.large },
-				authHeader
-			);
-			setResults(prev => prev.filter(a => a.id !== anime.id));
-		} catch (err) {
-			setError('Failed to hide anime.');
-		}
-	};
-
-	const fetchBlacklist = async () => {
-		try {
-			const { data } = await axios.get('/api/users/recommendations/blacklist', authHeader);
-			setBlacklist(data);
-		} catch (err) {
-			setError('Failed to load blacklist.');
-		}
-	};
-
-	const handleRemoveFromBlacklist = async (id) => {
-		try {
-			await axios.delete(`/api/users/recommendations/blacklist/${id}`, authHeader);
-			setBlacklist(prev => prev.filter(item => item.id !== id));
-		} catch (err) {
-			setError('Failed to remove from blacklist.');
+			setAddedIds((prev) => new Set([...prev, anime.id]));
 		}
 	};
 
@@ -125,13 +104,12 @@ function SmartRec() {
 			<h1>Smart Recommendations</h1>
 			<p className="page-subtitle">Pick anime you love and describe what you're looking for.</p>
 
-			{/* Seed Picker */}
 			<div className="smart-rec-section">
 				<label className="smart-rec-label">Seed Anime (up to {MAX_SEEDS})</label>
 
 				{seeds.length > 0 && !fullListMode && (
 					<div className="seed-chips">
-						{seeds.map(seed => (
+						{seeds.map((seed) => (
 							<span key={seed.id} className="seed-chip">
 								{seed.title.english || seed.title.romaji}
 								<button onClick={() => handleRemoveSeed(seed.id)} aria-label="Remove">&times;</button>
@@ -151,16 +129,14 @@ function SmartRec() {
 						{suggestionsLoading && <div className="seed-dropdown-loading">Searching...</div>}
 						{suggestions.length > 0 && (
 							<div className="seed-dropdown">
-								{suggestions.map(anime => (
+								{suggestions.map((anime) => (
 									<button
 										key={anime.id}
 										className="seed-dropdown-item"
 										onClick={() => handleSelectSeed(anime)}
-										disabled={seeds.some(s => s.id === anime.id)}
+										disabled={seeds.some((seed) => seed.id === anime.id)}
 									>
-										{anime.coverImage && (
-											<img src={anime.coverImage.large} alt="" />
-										)}
+										{anime.coverImage && <img src={anime.coverImage.large} alt="" />}
 										<span>{anime.title.english || anime.title.romaji}</span>
 									</button>
 								))}
@@ -170,12 +146,13 @@ function SmartRec() {
 				)}
 			</div>
 
-			{/* Context Input */}
 			<div className="smart-rec-section">
 				<label className="smart-rec-label">What are you in the mood for? (optional)</label>
 				<textarea
 					className="smart-rec-context"
-					placeholder={fullListMode ? "Disabled at 100% list influence — results are based entirely on your list." : "e.g. dark psychological thriller with plot twists, or something lighthearted and funny..."}
+					placeholder={fullListMode
+						? "Disabled at 100% list influence - results are based entirely on your list."
+						: "e.g. dark psychological thriller with plot twists, or something lighthearted and funny..."}
 					value={fullListMode ? '' : context}
 					onChange={(e) => setContext(e.target.value)}
 					rows={3}
@@ -183,7 +160,6 @@ function SmartRec() {
 				/>
 			</div>
 
-			{/* List Influence Slider — logged-in only */}
 			{isLoggedIn && (
 				<div className="smart-rec-section">
 					<label className="smart-rec-label">
@@ -196,9 +172,9 @@ function SmartRec() {
 						max="100"
 						value={Math.round(listWeight * 100)}
 						onChange={(e) => {
-							const val = Number(e.target.value) / 100;
-							setListWeight(val);
-							if (val >= 1) {
+							const value = Number(e.target.value) / 100;
+							setListWeight(value);
+							if (value >= 1) {
 								setSeeds([]);
 								setContext('');
 								clearResults();
@@ -211,7 +187,6 @@ function SmartRec() {
 				</div>
 			)}
 
-			{/* Search Button + Manage Blacklist */}
 			<div className="smart-rec-actions">
 				<button
 					className="btn-primary smart-rec-btn"
@@ -221,27 +196,19 @@ function SmartRec() {
 					{searching ? 'Searching...' : 'Find Recommendations'}
 				</button>
 				{isLoggedIn && (
-					<button
-						className="refresh-btn"
-						onClick={() => {
-							setShowBlacklist(!showBlacklist);
-							if (!showBlacklist) fetchBlacklist();
-						}}
-					>
+					<button className="refresh-btn" onClick={blacklist.openBlacklist}>
 						Manage Blacklist
 					</button>
 				)}
 			</div>
 
-			{/* Messages */}
 			{(searchError || error) && <p className="error-message">{searchError || error}</p>}
 			{message && <p className="success-message">{message}</p>}
 
-			{/* Results */}
 			{results.length > 0 && (
 				<div className="smart-rec-results">
 					<h2>Results</h2>
-					{results.map(anime => (
+					{results.map((anime) => (
 						<AnimeRecItem key={anime.id} anime={anime}>
 							{isLoggedIn && (
 								userListIds.has(anime.id) || addedIds.has(anime.id) ? (
@@ -251,7 +218,7 @@ function SmartRec() {
 										<button className="btn-primary" onClick={() => handleAddToList(anime)}>
 											Add to List
 										</button>
-										<button className="blacklist-btn" onClick={() => handleBlacklist(anime)}>
+										<button className="blacklist-btn" onClick={() => blacklist.handleBlacklist(anime)}>
 											Not Interested
 										</button>
 									</>
@@ -262,47 +229,14 @@ function SmartRec() {
 				</div>
 			)}
 
-			{/* Blacklist Modal */}
-			{showBlacklist && (
-				<div className="modal-overlay" onClick={() => { setShowBlacklist(false); setBlacklistSearch(''); }}>
-					<div className="modal" onClick={(e) => e.stopPropagation()}>
-						<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-							<h2>Hidden Anime</h2>
-							<button className="btn-danger" onClick={() => { setShowBlacklist(false); setBlacklistSearch(''); }}>Close</button>
-						</div>
-						{blacklist.length === 0 ? (
-							<p>No hidden anime.</p>
-						) : (
-							<>
-								<input
-									type="text"
-									className="blacklist-search"
-									placeholder="Search hidden anime..."
-									value={blacklistSearch}
-									onChange={(e) => setBlacklistSearch(e.target.value)}
-								/>
-								<div className="blacklist-cards">
-									{blacklist
-										.filter(item => (item.title || '').toLowerCase().includes(blacklistSearch.toLowerCase()))
-										.map(item => (
-											<div key={item.id} className="blacklist-card">
-												{item.coverImage && (
-													<img src={item.coverImage} alt={item.title} />
-												)}
-												<div className="blacklist-card-info">
-													<h3><Link to={`/anime/${item.anilistId}`}>{item.title || `AniList #${item.anilistId}`}</Link></h3>
-													<button className="btn-danger" onClick={() => handleRemoveFromBlacklist(item.id)}>
-														Remove
-													</button>
-												</div>
-											</div>
-										))}
-								</div>
-							</>
-						)}
-					</div>
-				</div>
-			)}
+			<BlacklistModal
+				show={blacklist.showBlacklist}
+				blacklist={blacklist.blacklist}
+				search={blacklist.blacklistSearch}
+				onSearchChange={blacklist.setBlacklistSearch}
+				onClose={blacklist.closeBlacklist}
+				onRemove={blacklist.handleRemoveFromBlacklist}
+			/>
 		</div>
 	);
 }

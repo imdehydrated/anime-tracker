@@ -1,5 +1,6 @@
 package com.animetracker.service;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -9,18 +10,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
- * Calls OpenAI's Embeddings API to convert text into 1536-dim vectors.
- * Uses text-embedding-3-small model (~$0.02 per 1M tokens).
- *
- * The returned float[] can be formatted as a string like "[0.1,0.2,...]"
- * for insertion into pgvector via native SQL.
+ * Adapter for OpenAI Embeddings API.
+ * Converts arbitrary text into vectors and handles vector serialization helpers.
  */
 @Service
 public class EmbeddingService {
 
 	private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
+	private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
 
 	private final WebClient webClient;
 	private final String apiKey;
@@ -30,6 +30,7 @@ public class EmbeddingService {
 		this.webClient = WebClient.builder()
 				.baseUrl("https://api.openai.com")
 				.defaultHeader("Authorization", "Bearer " + apiKey)
+				.defaultHeader("User-Agent", "animetracker/1.0")
 				.build();
 	}
 
@@ -49,16 +50,26 @@ public class EmbeddingService {
 		);
 
 		// Call OpenAI and parse the response
-		Map response = webClient.post()
-				.uri("/v1/embeddings")
-				.contentType(MediaType.APPLICATION_JSON)
-				.bodyValue(requestBody)
-				.retrieve()
-				.bodyToMono(Map.class)
-				.block();
+		Map response;
+		try {
+			response = webClient.post()
+					.uri("/v1/embeddings")
+					.contentType(MediaType.APPLICATION_JSON)
+					.bodyValue(requestBody)
+					.retrieve()
+					.bodyToMono(Map.class)
+					.block(REQUEST_TIMEOUT);
+		} catch (WebClientResponseException ex) {
+			log.warn("OpenAI embedding request failed: status={} body={}",
+					ex.getStatusCode().value(), ex.getResponseBodyAsString());
+			throw new IllegalStateException("Embedding API request failed");
+		} catch (Exception ex) {
+			log.warn("OpenAI embedding request failed: {}", ex.getMessage());
+			throw new IllegalStateException("Embedding API request failed");
+		}
 
 		if (response == null || response.get("data") == null) {
-			throw new RuntimeException("Empty response from OpenAI Embeddings API");
+			throw new IllegalStateException("Empty response from OpenAI Embeddings API");
 		}
 
 		// Response shape: { "data": [{ "embedding": [0.1, 0.2, ...] }] }

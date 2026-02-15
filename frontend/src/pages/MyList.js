@@ -1,79 +1,124 @@
-/**
- * MyList Page — MAL-style table layout for the user's anime list.
- *
- * Features: text filter, status filter, sort options, table with aligned columns,
- * confirm before delete, clickable thumbnails/titles, "Add to your list" button.
- * All changes (status, score, episodes) are saved immediately via PUT.
- */
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuthHeader } from '../hooks/useAuthHeader';
-import axios from 'axios';
+import { getApiError } from '../api/client';
+import { deleteListEntry, getUserList, updateListEntry } from '../api/listApi';
 
+/**
+ * MyList page:
+ * - Loads authenticated user's list
+ * - Supports optimistic status/score/progress edits
+ * - Supports optimistic delete with rollback on API failure
+ * - Applies client-side filtering/sorting for table rendering
+ */
 function MyList() {
 	const [entries, setEntries] = useState([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
+	const [episodesDrafts, setEpisodesDrafts] = useState({});
 
-	// Filter and sort state
 	const [filterText, setFilterText] = useState('');
 	const [filterStatus, setFilterStatus] = useState('ALL');
 	const [sortBy, setSortBy] = useState('DATE_DESC');
 
-	const authHeader = useAuthHeader();
 	const navigate = useNavigate();
+
+	const syncEpisodeDrafts = (list) => {
+		const next = {};
+		for (const entry of list) {
+			next[entry.id] = entry.episodesWatched || 0;
+		}
+		setEpisodesDrafts(next);
+	};
 
 	const fetchList = async () => {
 		try {
-			const { data } = await axios.get('/api/users/list', authHeader);
+			const data = await getUserList();
 			setEntries(data);
+			syncEpisodeDrafts(data);
 		} catch (err) {
-			setError('Failed to load list');
+			setError(getApiError(err, 'Failed to load list'));
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	useEffect(() => { fetchList(); }, []);
+	useEffect(() => {
+		fetchList();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	const handleUpdate = async (entryId, updates, entry) => {
 		setError('');
-		// Auto-fill progress when marking as completed
-		if (updates.status === 'COMPLETED' && entry?.totalEpisodes) {
-			updates.episodesWatched = entry.totalEpisodes;
+
+		const payload = { ...updates };
+		if (payload.status === 'COMPLETED' && entry?.totalEpisodes != null) {
+			payload.episodesWatched = entry.totalEpisodes;
 		}
+
+		const previousEntries = entries;
+		const optimisticEntries = entries.map((item) => {
+			if (item.id !== entryId) return item;
+			return {
+				...item,
+				...payload,
+				episodesWatched: payload.episodesWatched ?? item.episodesWatched,
+				score: Object.prototype.hasOwnProperty.call(payload, 'score') ? payload.score : item.score,
+			};
+		});
+
+		setEntries(optimisticEntries);
+		if (Object.prototype.hasOwnProperty.call(payload, 'episodesWatched')) {
+			setEpisodesDrafts((prev) => ({ ...prev, [entryId]: payload.episodesWatched ?? 0 }));
+		}
+
 		try {
-			await axios.put(`/api/users/list/${entryId}`, updates, authHeader);
-			fetchList();
+			await updateListEntry(entryId, payload);
 		} catch (err) {
-			setError('Failed to update');
+			setEntries(previousEntries);
+			syncEpisodeDrafts(previousEntries);
+			setError(getApiError(err, 'Failed to update'));
 		}
 	};
 
 	const handleDelete = async (entryId, title) => {
 		if (!window.confirm(`Remove "${title}" from your list?`)) return;
+
+		const previousEntries = entries;
+		const nextEntries = entries.filter((entry) => entry.id !== entryId);
+		setEntries(nextEntries);
+		setEpisodesDrafts((prev) => {
+			const next = { ...prev };
+			delete next[entryId];
+			return next;
+		});
+
 		try {
-			await axios.delete(`/api/users/list/${entryId}`, authHeader);
-			fetchList();
+			await deleteListEntry(entryId);
 		} catch (err) {
-			setError('Failed to delete');
+			setEntries(previousEntries);
+			syncEpisodeDrafts(previousEntries);
+			setError(getApiError(err, 'Failed to delete'));
 		}
 	};
 
-	// Client-side filter and sort
-	const filteredList = entries
-		.filter(entry => filterStatus === 'ALL' || entry.status === filterStatus)
-		.filter(entry => entry.title?.toLowerCase().includes(filterText.toLowerCase()))
-		.sort((a, b) => {
-			switch (sortBy) {
-				case 'TITLE_ASC': return (a.title || '').localeCompare(b.title || '');
-				case 'SCORE_DESC': return (b.score || 0) - (a.score || 0);
-				case 'STATUS': return (a.status || '').localeCompare(b.status || '');
-				case 'DATE_DESC':
-				default: return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-			}
-		});
+	const filteredList = useMemo(() => {
+		return entries
+			.filter((entry) => filterStatus === 'ALL' || entry.status === filterStatus)
+			.filter((entry) => entry.title?.toLowerCase().includes(filterText.toLowerCase()))
+			.sort((a, b) => {
+				switch (sortBy) {
+					case 'TITLE_ASC':
+						return (a.title || '').localeCompare(b.title || '');
+					case 'SCORE_DESC':
+						return (b.score || 0) - (a.score || 0);
+					case 'STATUS':
+						return (a.status || '').localeCompare(b.status || '');
+					case 'DATE_DESC':
+					default:
+						return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+				}
+			});
+	}, [entries, filterStatus, filterText, sortBy]);
 
 	if (loading) return <div className="page"><p className="loading">Loading...</p></div>;
 
@@ -94,7 +139,6 @@ function MyList() {
 				</div>
 			) : (
 				<>
-					{/* Filter and sort bar */}
 					<div className="list-filters">
 						<input
 							type="text"
@@ -118,7 +162,6 @@ function MyList() {
 						</select>
 					</div>
 
-					{/* MAL-style table */}
 					<table className="mal-table">
 						<thead>
 							<tr>
@@ -150,10 +193,14 @@ function MyList() {
 									<td className="col-score">
 										<select
 											value={entry.score || ''}
-											onChange={(e) => handleUpdate(entry.id, { score: e.target.value === '' ? null : parseInt(e.target.value) })}
+											onChange={(e) => handleUpdate(
+												entry.id,
+												{ score: e.target.value === '' ? null : parseInt(e.target.value, 10) },
+												entry
+											)}
 										>
 											<option value="">-</option>
-											{[1,2,3,4,5,6,7,8,9,10].map(n => (
+											{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
 												<option key={n} value={n}>{n}</option>
 											))}
 										</select>
@@ -176,18 +223,23 @@ function MyList() {
 												type="number"
 												min="0"
 												max={entry.totalEpisodes || undefined}
-												defaultValue={entry.episodesWatched || 0}
-												onBlur={(e) => {
-													let val = parseInt(e.target.value) || 0;
+												value={episodesDrafts[entry.id] ?? 0}
+												onChange={(e) => {
+													const value = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+													setEpisodesDrafts((prev) => ({ ...prev, [entry.id]: value }));
+												}}
+												onBlur={() => {
+													let val = parseInt(episodesDrafts[entry.id], 10);
+													if (Number.isNaN(val)) val = 0;
 													if (val < 0) val = 0;
 													if (entry.totalEpisodes && val > entry.totalEpisodes) val = entry.totalEpisodes;
-													e.target.value = val;
+													setEpisodesDrafts((prev) => ({ ...prev, [entry.id]: val }));
 													if (val !== (entry.episodesWatched || 0)) {
-														handleUpdate(entry.id, { episodesWatched: val });
+														handleUpdate(entry.id, { episodesWatched: val }, entry);
 													}
 												}}
 												onKeyDown={(e) => {
-													if (e.key === 'Enter') e.target.blur();
+													if (e.key === 'Enter') e.currentTarget.blur();
 												}}
 											/>
 											{entry.totalEpisodes != null && <span className="progress-total">/ {entry.totalEpisodes}</span>}

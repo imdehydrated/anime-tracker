@@ -1,28 +1,38 @@
 package com.animetracker.service;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import com.animetracker.dto.AniListResponse;
 
+/**
+ * Thin adapter around AniList GraphQL.
+ * Centralizes query definitions, timeout behavior, and error handling.
+ */
 @Service
 public class AniListService {
 
+    private static final Logger log = LoggerFactory.getLogger(AniListService.class);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(12);
+
     private final WebClient webClient;
 
-    // WebClient is created once and reused for all requests
     public AniListService() {
         this.webClient = WebClient.builder()
                 .baseUrl("https://graphql.anilist.co")
+                .defaultHeader("User-Agent", "animetracker/1.0")
                 .build();
     }
 
-    // The GraphQL query we send to AniList — asks for exactly the fields we need
     private static final String SEARCH_QUERY = """
             query ($search: String) {
               Page(page: 1, perPage: 10) {
@@ -45,33 +55,6 @@ public class AniListService {
             }
             """;
 
-    // Called by the controller — searches AniList for anime matching the query
-    public List<AniListResponse.AnimeInfo> searchAnime(String query) {
-        // Build the GraphQL request body: { "query": "...", "variables": { "search": "Naruto" } }
-        Map<String, Object> requestBody = Map.of(
-                "query", SEARCH_QUERY,
-                "variables", Map.of("search", query)
-        );
-
-        // Send POST request to AniList and parse response into our DTO
-        AniListResponse response = webClient.post()
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(AniListResponse.class) // Deserialize JSON → AniListResponse
-                .block();                             // Wait for the response (synchronous)
-
-        // Safely extract the media list, returning empty list if anything is null
-        if (response == null || response.getData() == null
-                || response.getData().getPage() == null
-                || response.getData().getPage().getMedia() == null) {
-            return Collections.emptyList();
-        }
-
-        return response.getData().getPage().getMedia();
-    }
-
-    // GraphQL query to fetch a single anime by its AniList ID
     private static final String GET_BY_ID_QUERY = """
             query ($id: Int) {
               Page(page: 1, perPage: 1) {
@@ -94,34 +77,6 @@ public class AniListService {
             }
             """;
 
-    // Fetches a single anime by AniList ID — used by the detail page
-    public AniListResponse.AnimeInfo getAnimeById(Integer id) {
-        Map<String, Object> requestBody = Map.of(
-                "query", GET_BY_ID_QUERY,
-                "variables", Map.of("id", id)
-        );
-
-        AniListResponse response = webClient.post()
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(AniListResponse.class)
-                .block();
-
-        if (response == null || response.getData() == null
-                || response.getData().getPage() == null
-                || response.getData().getPage().getMedia() == null
-                || response.getData().getPage().getMedia().isEmpty()) {
-            return null;
-        }
-
-        // Only one result — get the first (and only) item
-        return response.getData().getPage().getMedia().get(0);
-    }
-
-    // GraphQL query for the embedding populator — includes tags (name + rank) for richer semantic signal.
-    // Tags are user-voted descriptors like "Time Travel", "Anti-Hero", "Mind Games" with a relevance rank.
-    // Sorted by POPULARITY_DESC so we embed the most popular anime first.
     private static final String POPULATE_QUERY = """
             query ($page: Int, $perPage: Int) {
               Page(page: $page, perPage: $perPage) {
@@ -148,31 +103,64 @@ public class AniListService {
             }
             """;
 
-    /**
-     * Fetches a page of anime sorted by popularity (most popular first).
-     * Includes tags for richer embedding text. Used by the populator service
-     * to bulk-scrape anime for the embeddings database.
-     */
-    public List<AniListResponse.AnimeInfo> fetchPopularAnimePage(int page, int perPage) {
+    public List<AniListResponse.AnimeInfo> searchAnime(String query) {
         Map<String, Object> requestBody = Map.of(
-                "query", POPULATE_QUERY,
-                "variables", Map.of("page", page, "perPage", perPage)
-        );
+                "query", SEARCH_QUERY,
+                "variables", Map.of("search", query));
 
-        AniListResponse response = webClient.post()
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(AniListResponse.class)
-                .block();
-
+        AniListResponse response = executeGraphql(requestBody);
         if (response == null || response.getData() == null
                 || response.getData().getPage() == null
                 || response.getData().getPage().getMedia() == null) {
             return Collections.emptyList();
         }
-
         return response.getData().getPage().getMedia();
     }
 
+    public AniListResponse.AnimeInfo getAnimeById(Integer id) {
+        Map<String, Object> requestBody = Map.of(
+                "query", GET_BY_ID_QUERY,
+                "variables", Map.of("id", id));
+
+        AniListResponse response = executeGraphql(requestBody);
+        if (response == null || response.getData() == null
+                || response.getData().getPage() == null
+                || response.getData().getPage().getMedia() == null
+                || response.getData().getPage().getMedia().isEmpty()) {
+            return null;
+        }
+        return response.getData().getPage().getMedia().get(0);
+    }
+
+    public List<AniListResponse.AnimeInfo> fetchPopularAnimePage(int page, int perPage) {
+        Map<String, Object> requestBody = Map.of(
+                "query", POPULATE_QUERY,
+                "variables", Map.of("page", page, "perPage", perPage));
+
+        AniListResponse response = executeGraphql(requestBody);
+        if (response == null || response.getData() == null
+                || response.getData().getPage() == null
+                || response.getData().getPage().getMedia() == null) {
+            return Collections.emptyList();
+        }
+        return response.getData().getPage().getMedia();
+    }
+
+    private AniListResponse executeGraphql(Map<String, Object> requestBody) {
+        try {
+            return webClient.post()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(AniListResponse.class)
+                    .block(REQUEST_TIMEOUT);
+        } catch (WebClientResponseException ex) {
+            log.warn("AniList request failed: status={} body={}",
+                    ex.getStatusCode().value(), ex.getResponseBodyAsString());
+            return null;
+        } catch (Exception ex) {
+            log.warn("AniList request failed: {}", ex.getMessage());
+            return null;
+        }
+    }
 }

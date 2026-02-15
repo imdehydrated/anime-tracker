@@ -3,7 +3,6 @@ package com.animetracker.controller;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,9 +15,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.RecommendationBlacklistRequest;
 import com.animetracker.dto.SemanticRequest;
+import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.service.SemanticRecommendationService;
 
+import jakarta.validation.Valid;
+
+/**
+ * Recommendation endpoints:
+ * - semantic recommendations
+ * - recommendation blacklist management
+ */
 @RestController
 @RequestMapping("/api/users/recommendations")
 public class RecommendationController {
@@ -30,51 +38,38 @@ public class RecommendationController {
     }
 
     @PostMapping("/semantic")
-    public ResponseEntity<?> getSemanticRecommendations(@RequestBody SemanticRequest request) {
-        try {
-            String username = getCurrentUsernameOrNull();
-            List<AniListResponse.AnimeInfo> results = semanticService.recommend(
-                    username,
-                    request.getSeedIds(),
-                    request.getQuery(),
-                    request.getLimit(),
-                    Boolean.TRUE.equals(request.getUseListOnly()),
-                    request.getListWeight());
-            return ResponseEntity.ok(results);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<List<AniListResponse.AnimeInfo>> getSemanticRecommendations(
+            @Valid @RequestBody SemanticRequest request) {
+        String username = getCurrentUsernameOrNull();
+        List<AniListResponse.AnimeInfo> results = semanticService.recommend(
+                username,
+                request.getSeedIds(),
+                request.getQuery(),
+                request.getLimit(),
+                Boolean.TRUE.equals(request.getUseListOnly()),
+                request.getListWeight());
+        return ResponseEntity.ok(results);
     }
 
     @PostMapping("/blacklist")
-    public ResponseEntity<?> blacklistAnime(@RequestBody Map<String, Object> request) {
-        Integer anilistId = request.get("anilistId") instanceof Number
-                ? ((Number) request.get("anilistId")).intValue()
-                : null;
-        String title = request.get("title") instanceof String ? (String) request.get("title") : null;
-        String coverImage = request.get("coverImage") instanceof String ? (String) request.get("coverImage") : null;
-
-        try {
-            semanticService.blacklistAnime(getCurrentUsernameRequired(), anilistId, title, coverImage);
-            return ResponseEntity.ok(Map.of("message", "Anime hidden from recommendations"));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, String>> blacklistAnime(@Valid @RequestBody RecommendationBlacklistRequest request) {
+        semanticService.blacklistAnime(
+                getCurrentUsernameRequired(),
+                request.anilistId(),
+                request.title(),
+                request.coverImage());
+        return ResponseEntity.ok(Map.of("message", "Anime hidden from recommendations"));
     }
 
     @GetMapping("/blacklist")
-    public ResponseEntity<?> getBlacklist() {
+    public ResponseEntity<List<Map<String, Object>>> getBlacklist() {
         return ResponseEntity.ok(semanticService.getBlacklist(getCurrentUsernameRequired()));
     }
 
     @DeleteMapping("/blacklist/{id}")
-    public ResponseEntity<?> removeFromBlacklist(@PathVariable Long id) {
-        try {
-            semanticService.removeFromBlacklist(getCurrentUsernameRequired(), id);
-            return ResponseEntity.ok(Map.of("message", "Removed from blacklist"));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, String>> removeFromBlacklist(@PathVariable Long id) {
+        semanticService.removeFromBlacklist(getCurrentUsernameRequired(), id);
+        return ResponseEntity.ok(Map.of("message", "Removed from blacklist"));
     }
 
     private String getCurrentUsernameOrNull() {
@@ -88,7 +83,7 @@ public class RecommendationController {
     private String getCurrentUsernameRequired() {
         String username = getCurrentUsernameOrNull();
         if (username == null) {
-            throw new IllegalArgumentException("Authentication required");
+            throw new UnauthorizedException("Authentication required");
         }
         return username;
     }

@@ -15,10 +15,18 @@ import com.animetracker.dto.AniListResponse;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.entity.RecommendationBlacklist;
 import com.animetracker.entity.User;
+import com.animetracker.exception.BadRequestException;
+import com.animetracker.exception.NotFoundException;
+import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.repository.AnimeEmbeddingRepository;
 import com.animetracker.repository.RecommendationBlacklistRepository;
 import com.animetracker.repository.UserRepository;
 
+/**
+ * Semantic recommendation engine.
+ * Builds a search vector from seed anime, optional text query, and optional user-list preference vector,
+ * then queries pgvector for nearest neighbors.
+ */
 @Service
 public class SemanticRecommendationService {
 
@@ -48,6 +56,9 @@ public class SemanticRecommendationService {
         this.populatorService = populatorService;
     }
 
+    /**
+     * Primary recommendation entrypoint used by recommendation endpoints.
+     */
     public List<AniListResponse.AnimeInfo> recommend(
             String username,
             List<Integer> seedIds,
@@ -67,13 +78,13 @@ public class SemanticRecommendationService {
                 && !hasQuery);
 
         if (effectiveListOnly && username == null) {
-            throw new IllegalArgumentException("Login required for list-only recommendations");
+            throw new UnauthorizedException("Login required for list-only recommendations");
         }
         if (!effectiveListOnly && !hasSeeds && !hasQuery) {
-            throw new IllegalArgumentException("Provide at least one seed anime or a text query");
+            throw new BadRequestException("Provide at least one seed anime or a text query");
         }
         if (normalizedSeeds.size() > 5) {
-            throw new IllegalArgumentException("Maximum 5 seed anime allowed");
+            throw new BadRequestException("Maximum 5 seed anime allowed");
         }
 
         int limit = normalizeLimit(requestedLimit);
@@ -107,7 +118,7 @@ public class SemanticRecommendationService {
             float[] listVector = buildUserPreferenceVector(username);
             if (listVector == null) {
                 if (effectiveListOnly) {
-                    throw new IllegalArgumentException("Your list does not have enough embedded anime yet");
+                    throw new BadRequestException("Your list does not have enough embedded anime yet");
                 }
             } else {
                 searchVector = (searchVector == null)
@@ -133,7 +144,7 @@ public class SemanticRecommendationService {
 
     public void blacklistAnime(String username, Integer anilistId, String title, String coverImage) {
         if (anilistId == null) {
-            throw new IllegalArgumentException("anilistId is required");
+            throw new BadRequestException("anilistId is required");
         }
         User user = getUser(username);
         if (!blacklistRepository.existsByUserAndAnilistId(user, anilistId)) {
@@ -157,17 +168,17 @@ public class SemanticRecommendationService {
     public void removeFromBlacklist(String username, Long id) {
         User user = getUser(username);
         RecommendationBlacklist entry = blacklistRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Blacklist entry not found"));
+                .orElseThrow(() -> new NotFoundException("Blacklist entry not found"));
 
         if (!entry.getUser().getId().equals(user.getId())) {
-            throw new IllegalArgumentException("Not your blacklist entry");
+            throw new UnauthorizedException("Not your blacklist entry");
         }
         blacklistRepository.delete(entry);
     }
 
     private User getUser(String username) {
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     private List<Integer> buildExcludeIds(String username, List<Integer> seedIds) {

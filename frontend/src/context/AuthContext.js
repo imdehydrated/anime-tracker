@@ -10,10 +10,10 @@
  * 2. Any component can call useAuth() to access { token, login, logout, isLoggedIn }
  * 3. Token is persisted in localStorage so it survives page refreshes
  * 4. Expired tokens are auto-cleared on app load
- * 5. 401 API responses trigger automatic logout
+ * 5. API 401 responses trigger automatic logout via shared API client hook
  */
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { setUnauthorizedHandler } from "../api/client";
 
 // Create the context — a "container" for auth data
 const AuthContext = createContext();
@@ -74,19 +74,10 @@ export function AuthProvider({ children }) {
     setToken(null);
   }, []);
 
-  // Axios 401 interceptor — auto-logout when the backend rejects a stale token
+  // API 401 handler - auto-logout when backend rejects a stale token
   useEffect(() => {
-    const interceptor = axios.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          logout();
-        }
-        return Promise.reject(error);
-      }
-    );
-    // Cleanup: remove interceptor when AuthProvider unmounts
-    return () => axios.interceptors.response.eject(interceptor);
+    setUnauthorizedHandler(logout);
+    return () => setUnauthorizedHandler(null);
   }, [logout]);
 
   // Auto-refresh when token expires while the user is on the page
@@ -98,15 +89,13 @@ export function AuthProvider({ children }) {
       const msUntilExpiry = payload.exp * 1000 - Date.now();
 
       if (msUntilExpiry <= 0) {
-        // Already expired — logout and refresh immediately
+        // Already expired — logout immediately
         logout();
-        window.location.reload();
         return;
       }
 
       const timer = setTimeout(() => {
         logout();
-        window.location.reload();
       }, msUntilExpiry);
 
       return () => clearTimeout(timer);

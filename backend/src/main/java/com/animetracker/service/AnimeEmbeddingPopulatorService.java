@@ -22,7 +22,7 @@ import com.animetracker.repository.AnimeEmbeddingRepository;
  * 4. Upsert the anime + embedding into the database
  * 5. Wait 700ms before the next AniList page (rate limit: 90 req/min)
  *
- * Triggered manually via POST /api/admin/embeddings/populate.
+ * Triggered manually by a maintenance script/job.
  * Target: ~5,000-15,000 anime. Cost: ~$0.06 for 15k at text-embedding-3-small pricing.
  */
 @Service

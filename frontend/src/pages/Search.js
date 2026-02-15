@@ -6,10 +6,12 @@
  * Search is a public endpoint; adding to list requires JWT auth.
  */
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useAuthHeader } from '../hooks/useAuthHeader';
 import { useAddToList } from '../hooks/useAddToList';
-import axios from 'axios';
+import { getApiError } from '../api/client';
+import { searchAnime } from '../api/animeApi';
+import { getUserList } from '../api/listApi';
 
 import AnimeCard from '../components/AnimeCard';
 
@@ -21,14 +23,13 @@ function Search() {
 	const [userListIds, setUserListIds] = useState(new Set());
 
 	const { isLoggedIn } = useAuth();
-	const authHeader = useAuthHeader();
 	const { addToList, message, error, clearMessages } = useAddToList();
 
 	// Fetch user's list IDs on mount to show "On Your List" badges
 	useEffect(() => {
 		if (isLoggedIn) {
-			axios.get('/api/users/list', authHeader)
-				.then(({ data }) => {
+			getUserList()
+				.then((data) => {
 					setUserListIds(new Set(data.map(entry => entry.anilistId)));
 				})
 				.catch(() => { });
@@ -57,10 +58,10 @@ function Search() {
 		setLoading(true);
 
 		try {
-			const { data } = await axios.get(`/api/anime/search?q=${encodeURIComponent(searchQuery)}`);
+			const data = await searchAnime(searchQuery);
 			setResults(data);
 		} catch (err) {
-			setSearchError('Search failed. Try again.');
+			setSearchError(getApiError(err, 'Search failed. Try again.'));
 		} finally {
 			setLoading(false);
 		}
@@ -110,7 +111,7 @@ function Search() {
 							)
 						) : (
 							<p className="login-prompt">
-								<a href="/login">Login</a> or <a href="/register">register</a> to add to your list
+								<Link to="/login">Login</Link> or <Link to="/register">register</Link> to add to your list
 							</p>
 						)}
 					</AnimeCard>

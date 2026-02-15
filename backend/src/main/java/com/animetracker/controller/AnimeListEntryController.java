@@ -17,20 +17,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.animetracker.dto.AddAnimeRequest;
+import com.animetracker.dto.UpdateAnimeEntryRequest;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.service.AnimeListEntryService;
+
+import jakarta.validation.Valid;
+
 /**
- * REST Controller for anime list CRUD operations.
- * 
- * All endpoints require JWT authentication.
- * Each request is scoped to the logged-in user — users can only
- * view and modify their own list.
- * 
- * Endpoints:
- * - GET    /api/users/list       — Get all anime on user's list
- * - POST   /api/users/list       — Add an anime to user's list
- * - PUT    /api/users/list/{id}  — Update an entry (status, score, episodes)
- * - DELETE /api/users/list/{id}  — Remove an entry from user's list
+ * CRUD endpoints for the authenticated user's anime list.
  */
 @RestController
 @RequestMapping("/api/users/list")
@@ -42,11 +37,8 @@ public class AnimeListEntryController {
         this.animeListEntryService = animeListEntryService;
     }
 
-    /**
-     * GET /api/users/list — Returns all anime on the logged-in user's list
-     */
     @GetMapping
-    public ResponseEntity<?> getUserList() {
+    public ResponseEntity<List<Map<String, Object>>> getUserList() {
         String username = getCurrentUsername();
         List<AnimeListEntry> entries = animeListEntryService.getUserList(username);
 
@@ -69,88 +61,52 @@ public class AnimeListEntryController {
         return ResponseEntity.ok(response);
     }
 
-    // Helper: gets the username from the JWT token (stored in SecurityContext by JwtAuthenticationFilter)
+    @PostMapping
+    public ResponseEntity<Map<String, Object>> addAnimeToList(@Valid @RequestBody AddAnimeRequest request) {
+        String username = getCurrentUsername();
+        AnimeListEntry entry = animeListEntryService.addAnimeToList(
+                username,
+                request.anilistId(),
+                request.status(),
+                request.title(),
+                request.coverImage(),
+                request.genres(),
+                request.totalEpisodes());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Anime added to list");
+        response.put("id", entry.getId());
+        response.put("title", entry.getTitle());
+        response.put("coverImage", entry.getCoverImage());
+        response.put("anilistId", entry.getAnilistId());
+        response.put("status", entry.getStatus());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Map<String, Object>> updateEntry(@PathVariable Long id,
+            @RequestBody UpdateAnimeEntryRequest request) {
+        String username = getCurrentUsername();
+        AnimeListEntry entry = animeListEntryService.updateEntry(username, id, request);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Entry updated");
+        response.put("id", entry.getId());
+        response.put("status", entry.getStatus());
+        response.put("score", entry.getScore());
+        response.put("episodesWatched", entry.getEpisodesWatched());
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Map<String, String>> deleteEntry(@PathVariable Long id) {
+        String username = getCurrentUsername();
+        animeListEntryService.deleteEntry(username, id);
+        return ResponseEntity.ok(Map.of("message", "Entry deleted"));
+    }
+
     private String getCurrentUsername() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return auth.getName();
-    }
-
-    /**
-     * POST /api/users/list — Add an anime to the user's list
-     */
-    @PostMapping
-    public ResponseEntity<?> addAnimeToList(@RequestBody AddAnimeRequest request) {
-        try {
-            String username = getCurrentUsername();
-            AnimeListEntry entry = animeListEntryService.addAnimeToList(
-                    username, request.anilistId(), request.status(),
-                    request.title(), request.coverImage(), request.genres(),
-                    request.totalEpisodes());
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "Anime added to list");
-            response.put("id", entry.getId());
-            response.put("title", entry.getTitle());
-            response.put("coverImage", entry.getCoverImage());
-            response.put("anilistId", entry.getAnilistId());
-            response.put("status", entry.getStatus());
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-
-        } catch (RuntimeException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
-        }
-    }
-
-    // Request body for adding an anime
-    public record AddAnimeRequest(Integer anilistId, String status, String title,
-        String coverImage, String genres, Integer totalEpisodes) {}
-
-    /**
-     * PUT /api/users/list/{id} — Update an anime list entry.
-     * Uses Map instead of a record so we can distinguish between
-     * "field not sent" (absent) and "field explicitly set to null" (present).
-     */
-    @PutMapping("/{id}")
-    public ResponseEntity<?> updateEntry(@PathVariable Long id,
-                                          @RequestBody Map<String, Object> request) {
-        try {
-            String username = getCurrentUsername();
-            AnimeListEntry entry = animeListEntryService.updateEntry(username, id, request);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "Entry updated");
-            response.put("id", entry.getId());
-            response.put("status", entry.getStatus());
-            response.put("score", entry.getScore());
-            response.put("episodesWatched", entry.getEpisodesWatched());
-            return ResponseEntity.ok(response);
-
-        } catch (RuntimeException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
-        }
-    }
-
-    /**
-     * DELETE /api/users/list/{id} — Remove an anime from user's list
-     */
-    @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteEntry(@PathVariable Long id) {
-        try {
-            String username = getCurrentUsername();
-            animeListEntryService.deleteEntry(username, id);
-
-            Map<String, String> response = new HashMap<>();
-            response.put("message", "Entry deleted");
-            return ResponseEntity.ok(response);
-
-        } catch (RuntimeException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("error", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
-        }
     }
 }

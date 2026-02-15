@@ -1,7 +1,6 @@
 package com.animetracker.controller;
 
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,8 +10,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.exception.BadRequestException;
+import com.animetracker.exception.NotFoundException;
 import com.animetracker.service.AniListService;
 
+/**
+ * Public anime search/detail endpoints backed by AniList GraphQL.
+ */
 @RestController
 @RequestMapping("/api/anime")
 public class AnimeSearchController {
@@ -23,26 +27,20 @@ public class AnimeSearchController {
         this.aniListService = aniListService;
     }
 
-    // GET /api/anime/search?q=naruto
     @GetMapping("/search")
-    public ResponseEntity<?> searchAnime(@RequestParam String q) {
+    public ResponseEntity<List<AniListResponse.AnimeInfo>> searchAnime(@RequestParam String q) {
         if (q == null || q.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Search query cannot be empty"));
+            throw new BadRequestException("Search query cannot be empty");
         }
-
-        List<AniListResponse.AnimeInfo> results = aniListService.searchAnime(q.trim());
-        return ResponseEntity.ok(results);
+        return ResponseEntity.ok(aniListService.searchAnime(q.trim()));
     }
 
-    // GET /api/anime/{id} — Fetch a single anime by AniList ID
     @GetMapping("/{id}")
-    public ResponseEntity<?> getAnimeById(@PathVariable Integer id) {
+    public ResponseEntity<AniListResponse.AnimeInfo> getAnimeById(@PathVariable Integer id) {
         AniListResponse.AnimeInfo anime = aniListService.getAnimeById(id);
-
         if (anime == null) {
-            return ResponseEntity.status(404).body(Map.of("error", "Anime not found"));
+            throw new NotFoundException("Anime not found");
         }
-
         return ResponseEntity.ok(anime);
     }
 }

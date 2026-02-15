@@ -9,7 +9,10 @@ import Search from './pages/Search';
 import AnimeDetail from './pages/AnimeDetail';
 import Recommendations from './pages/Recommendations';
 import SmartRec from './pages/SmartRec';
+import RequireAuth from './components/RequireAuth';
 
+// Top-level route map.
+// Protected routes are wrapped with RequireAuth.
 function App() {
   return (
     <AuthProvider>
@@ -19,10 +22,18 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/mylist" element={<MyList />} />
+          <Route path="/mylist" element={
+            <RequireAuth>
+              <MyList />
+            </RequireAuth>
+          } />
           <Route path="/search" element={<Search />} />
           <Route path="/anime/:id" element={<AnimeDetail />}></Route>
-          <Route path="/recommendations" element={<Recommendations />}></Route>
+          <Route path="/recommendations" element={
+            <RequireAuth>
+              <Recommendations />
+            </RequireAuth>
+          }></Route>
           <Route path="/smart-rec" element={<SmartRec />}></Route>
         </Routes>
       </BrowserRouter>

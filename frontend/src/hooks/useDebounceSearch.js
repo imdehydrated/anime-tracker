@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import { getApiError } from '../api/client';
+import { searchAnime } from '../api/animeApi';
 
 /**
  * Shared hook for debounced anime search.
- * Used by Search.js (main search) and SmartSearch.js (seed picker).
+ * Used by Search.js (main search) and SmartRec.js (seed picker).
  *
  * @param {number} debounceMs - Delay before firing search (default 400ms)
  * @param {number} minChars - Minimum characters before searching (default 3)
@@ -19,10 +20,10 @@ export function useDebounceSearch(debounceMs = 400, minChars = 3) {
 		setLoading(true);
 
 		try {
-			const { data } = await axios.get(`/api/anime/search?q=${encodeURIComponent(searchQuery)}`);
+			const data = await searchAnime(searchQuery);
 			setResults(data);
-		} catch {
-			setError('Search failed. Try again.');
+		} catch (err) {
+			setError(getApiError(err, 'Search failed. Try again.'));
 		} finally {
 			setLoading(false);
 		}

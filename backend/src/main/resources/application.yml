@@ -38,7 +38,7 @@ spring:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-validate}
 
     # Show SQL queries in logs (helpful for learning and debugging)
-    show-sql: ${SPRING_JPA_SHOW_SQL:-true}
+    show-sql: ${SPRING_JPA_SHOW_SQL:-false}
 
     # Format SQL queries (pretty print)
     properties:
@@ -82,13 +82,7 @@ logging:
     root: INFO
 
     # Our application's logs (more detailed)
-    com.animetracker: DEBUG
-
-    # Hibernate SQL logs (shows generated SQL)
-    org.hibernate.SQL: DEBUG
-
-    # Hibernate parameter values (shows values in SQL queries)
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.animetracker: INFO
 
     # Spring Framework logs (less verbose)
     org.springframework: INFO

@@ -1,6 +1,9 @@
 package com.animetracker.service;
 
 import com.animetracker.entity.User;
+import com.animetracker.exception.BadRequestException;
+import com.animetracker.exception.ConflictException;
+import com.animetracker.exception.NotFoundException;
 import com.animetracker.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -52,14 +55,24 @@ public class UserService {
      * @throws IllegalArgumentException if email or username already exists
      */
     public User registerUser(String username, String email, String rawPassword) {
+        if (username == null || username.isBlank()) {
+            throw new BadRequestException("Username is required");
+        }
+        if (email == null || email.isBlank()) {
+            throw new BadRequestException("Email is required");
+        }
+        if (rawPassword == null || rawPassword.length() < 8) {
+            throw new BadRequestException("Password must be at least 8 characters");
+        }
+
         // Check if email is already taken
         if (userRepository.existsByEmail(email)) {
-            throw new IllegalArgumentException("Email already registered");
+            throw new ConflictException("Email already registered");
         }
 
         // Check if username is already taken
         if (userRepository.existsByUsername(username)) {
-            throw new IllegalArgumentException("Username already taken");
+            throw new ConflictException("Username already taken");
         }
 
         // Create new user
@@ -100,6 +113,11 @@ public class UserService {
      */
     public Optional<User> findById(Long id) {
         return userRepository.findById(id);
+    }
+
+    public User requireByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     /**
