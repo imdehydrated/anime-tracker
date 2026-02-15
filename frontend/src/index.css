@@ -94,7 +94,6 @@ a:hover {
 }
 
 /* ===== SHARED INPUTS ===== */
-.input,
 .auth-form input,
 .search-form input,
 .list-filters input,
@@ -109,7 +108,6 @@ a:hover {
 	font-size: 0.85rem;
 }
 
-.input:focus,
 .auth-form input:focus,
 .search-form input:focus,
 .list-filters input:focus,
@@ -605,22 +603,29 @@ a:hover {
 	font-size: 0.85rem;
 	font-weight: 600;
 	text-align: center;
-	width: 100%;
-	margin-top: 0.5rem;
 }
 
 /* Blacklist / Not Interested button */
 .blacklist-btn {
-	background-color: transparent !important;
-	border: 1px solid #555 !important;
-	color: var(--text-muted) !important;
-	margin-top: 0.25rem !important;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.5rem 1.25rem;
+	border-radius: 4px;
+	font-family: inherit;
+	font-weight: 600;
+	font-size: 0.9rem;
+	line-height: 1.2;
+	cursor: pointer;
+	background-color: transparent;
+	border: 1px solid #555;
+	color: var(--text-muted);
+	transition: all 0.2s;
 }
 
 .blacklist-btn:hover {
-	border-color: var(--danger) !important;
-	color: var(--danger) !important;
-	background-color: transparent !important;
+	border-color: var(--danger);
+	color: var(--danger);
 }
 
 /* Refresh button */
@@ -632,7 +637,6 @@ a:hover {
 	border-radius: 4px;
 	cursor: pointer;
 	font-size: 0.85rem;
-	margin-bottom: 1.5rem;
 	transition: all 0.2s;
 }
 
@@ -834,6 +838,19 @@ a:hover {
 
 .anime-rec-item-actions {
 	margin-top: auto;
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+.anime-rec-item-actions .btn-primary {
+	padding: 0.4rem 1rem;
+	font-size: 0.85rem;
+}
+
+.anime-rec-item-actions .blacklist-btn {
+	padding: 0.4rem 1rem;
+	font-size: 0.85rem;
 }
 
 /* =====================
@@ -979,10 +996,32 @@ a:hover {
 
 /* Search button */
 .smart-rec-btn {
-	width: 100%;
 	padding: 0.75rem;
 	font-size: 1rem;
+}
+
+.smart-rec-actions {
+	display: flex;
+	gap: 1rem;
+	align-items: center;
 	margin-bottom: 1.5rem;
+}
+
+.smart-rec-actions .refresh-btn {
+	padding: 0.75rem 1.25rem;
+	font-size: 1rem;
+}
+
+.smart-rec-slider {
+	width: 100%;
+	accent-color: #e94560;
+	cursor: pointer;
+}
+
+.smart-rec-slider-hint {
+	color: #888;
+	font-size: 0.8rem;
+	margin-top: 0.25rem;
 }
 
 /* Results list */

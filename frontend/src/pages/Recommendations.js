@@ -2,7 +2,7 @@
  * Recommendations Page — Shows anime suggestions based on user's list.
  *
  * Features:
- * - Fetches recommendations on mount (GET /api/users/recommendations)
+ * - Fetches recommendations on mount (POST /api/users/recommendations/semantic)
  * - Refresh button to get new suggestions
  * - "Add to List" button swaps to "On Your List" badge after adding
  * - "Not Interested" button to blacklist a show
@@ -36,7 +36,8 @@ function Recommendations() {
         clearMessages();
 
         try {
-            const { data } = await axios.get('/api/users/recommendations', authHeader);
+            const { data } = await axios.post('/api/users/recommendations/semantic',
+                { useListOnly: true, limit: 15 }, authHeader);
             setRecommendations(data);
         } catch (err) {
             setFetchError('Failed to load recommendations.');

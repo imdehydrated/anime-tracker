@@ -1,6 +1,6 @@
 # AniRec
 
-Full-stack anime list and recommendation application built with Spring Boot, React, and PostgreSQL. Track your anime, rate what you've watched, and get personalized recommendations — from simple genre-based suggestions to AI-powered semantic search.
+Full-stack anime list and recommendation application built with Spring Boot, React, and PostgreSQL. Track your anime, rate what you've watched, and get AI-powered personalized recommendations using OpenAI embeddings and pgvector similarity search.
 
 ## Tech Stack
 
@@ -26,17 +26,14 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - Anime detail pages with synopsis, genres, episodes, and AniList links
 - Add to list directly from search results, detail pages, or recommendations
 
-### Genre-Based Recommendations
-- Genre-weighted scoring algorithm based on your list and ratings
-- Parallel AniList API queries for fast results
-- Blacklist management to hide unwanted recommendations
-- Refresh on demand
-
-### AI-Powered Semantic Recommendations
-- Pick seed anime, describe what you're looking for in natural language, or both — text-only queries work without seeds
+### AI-Powered Recommendations
+- **Smart Recs** — Pick seed anime, describe what you're looking for in natural language, or both
+- **For You** — Automatic recommendations based on your rated anime, no input needed
 - OpenAI embeddings encode anime metadata (title, genres, tags, description) into vectors
 - pgvector cosine similarity finds the closest matches from a local database of embedded anime
-- Blends seed-based and query-based vectors for nuanced results
+- Configurable list influence slider (0-100%) lets you control how much your ratings shape Smart Rec results
+- Blacklist management to hide unwanted recommendations from both pages
+- Works without login — anonymous users can use Smart Recs with seeds and text queries
 - Inspired by [Sprout](https://github.com/ameobea/sprout) (collaborative filtering) and [Yuno](https://github.com/IAmPara0x/yuno) (semantic search)
 
 ### User System
@@ -45,20 +42,12 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - Auto-logout on JWT expiry (token decoded client-side, 401 interceptor)
 - Per-user scoped data — users can only access their own list
 
-## Recommendation Algorithms
+## Recommendation Algorithm
 
-### Genre-Weighted (Current)
+All recommendations run through a single semantic engine powered by OpenAI embeddings and pgvector:
 
-1. **Genre weighting** — Each anime on your list contributes its genres to a weight map. The weight is your score (1-10) for that anime, or a default of 5 if unscored.
-2. **Top genre selection** — Genres are ranked by total accumulated weight. The top 5 represent your strongest preferences.
-3. **Candidate sourcing** — 5 parallel queries to AniList fetch 25 popular anime per top genre.
-4. **Filtering** — Candidates already on your list or blacklist are excluded and deduplicated.
-5. **Results** — Up to 10 unique recommendations are returned.
-
-### Semantic Search
-
-1. **Input** — Pick 1-5 seed anime, describe what you want in natural language, or both. Text-only queries work without any seeds.
-2. **Vector blending** — Seed anime embeddings are averaged, then blended with the query embedding: `0.6 * seedAvg + 0.4 * queryVector`. Text-only queries use the query embedding directly.
+1. **Input** — Pick 1-5 seed anime, describe what you want in natural language, or both. The "For You" page uses list-only mode (no seeds or query needed).
+2. **Vector blending** — Seed anime embeddings are averaged into a centroid, then blended with the query embedding at 50/50. A user preference vector (built from scored anime, weighted by `score - 6.5`) can be blended in at a configurable weight (0-100%, default 20%).
 3. **Cosine similarity** — pgvector searches the `anime_embeddings` table using an IVFFlat index for fast nearest-neighbor lookup.
 4. **Results** — Top 15 similar anime returned, excluding user's list, blacklist, and seeds. Works without login (anonymous users see results without list exclusions).
 
@@ -74,8 +63,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 | DELETE | `/api/users/list/{id}` | Yes | Remove an entry |
 | GET | `/api/anime/search?q=` | No | Search anime by title |
 | GET | `/api/anime/{id}` | No | Get anime details by AniList ID |
-| GET | `/api/users/recommendations` | Yes | Get genre-based recommendations |
-| POST | `/api/users/recommendations/semantic` | No | Get AI semantic recommendations (seeds, text query, or both) |
+| POST | `/api/users/recommendations/semantic` | No | Get AI recommendations (seeds, query, list-only, or combination) |
 | POST | `/api/users/recommendations/blacklist` | Yes | Hide anime from recommendations |
 | GET | `/api/users/recommendations/blacklist` | Yes | View blacklisted anime |
 | DELETE | `/api/users/recommendations/blacklist/{id}` | Yes | Remove from blacklist |
@@ -123,4 +111,4 @@ animetracker/
 
 ## Author
 
-Built as a portfolio project to learn full-stack development, API integration, and recommendation systems (genre-based and AI-powered).
+Built as a portfolio project to learn full-stack development, API integration, and AI-powered recommendation systems.
