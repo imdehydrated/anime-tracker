@@ -119,6 +119,34 @@ services:
     volumes:
       - ./frontend/src:/app/src
 
+  # Service 4: ML Sidecar (FastAPI — semantic + CF models)
+  ml-sidecar:
+    build:
+      context: ./ml-sidecar
+      dockerfile: Dockerfile
+
+    container_name: animetracker-ml-sidecar
+    restart: unless-stopped
+
+    # Port mapping: access sidecar at localhost:5000
+    ports:
+      - "5000:5000"
+
+    # Mount trained model checkpoints (exported from notebooks)
+    volumes:
+      - ./ml-models:/app/models
+
+    networks:
+      - animetracker-network
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 # Volumes: Named volumes that persist data
 volumes:
   # This stores PostgreSQL data on your computer

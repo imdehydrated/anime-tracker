@@ -12,12 +12,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.RecommendationBlacklistRequest;
 import com.animetracker.dto.SemanticRequest;
 import com.animetracker.exception.UnauthorizedException;
+import com.animetracker.service.CustomEmbeddingImportService;
 import com.animetracker.service.SemanticRecommendationService;
 
 import jakarta.validation.Valid;
@@ -32,9 +34,13 @@ import jakarta.validation.Valid;
 public class RecommendationController {
 
     private final SemanticRecommendationService semanticService;
+    private final CustomEmbeddingImportService customEmbeddingImportService;
 
-    public RecommendationController(SemanticRecommendationService semanticService) {
+    public RecommendationController(
+            SemanticRecommendationService semanticService,
+            CustomEmbeddingImportService customEmbeddingImportService) {
         this.semanticService = semanticService;
+        this.customEmbeddingImportService = customEmbeddingImportService;
     }
 
     @PostMapping("/semantic")
@@ -47,7 +53,8 @@ public class RecommendationController {
                 request.getQuery(),
                 request.getLimit(),
                 Boolean.TRUE.equals(request.getUseListOnly()),
-                request.getListWeight());
+                request.getListWeight(),
+                request.getMode());
         return ResponseEntity.ok(results);
     }
 
@@ -70,6 +77,28 @@ public class RecommendationController {
     public ResponseEntity<Map<String, String>> removeFromBlacklist(@PathVariable Long id) {
         semanticService.removeFromBlacklist(getCurrentUsernameRequired(), id);
         return ResponseEntity.ok(Map.of("message", "Removed from blacklist"));
+    }
+
+    /**
+     * Manual import endpoint for custom 384-dim embeddings.
+     * Requires authentication. Uses default path unless overridden by request param.
+     */
+    @PostMapping("/custom-embeddings/import")
+    public ResponseEntity<Map<String, Object>> importCustomEmbeddings(
+            @RequestParam(required = false) String path) {
+        getCurrentUsernameRequired();
+
+        CustomEmbeddingImportService.ImportStats stats = (path == null || path.isBlank())
+                ? customEmbeddingImportService.importFromDefaultPath()
+                : customEmbeddingImportService.importFromPath(path);
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Custom embeddings import completed",
+                "path", stats.path(),
+                "processed", stats.processed(),
+                "imported", stats.imported(),
+                "failed", stats.failed(),
+                "totalCustomEmbeddings", stats.totalCustomEmbeddings()));
     }
 
     private String getCurrentUsernameOrNull() {

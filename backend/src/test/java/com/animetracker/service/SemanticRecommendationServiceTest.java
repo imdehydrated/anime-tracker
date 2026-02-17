@@ -33,6 +33,8 @@ class SemanticRecommendationServiceTest {
     private AniListService aniListService;
     @Mock
     private AnimeEmbeddingPopulatorService populatorService;
+    @Mock
+    private MlSidecarService mlSidecarService;
 
     private SemanticRecommendationService service;
 
@@ -45,18 +47,19 @@ class SemanticRecommendationServiceTest {
                 blacklistRepository,
                 userRepository,
                 aniListService,
-                populatorService);
+                populatorService,
+                mlSidecarService);
     }
 
     @Test
     void recommend_withoutInputsAndNotListOnly_throwsBadRequest() {
         assertThrows(BadRequestException.class,
-                () -> service.recommend(null, List.of(), null, 15, false, null));
+                () -> service.recommend(null, List.of(), null, 15, false, null, "semantic"));
     }
 
     @Test
     void recommend_listOnlyWithoutUser_throwsUnauthorized() {
         assertThrows(UnauthorizedException.class,
-                () -> service.recommend(null, List.of(), null, 15, true, 1.0f));
+                () -> service.recommend(null, List.of(), null, 15, true, 1.0f, "semantic"));
     }
 }

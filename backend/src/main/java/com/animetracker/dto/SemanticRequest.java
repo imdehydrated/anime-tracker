@@ -24,6 +24,7 @@ public class SemanticRequest {
 	@DecimalMin(value = "0.0", message = "listWeight must be between 0 and 1")
 	@DecimalMax(value = "1.0", message = "listWeight must be between 0 and 1")
 	private Float listWeight;
+	private String mode; // "semantic" (default), "similar", or "cf"
 
 	public List<Integer> getSeedIds() { return seedIds; }
 	public void setSeedIds(List<Integer> seedIds) { this.seedIds = seedIds; }
@@ -39,4 +40,7 @@ public class SemanticRequest {
 
 	public Float getListWeight() { return listWeight; }
 	public void setListWeight(Float listWeight) { this.listWeight = listWeight; }
+
+	public String getMode() { return mode; }
+	public void setMode(String mode) { this.mode = mode; }
 }

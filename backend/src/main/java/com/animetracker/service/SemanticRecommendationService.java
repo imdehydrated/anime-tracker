@@ -9,6 +9,7 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.animetracker.dto.AniListResponse;
@@ -39,6 +40,9 @@ public class SemanticRecommendationService {
     private final UserRepository userRepository;
     private final AniListService aniListService;
     private final AnimeEmbeddingPopulatorService populatorService;
+    private final MlSidecarService mlSidecarService;
+    @Value("${recommendations.use-custom-vectors:false}")
+    private boolean useCustomVectors;
 
     public SemanticRecommendationService(EmbeddingService embeddingService,
             AnimeEmbeddingRepository embeddingRepository,
@@ -46,7 +50,8 @@ public class SemanticRecommendationService {
             RecommendationBlacklistRepository blacklistRepository,
             UserRepository userRepository,
             AniListService aniListService,
-            AnimeEmbeddingPopulatorService populatorService) {
+            AnimeEmbeddingPopulatorService populatorService,
+            MlSidecarService mlSidecarService) {
         this.embeddingService = embeddingService;
         this.embeddingRepository = embeddingRepository;
         this.animeListEntryService = animeListEntryService;
@@ -54,6 +59,7 @@ public class SemanticRecommendationService {
         this.userRepository = userRepository;
         this.aniListService = aniListService;
         this.populatorService = populatorService;
+        this.mlSidecarService = mlSidecarService;
     }
 
     /**
@@ -65,7 +71,22 @@ public class SemanticRecommendationService {
             String query,
             Integer requestedLimit,
             boolean useListOnly,
-            Float requestedListWeight) {
+            Float requestedListWeight,
+            String mode) {
+
+        String effectiveMode = (mode == null || mode.isBlank())
+                ? "semantic"
+                : mode.trim().toLowerCase();
+
+        // CF-only mode: delegate entirely to sidecar
+        if ("cf".equals(effectiveMode)) {
+            return recommendCf(username, requestedLimit);
+        }
+
+        // Similar mode: seed-driven "shows like these", with optional list influence
+        if ("similar".equals(effectiveMode)) {
+            return recommendSimilar(username, seedIds, requestedLimit, requestedListWeight);
+        }
 
         List<Integer> normalizedSeeds = normalizeIds(seedIds);
         boolean hasSeeds = !normalizedSeeds.isEmpty();
@@ -108,7 +129,8 @@ public class SemanticRecommendationService {
             if (normalizedQuery.length() > 500) {
                 normalizedQuery = normalizedQuery.substring(0, 500);
             }
-            float[] queryVector = embeddingService.embed(normalizedQuery);
+            // Use sidecar for embedding if available, else fall back to OpenAI
+            float[] queryVector = embedQuery(normalizedQuery);
             searchVector = (searchVector == null)
                     ? queryVector
                     : blend(searchVector, queryVector, 0.50f);
@@ -133,13 +155,173 @@ public class SemanticRecommendationService {
 
         List<Integer> excludeIds = buildExcludeIds(username, normalizedSeeds);
         String vectorStr = EmbeddingService.toVectorString(searchVector);
-        List<Object[]> rows = embeddingRepository.findSimilar(vectorStr, excludeIds, limit);
+        List<Object[]> rows = findSimilarRows(vectorStr, excludeIds, limit);
 
-        List<AniListResponse.AnimeInfo> results = new ArrayList<>();
+        List<AniListResponse.AnimeInfo> semanticResults = new ArrayList<>();
         for (Object[] row : rows) {
-            results.add(mapRowToAnimeInfo(row));
+            semanticResults.add(mapRowToAnimeInfo(row));
+        }
+
+        return semanticResults;
+    }
+
+    /**
+     * CF-only mode: get predictions entirely from the sidecar's collaborative filtering model.
+     */
+    private List<AniListResponse.AnimeInfo> recommendCf(String username, Integer requestedLimit) {
+        if (username == null) {
+            throw new UnauthorizedException("Login required for CF recommendations");
+        }
+        if (!mlSidecarService.isEnabled()) {
+            throw new BadRequestException("CF model is not available");
+        }
+
+        int limit = normalizeLimit(requestedLimit);
+        Map<Integer, Float> userRatings = buildUserRatingMap(username);
+        List<Integer> excludeIds = buildExcludeIds(username, List.of());
+
+        List<Map<String, Object>> predictions = mlSidecarService.getCfRecommendations(
+                userRatings, excludeIds, limit);
+
+        if (predictions == null || predictions.isEmpty()) {
+            throw new BadRequestException("CF model returned no predictions - your list may be too small");
+        }
+
+        // Fetch full anime info for each predicted AniList ID
+        List<AniListResponse.AnimeInfo> results = new ArrayList<>();
+        for (Map<String, Object> pred : predictions) {
+            int anilistId = ((Number) pred.get("anilist_id")).intValue();
+            try {
+                AniListResponse.AnimeInfo anime = aniListService.getAnimeById(anilistId);
+                if (anime != null) {
+                    results.add(anime);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch anime {} for CF result: {}", anilistId, e.getMessage());
+            }
         }
         return results;
+    }
+
+    /**
+     * Similar mode: seed-based similarity with optional user-list influence.
+     */
+    private List<AniListResponse.AnimeInfo> recommendSimilar(
+            String username,
+            List<Integer> seedIds,
+            Integer requestedLimit,
+            Float requestedListWeight) {
+
+        List<Integer> normalizedSeeds = normalizeIds(seedIds);
+        if (normalizedSeeds.isEmpty()) {
+            throw new BadRequestException("Provide at least one seed anime for Similar Shows");
+        }
+        if (normalizedSeeds.size() > 5) {
+            throw new BadRequestException("Maximum 5 seed anime allowed");
+        }
+
+        List<Object[]> seedRows = loadEmbeddings(normalizedSeeds, true);
+        if (seedRows.isEmpty()) {
+            log.warn("No seed embeddings available for similar mode, seeds={}", normalizedSeeds);
+            return List.of();
+        }
+
+        float[] searchVector = averageRows(seedRows);
+        // Similar mode should only use list personalization when explicitly requested.
+        float listWeight = (requestedListWeight == null) ? 0f : normalizeListWeight(requestedListWeight);
+
+        // Optional personalization: blend seed centroid with user's preference vector.
+        if (username != null && listWeight > 0f) {
+            float[] listVector = buildUserPreferenceVector(username);
+            if (listVector != null) {
+                searchVector = blend(searchVector, listVector, listWeight);
+            }
+        }
+
+        List<Integer> excludeIds = buildExcludeIds(username, normalizedSeeds);
+        int limit = normalizeLimit(requestedLimit);
+        String vectorStr = EmbeddingService.toVectorString(searchVector);
+
+        // Overfetch for reranking headroom
+        List<Object[]> candidates = findSimilarRows(vectorStr, excludeIds, limit * 3);
+
+        List<AniListResponse.AnimeInfo> results;
+
+        // Sidecar reranking expects custom 384-dim vectors.
+        // Skip reranking when using OpenAI 1536-dim retrieval to avoid dimension mismatch.
+        if (useCustomVectors && mlSidecarService.isEnabled() && !candidates.isEmpty()) {
+            // Extract candidate IDs and cosine distances for reranking
+            List<Integer> candidateIds = new ArrayList<>();
+            List<Double> candidateDistances = new ArrayList<>();
+            Map<Integer, Object[]> rowById = new HashMap<>();
+
+            for (Object[] row : candidates) {
+                Integer anilistId = (Integer) row[1];
+                Double distance = ((Number) row[13]).doubleValue();
+                candidateIds.add(anilistId);
+                candidateDistances.add(distance);
+                rowById.put(anilistId, row);
+            }
+
+            List<Map<String, Object>> reranked = mlSidecarService.rerank(
+                    searchVector, candidateIds, candidateDistances, limit);
+
+            if (reranked != null && !reranked.isEmpty()) {
+                results = new ArrayList<>();
+                for (Map<String, Object> item : reranked) {
+                    int anilistId = ((Number) item.get("anilist_id")).intValue();
+                    Object[] row = rowById.get(anilistId);
+                    if (row != null) {
+                        results.add(mapRowToAnimeInfo(row));
+                    }
+                }
+            } else {
+                // Rerank failed - fall back to pgvector order
+                results = new ArrayList<>();
+                for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
+                    results.add(mapRowToAnimeInfo(row));
+                }
+            }
+        } else {
+            // No sidecar - use pgvector order directly
+            results = new ArrayList<>();
+            for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
+                results.add(mapRowToAnimeInfo(row));
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Embed a query string - prefers sidecar custom model, falls back to OpenAI.
+     */
+    private float[] embedQuery(String text) {
+        if (useCustomVectors) {
+            if (!mlSidecarService.isEnabled()) {
+                throw new BadRequestException("Custom semantic retrieval requires ML sidecar to be enabled");
+            }
+            float[] custom = mlSidecarService.embedText(text);
+            if (custom != null) {
+                return custom;
+            }
+            throw new BadRequestException("ML sidecar failed to embed query text");
+        }
+        return embeddingService.embed(text);
+    }
+
+    /**
+     * Build a map of {anilistId -> score} for the sidecar CF model.
+     */
+    private Map<Integer, Float> buildUserRatingMap(String username) {
+        List<AnimeListEntry> userList = animeListEntryService.getUserList(username);
+        Map<Integer, Float> ratings = new HashMap<>();
+        for (AnimeListEntry entry : userList) {
+            if (entry.getScore() > 0) {
+                ratings.put(entry.getAnilistId(), (float) entry.getScore());
+            }
+        }
+        return ratings;
     }
 
     public void blacklistAnime(String username, Integer anilistId, String title, String coverImage) {
@@ -263,8 +445,8 @@ public class SemanticRecommendationService {
             return List.of();
         }
 
-        List<Object[]> rows = embeddingRepository.findEmbeddingsByAnilistIds(normalizedIds);
-        if (!embedMissing || rows.size() >= normalizedIds.size()) {
+        List<Object[]> rows = findEmbeddingRowsByIds(normalizedIds);
+        if (!embedMissing || rows.size() >= normalizedIds.size() || useCustomVectors) {
             return rows;
         }
 
@@ -279,7 +461,7 @@ public class SemanticRecommendationService {
             }
         }
 
-        return embeddingRepository.findEmbeddingsByAnilistIds(normalizedIds);
+        return findEmbeddingRowsByIds(normalizedIds);
     }
 
     private void embedOnTheFly(Integer anilistId) {
@@ -392,5 +574,19 @@ public class SemanticRecommendationService {
             blended[i] = (1f - overlayWeight) * base[i] + overlayWeight * overlay[i];
         }
         return blended;
+    }
+
+    private List<Object[]> findSimilarRows(String vectorStr, List<Integer> excludeIds, int limit) {
+        if (useCustomVectors) {
+            return embeddingRepository.findSimilarCustom(vectorStr, excludeIds, limit);
+        }
+        return embeddingRepository.findSimilar(vectorStr, excludeIds, limit);
+    }
+
+    private List<Object[]> findEmbeddingRowsByIds(List<Integer> anilistIds) {
+        if (useCustomVectors) {
+            return embeddingRepository.findCustomEmbeddingsByAnilistIds(anilistIds);
+        }
+        return embeddingRepository.findEmbeddingsByAnilistIds(anilistIds);
     }
 }

@@ -33,6 +33,25 @@ STUDY-GUIDE.md
 MILESTONES.md
 DEV-COMMANDS.md
 
+# Python / Notebook local artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.ipynb_checkpoints/
+.venv/
+.venv*/
+venv/
+env/
+
+# Notebook pipeline outputs (regeneratable)
+notebooks/data/
+notebooks/models/
+notebooks/ml-models/
+ml-models/
+notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
+
 # Test JSON files for curl commands
 *.json
 !**/package.json

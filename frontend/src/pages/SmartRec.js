@@ -17,10 +17,19 @@ const MAX_SEEDS = 5;
  * - Optional list influence blending
  * - Shared blacklist modal/actions
  */
+const MODES = [
+	{ key: 'semantic', label: 'Smart Search' },
+	{ key: 'similar', label: 'Similar Shows' },
+	{ key: 'cf', label: 'For You', requiresLogin: true },
+];
+
 function SmartRec() {
+	const [mode, setMode] = useState('semantic');
 	const [seeds, setSeeds] = useState([]);
 	const [context, setContext] = useState('');
 	const [listWeight, setListWeight] = useState(0.2);
+	const [similarUseList, setSimilarUseList] = useState(false);
+	const [similarListWeight, setSimilarListWeight] = useState(0.25);
 	const [results, setResults] = useState([]);
 	const [searching, setSearching] = useState(false);
 	const [searchError, setSearchError] = useState('');
@@ -35,8 +44,6 @@ function SmartRec() {
 		loading: suggestionsLoading,
 		clearResults,
 	} = useDebounceSearch(300, 2);
-
-	const fullListMode = isLoggedIn && listWeight >= 1;
 
 	const [userListIds, setUserListIds] = useState(new Set());
 	const blacklist = useRecommendationBlacklist(
@@ -63,23 +70,38 @@ function SmartRec() {
 		setSeeds((prev) => prev.filter((seed) => seed.id !== id));
 	};
 
+	const isCfMode = mode === 'cf';
+	const isSimilarMode = mode === 'similar';
+	const fullListMode = isLoggedIn && !isCfMode && !isSimilarMode && listWeight >= 1;
+	const canSearch = isCfMode
+		? true
+		: isSimilarMode
+			? seeds.length > 0
+			: (fullListMode || seeds.length > 0 || context.trim());
+
 	const handleSearch = async () => {
-		if (!fullListMode && seeds.length === 0 && !context.trim()) return;
+		if (!canSearch) return;
 
 		setSearching(true);
 		setSearchError('');
 		clearMessages();
 
 		try {
-			const body = {
-				seedIds: seeds.map((seed) => seed.id),
-				query: context.trim() || null,
-				limit: 15,
-			};
-			if (fullListMode) {
+			const body = { limit: 15, mode };
+
+			if (isSimilarMode) {
+				body.seedIds = seeds.map((seed) => seed.id);
+				if (isLoggedIn && similarUseList && similarListWeight > 0) {
+					body.listWeight = similarListWeight;
+				}
+			} else if (!isCfMode) {
+				body.seedIds = seeds.map((seed) => seed.id);
+				body.query = context.trim() || null;
+			}
+			if (fullListMode || isCfMode) {
 				body.useListOnly = true;
 			}
-			if (isLoggedIn && listWeight > 0) {
+			if (isLoggedIn && listWeight > 0 && !isCfMode && !isSimilarMode) {
 				body.listWeight = listWeight;
 			}
 
@@ -102,10 +124,39 @@ function SmartRec() {
 	return (
 		<div className="page smart-rec">
 			<h1>Smart Recommendations</h1>
-			<p className="page-subtitle">Pick anime you love and describe what you're looking for.</p>
+			<p className="page-subtitle">
+				{isCfMode
+					? 'Get predictions based on your rating patterns.'
+					: isSimilarMode
+							? 'Pick anime you love and find similar shows.'
+							: 'Pick anime you love and describe what you\'re looking for.'}
+			</p>
 
+			<div className="smart-rec-mode-tabs">
+				{MODES.map(({ key, label, requiresLogin }) => {
+					if (requiresLogin && !isLoggedIn) return null;
+					return (
+						<button
+							key={key}
+							className={`smart-rec-mode-tab${mode === key ? ' active' : ''}`}
+							onClick={() => {
+								setMode(key);
+								setResults([]);
+								setSearchError('');
+							}}
+						>
+							{label}
+						</button>
+					);
+				})}
+			</div>
+
+			{!isCfMode && (
+			<>
 			<div className="smart-rec-section">
-				<label className="smart-rec-label">Seed Anime (up to {MAX_SEEDS})</label>
+				<label className="smart-rec-label">
+					{isSimilarMode ? 'Seed Anime (pick 1-5)' : `Seed Anime (up to ${MAX_SEEDS})`}
+				</label>
 
 				{seeds.length > 0 && !fullListMode && (
 					<div className="seed-chips">
@@ -146,6 +197,7 @@ function SmartRec() {
 				)}
 			</div>
 
+			{!isSimilarMode && (
 			<div className="smart-rec-section">
 				<label className="smart-rec-label">What are you in the mood for? (optional)</label>
 				<textarea
@@ -159,8 +211,11 @@ function SmartRec() {
 					disabled={fullListMode}
 				/>
 			</div>
+			)}
+			</>
+			)}
 
-			{isLoggedIn && (
+			{isLoggedIn && !isCfMode && !isSimilarMode && (
 				<div className="smart-rec-section">
 					<label className="smart-rec-label">
 						List Influence: {Math.round(listWeight * 100)}%
@@ -187,13 +242,44 @@ function SmartRec() {
 				</div>
 			)}
 
+			{isLoggedIn && isSimilarMode && (
+				<div className="smart-rec-section">
+					<label className="smart-rec-label">
+						<input
+							type="checkbox"
+							checked={similarUseList}
+							onChange={(e) => setSimilarUseList(e.target.checked)}
+						/>{' '}
+						Use shows on my list to personalize
+					</label>
+					{similarUseList && (
+						<>
+							<label className="smart-rec-label">
+								List Influence: {Math.round(similarListWeight * 100)}%
+							</label>
+							<input
+								type="range"
+								className="smart-rec-slider"
+								min="0"
+								max="100"
+								value={Math.round(similarListWeight * 100)}
+								onChange={(e) => setSimilarListWeight(Number(e.target.value) / 100)}
+							/>
+							<p className="smart-rec-slider-hint">
+								Blend seed similarity with your personal taste profile.
+							</p>
+						</>
+					)}
+				</div>
+			)}
+
 			<div className="smart-rec-actions">
 				<button
 					className="btn-primary smart-rec-btn"
 					onClick={handleSearch}
-					disabled={searching || (!fullListMode && seeds.length === 0 && !context.trim())}
+					disabled={searching || !canSearch}
 				>
-					{searching ? 'Searching...' : 'Find Recommendations'}
+					{searching ? 'Searching...' : isCfMode ? 'Get Predictions' : isSimilarMode ? 'Find Similar' : 'Find Recommendations'}
 				</button>
 				{isLoggedIn && (
 					<button className="refresh-btn" onClick={blacklist.openBlacklist}>
