@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 function AnimeRecItem({ anime, children }) {
 	const title = anime.title.english || anime.title.romaji;
+	const detailState = { anime };
 	const coverUrl = typeof anime.coverImage === 'string'
 		? anime.coverImage
 		: anime.coverImage?.large || anime.coverImage?.medium || '';
@@ -12,7 +13,7 @@ function AnimeRecItem({ anime, children }) {
 	return (
 		<div className="anime-rec-item">
 			{coverUrl && (
-				<Link to={`/anime/${anime.id}`} className="anime-rec-item-image">
+				<Link to={`/anime/${anime.id}`} state={detailState} className="anime-rec-item-image">
 					<img
 						src={coverUrl}
 						alt={anime.title.romaji}
@@ -24,7 +25,7 @@ function AnimeRecItem({ anime, children }) {
 			)}
 
 			<div className="anime-rec-item-content">
-				<h3><Link to={`/anime/${anime.id}`}>{title}</Link></h3>
+				<h3><Link to={`/anime/${anime.id}`} state={detailState}>{title}</Link></h3>
 
 				<div className="anime-rec-item-meta">
 					{anime.genres && <span>{anime.genres.join(', ')}</span>}

@@ -7,7 +7,7 @@
  * Includes "Add to List" button and back navigation.
  */
 import { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAddToList } from '../hooks/useAddToList';
 import { getApiError } from '../api/client';
@@ -17,39 +17,65 @@ import { getUserList } from '../api/listApi';
 function AnimeDetail() {
 	const { id } = useParams();
 	const navigate = useNavigate();
+	const location = useLocation();
 	const { isLoggedIn } = useAuth();
 	const { addToList, message, error } = useAddToList();
+	const animeFromRoute = location.state?.anime && String(location.state.anime.id) === String(id)
+		? location.state.anime
+		: null;
 
-	const [anime, setAnime] = useState(null);
-	const [loading, setLoading] = useState(true);
+	const [anime, setAnime] = useState(animeFromRoute);
+	const [loading, setLoading] = useState(!animeFromRoute);
 	const [fetchError, setFetchError] = useState('');
 	const [onList, setOnList] = useState(false);
 
 	useEffect(() => {
+		let isCancelled = false;
+
 		async function fetchAnime() {
 			try {
 				const data = await getAnimeById(id);
-				setAnime(data);
+				if (!isCancelled) {
+					setAnime(data);
+				}
 			} catch (err) {
-				setFetchError(getApiError(err, 'Anime not found'));
+				if (!isCancelled) {
+					setFetchError(getApiError(err, 'Anime not found'));
+				}
 			} finally {
-				setLoading(false);
+				if (!isCancelled) {
+					setLoading(false);
+				}
 			}
 		}
-		fetchAnime();
+
+		if (animeFromRoute) {
+			setAnime(animeFromRoute);
+			setFetchError('');
+			setLoading(false);
+		} else {
+			setAnime(null);
+			setLoading(true);
+			fetchAnime();
+		}
 
 		// Check if anime is already on user's list
+		setOnList(false);
 		if (isLoggedIn) {
 			getUserList()
 				.then((data) => {
-					if (data.some(entry => entry.anilistId === parseInt(id))) {
-						setOnList(true);
+					if (!isCancelled) {
+						setOnList(data.some((entry) => entry.anilistId === parseInt(id, 10)));
 					}
 				})
 				.catch(() => { });
 		}
+
+		return () => {
+			isCancelled = true;
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [id, isLoggedIn]);
+	}, [id, isLoggedIn, animeFromRoute]);
 
 	const handleAddToList = async () => {
 		const success = await addToList(anime);
