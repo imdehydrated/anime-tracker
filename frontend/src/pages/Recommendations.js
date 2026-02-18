@@ -8,6 +8,8 @@ import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
 
+const RECOMMENDATIONS_STATE_KEY = 'recommendations_page_state_v1';
+
 /**
  * "For You" recommendations page:
  * - List-only semantic recommendations for logged-in users
@@ -18,6 +20,7 @@ function Recommendations() {
 	const [loading, setLoading] = useState(false);
 	const [fetchError, setFetchError] = useState('');
 	const [addedIds, setAddedIds] = useState(new Set());
+	const [hydrated, setHydrated] = useState(false);
 
 	const { isLoggedIn } = useAuth();
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
@@ -42,10 +45,41 @@ function Recommendations() {
 	};
 
 	useEffect(() => {
-		if (!isLoggedIn) return;
+		if (!isLoggedIn) {
+			setHydrated(true);
+			return;
+		}
+		try {
+			const cached = sessionStorage.getItem(RECOMMENDATIONS_STATE_KEY);
+			if (!cached) return;
+			const parsed = JSON.parse(cached);
+			if (Array.isArray(parsed.recommendations)) {
+				setRecommendations(parsed.recommendations);
+			}
+			if (Array.isArray(parsed.addedIds)) {
+				setAddedIds(new Set(parsed.addedIds));
+			}
+		} catch {
+			// Ignore corrupted cache and continue with fresh fetch.
+		} finally {
+			setHydrated(true);
+		}
+	}, [isLoggedIn]);
+
+	useEffect(() => {
+		if (!isLoggedIn || !hydrated) return;
+		sessionStorage.setItem(RECOMMENDATIONS_STATE_KEY, JSON.stringify({
+			recommendations,
+			addedIds: Array.from(addedIds),
+		}));
+	}, [isLoggedIn, hydrated, recommendations, addedIds]);
+
+	useEffect(() => {
+		if (!isLoggedIn || !hydrated) return;
+		if (recommendations.length > 0) return;
 		fetchRecommendations();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isLoggedIn]);
+	}, [isLoggedIn, hydrated, recommendations.length]);
 
 	const handleAddToList = async (anime) => {
 		const success = await addToList(anime);

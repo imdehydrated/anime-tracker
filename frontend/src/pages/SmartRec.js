@@ -10,6 +10,8 @@ import { useDebounceSearch } from '../hooks/useDebounceSearch';
 import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
 
 const MAX_SEEDS = 5;
+const SMART_REC_STATE_KEY = 'smart_rec_page_state_v1';
+const SMART_SEARCH_LIST_WEIGHT = 0.2;
 
 /**
  * SmartRec page:
@@ -27,13 +29,13 @@ function SmartRec() {
 	const [mode, setMode] = useState('semantic');
 	const [seeds, setSeeds] = useState([]);
 	const [context, setContext] = useState('');
-	const [listWeight, setListWeight] = useState(0.2);
 	const [similarUseList, setSimilarUseList] = useState(false);
 	const [similarListWeight, setSimilarListWeight] = useState(0.25);
 	const [results, setResults] = useState([]);
 	const [searching, setSearching] = useState(false);
 	const [searchError, setSearchError] = useState('');
 	const [addedIds, setAddedIds] = useState(new Set());
+	const [hydrated, setHydrated] = useState(false);
 
 	const { isLoggedIn } = useAuth();
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
@@ -50,6 +52,57 @@ function SmartRec() {
 		setError,
 		(animeId) => setResults((prev) => prev.filter((item) => item.id !== animeId))
 	);
+
+	useEffect(() => {
+		try {
+			const cached = sessionStorage.getItem(SMART_REC_STATE_KEY);
+			if (!cached) return;
+			const parsed = JSON.parse(cached);
+			if (parsed.mode) setMode(parsed.mode);
+			if (Array.isArray(parsed.seeds)) setSeeds(parsed.seeds);
+			if (typeof parsed.context === 'string') setContext(parsed.context);
+			if (typeof parsed.similarUseList === 'boolean') setSimilarUseList(parsed.similarUseList);
+			if (typeof parsed.similarListWeight === 'number') setSimilarListWeight(parsed.similarListWeight);
+			if (Array.isArray(parsed.results)) setResults(parsed.results);
+			if (Array.isArray(parsed.addedIds)) setAddedIds(new Set(parsed.addedIds));
+			if (typeof parsed.searchError === 'string') setSearchError(parsed.searchError);
+		} catch {
+			// Ignore corrupted cache and continue with defaults.
+		} finally {
+			setHydrated(true);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (!hydrated) return;
+		sessionStorage.setItem(SMART_REC_STATE_KEY, JSON.stringify({
+			mode,
+			seeds,
+			context,
+			similarUseList,
+			similarListWeight,
+			results,
+			addedIds: Array.from(addedIds),
+			searchError,
+		}));
+	}, [
+		hydrated,
+		mode,
+		seeds,
+		context,
+		similarUseList,
+		similarListWeight,
+		results,
+		addedIds,
+		searchError
+	]);
+
+	useEffect(() => {
+		if (!isLoggedIn && mode === 'cf') {
+			setMode('semantic');
+			setResults([]);
+		}
+	}, [isLoggedIn, mode]);
 
 	useEffect(() => {
 		if (isLoggedIn) {
@@ -72,12 +125,11 @@ function SmartRec() {
 
 	const isCfMode = mode === 'cf';
 	const isSimilarMode = mode === 'similar';
-	const fullListMode = isLoggedIn && !isCfMode && !isSimilarMode && listWeight >= 1;
 	const canSearch = isCfMode
 		? true
 		: isSimilarMode
 			? seeds.length > 0
-			: (fullListMode || seeds.length > 0 || context.trim());
+			: (seeds.length > 0 || context.trim());
 
 	const handleSearch = async () => {
 		if (!canSearch) return;
@@ -98,11 +150,11 @@ function SmartRec() {
 				body.seedIds = seeds.map((seed) => seed.id);
 				body.query = context.trim() || null;
 			}
-			if (fullListMode || isCfMode) {
-				body.useListOnly = true;
+			if (isLoggedIn && !isCfMode && !isSimilarMode) {
+				body.listWeight = SMART_SEARCH_LIST_WEIGHT;
 			}
-			if (isLoggedIn && listWeight > 0 && !isCfMode && !isSimilarMode) {
-				body.listWeight = listWeight;
+			if (isCfMode) {
+				body.useListOnly = true;
 			}
 
 			const data = await getSemanticRecommendations(body);
@@ -158,7 +210,7 @@ function SmartRec() {
 					{isSimilarMode ? 'Seed Anime (pick 1-5)' : `Seed Anime (up to ${MAX_SEEDS})`}
 				</label>
 
-				{seeds.length > 0 && !fullListMode && (
+				{seeds.length > 0 && (
 					<div className="seed-chips">
 						{seeds.map((seed) => (
 							<span key={seed.id} className="seed-chip">
@@ -169,7 +221,7 @@ function SmartRec() {
 					</div>
 				)}
 
-				{seeds.length < MAX_SEEDS && !fullListMode && (
+				{seeds.length < MAX_SEEDS && (
 					<div className="seed-picker">
 						<input
 							type="text"
@@ -180,17 +232,30 @@ function SmartRec() {
 						{suggestionsLoading && <div className="seed-dropdown-loading">Searching...</div>}
 						{suggestions.length > 0 && (
 							<div className="seed-dropdown">
-								{suggestions.map((anime) => (
-									<button
-										key={anime.id}
-										className="seed-dropdown-item"
-										onClick={() => handleSelectSeed(anime)}
-										disabled={seeds.some((seed) => seed.id === anime.id)}
-									>
-										{anime.coverImage && <img src={anime.coverImage.large} alt="" />}
-										<span>{anime.title.english || anime.title.romaji}</span>
-									</button>
-								))}
+								{suggestions.map((anime) => {
+									const coverUrl = typeof anime.coverImage === 'string'
+										? anime.coverImage
+										: anime.coverImage?.large || anime.coverImage?.medium || '';
+									return (
+										<button
+											key={anime.id}
+											className="seed-dropdown-item"
+											onClick={() => handleSelectSeed(anime)}
+											disabled={seeds.some((seed) => seed.id === anime.id)}
+										>
+											{coverUrl && (
+												<img
+													src={coverUrl}
+													alt=""
+													onError={(e) => {
+														e.currentTarget.style.display = 'none';
+													}}
+												/>
+											)}
+											<span>{anime.title.english || anime.title.romaji}</span>
+										</button>
+									);
+								})}
 							</div>
 						)}
 					</div>
@@ -202,44 +267,14 @@ function SmartRec() {
 				<label className="smart-rec-label">What are you in the mood for? (optional)</label>
 				<textarea
 					className="smart-rec-context"
-					placeholder={fullListMode
-						? "Disabled at 100% list influence - results are based entirely on your list."
-						: "e.g. dark psychological thriller with plot twists, or something lighthearted and funny..."}
-					value={fullListMode ? '' : context}
+					placeholder="e.g. dark psychological thriller with plot twists, or something lighthearted and funny..."
+					value={context}
 					onChange={(e) => setContext(e.target.value)}
 					rows={3}
-					disabled={fullListMode}
 				/>
 			</div>
 			)}
 			</>
-			)}
-
-			{isLoggedIn && !isCfMode && !isSimilarMode && (
-				<div className="smart-rec-section">
-					<label className="smart-rec-label">
-						List Influence: {Math.round(listWeight * 100)}%
-					</label>
-					<input
-						type="range"
-						className="smart-rec-slider"
-						min="0"
-						max="100"
-						value={Math.round(listWeight * 100)}
-						onChange={(e) => {
-							const value = Number(e.target.value) / 100;
-							setListWeight(value);
-							if (value >= 1) {
-								setSeeds([]);
-								setContext('');
-								clearResults();
-							}
-						}}
-					/>
-					<p className="smart-rec-slider-hint">
-						How much your rated anime should shape results. 0% = no influence, 100% = fully guided by your list.
-					</p>
-				</div>
 			)}
 
 			{isLoggedIn && isSimilarMode && (

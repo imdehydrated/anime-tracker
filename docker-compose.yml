@@ -57,6 +57,8 @@ services:
       - .env
     container_name: animetracker-backend
     restart: unless-stopped
+    volumes:
+      - ./ml-models:/app/models:ro
 
     # Environment variables for Spring Boot
     environment:

@@ -159,7 +159,7 @@ public class SemanticRecommendationService {
 
         List<AniListResponse.AnimeInfo> semanticResults = new ArrayList<>();
         for (Object[] row : rows) {
-            semanticResults.add(mapRowToAnimeInfo(row));
+            semanticResults.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
         }
 
         return semanticResults;
@@ -272,21 +272,21 @@ public class SemanticRecommendationService {
                     int anilistId = ((Number) item.get("anilist_id")).intValue();
                     Object[] row = rowById.get(anilistId);
                     if (row != null) {
-                        results.add(mapRowToAnimeInfo(row));
+                        results.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
                     }
                 }
             } else {
                 // Rerank failed - fall back to pgvector order
                 results = new ArrayList<>();
                 for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
-                    results.add(mapRowToAnimeInfo(row));
+                    results.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
                 }
             }
         } else {
             // No sidecar - use pgvector order directly
             results = new ArrayList<>();
             for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
-                results.add(mapRowToAnimeInfo(row));
+                results.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
             }
         }
 
@@ -514,6 +514,95 @@ public class SemanticRecommendationService {
         anime.setEpisodes((Integer) row[9]);
 
         return anime;
+    }
+
+    private AniListResponse.AnimeInfo hydrateMetadataIfMissing(AniListResponse.AnimeInfo anime) {
+        if (anime == null || anime.getId() == null || !isMetadataIncomplete(anime)) {
+            return anime;
+        }
+
+        try {
+            AniListResponse.AnimeInfo fetched = aniListService.getAnimeById(anime.getId());
+            if (fetched == null) {
+                return anime;
+            }
+
+            AniListResponse.AnimeInfo merged = mergeAnimeInfo(anime, fetched);
+            persistMetadata(merged);
+            return merged;
+        } catch (Exception e) {
+            log.warn("Failed to hydrate metadata for anime {}: {}", anime.getId(), e.getMessage());
+            return anime;
+        }
+    }
+
+    private boolean isMetadataIncomplete(AniListResponse.AnimeInfo anime) {
+        boolean missingCover = anime.getCoverImage() == null
+                || anime.getCoverImage().getLarge() == null
+                || anime.getCoverImage().getLarge().isBlank();
+        boolean missingGenres = anime.getGenres() == null || anime.getGenres().isEmpty();
+        boolean missingScore = anime.getAverageScore() == null;
+        boolean missingDescription = anime.getDescription() == null || anime.getDescription().isBlank();
+        boolean missingEpisodes = anime.getEpisodes() == null;
+        return missingCover || missingGenres || missingScore || missingDescription || missingEpisodes;
+    }
+
+    private AniListResponse.AnimeInfo mergeAnimeInfo(AniListResponse.AnimeInfo current, AniListResponse.AnimeInfo fetched) {
+        if (current.getTitle() == null) {
+            current.setTitle(fetched.getTitle());
+        } else if (fetched.getTitle() != null) {
+            if (current.getTitle().getRomaji() == null || current.getTitle().getRomaji().isBlank()) {
+                current.getTitle().setRomaji(fetched.getTitle().getRomaji());
+            }
+            if (current.getTitle().getEnglish() == null || current.getTitle().getEnglish().isBlank()) {
+                current.getTitle().setEnglish(fetched.getTitle().getEnglish());
+            }
+        }
+
+        if (current.getCoverImage() == null
+                || current.getCoverImage().getLarge() == null
+                || current.getCoverImage().getLarge().isBlank()) {
+            current.setCoverImage(fetched.getCoverImage());
+        }
+        if (current.getGenres() == null || current.getGenres().isEmpty()) {
+            current.setGenres(fetched.getGenres());
+        }
+        if (current.getDescription() == null || current.getDescription().isBlank()) {
+            current.setDescription(fetched.getDescription());
+        }
+        if (current.getAverageScore() == null) {
+            current.setAverageScore(fetched.getAverageScore());
+        }
+        if (current.getStatus() == null || current.getStatus().isBlank()) {
+            current.setStatus(fetched.getStatus());
+        }
+        if (current.getEpisodes() == null) {
+            current.setEpisodes(fetched.getEpisodes());
+        }
+        return current;
+    }
+
+    private void persistMetadata(AniListResponse.AnimeInfo anime) {
+        String titleRomaji = anime.getTitle() != null ? anime.getTitle().getRomaji() : null;
+        String titleEnglish = anime.getTitle() != null ? anime.getTitle().getEnglish() : null;
+        String coverImage = anime.getCoverImage() != null ? anime.getCoverImage().getLarge() : null;
+        String genres = (anime.getGenres() == null || anime.getGenres().isEmpty())
+                ? null
+                : String.join(", ", anime.getGenres());
+        String description = anime.getDescription() != null
+                ? anime.getDescription().replaceAll("<[^>]*>", "").trim()
+                : null;
+
+        embeddingRepository.updateMetadataByAnilistId(
+                anime.getId(),
+                titleRomaji,
+                titleEnglish,
+                coverImage,
+                genres,
+                description,
+                anime.getAverageScore(),
+                anime.getStatus(),
+                anime.getEpisodes());
     }
 
     private int normalizeLimit(Integer limit) {

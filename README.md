@@ -32,9 +32,10 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 ### AI Recommendations
 
 - **Smart Search**: seed anime + optional natural-language query
+- Logged-in Smart Search auto-blends your list profile (default `listWeight=0.20` in UI)
 - **Similar Shows**: pick 1-5 example anime and get similar titles
 - **For You (CF)**: collaborative filtering predictions from rating patterns
-- Optional list personalization where relevant
+- Similar Shows supports optional list personalization
 - Recommendation blacklist shared by all recommendation modes
 - Anonymous recommendation support for non-login modes
 
@@ -52,7 +53,8 @@ Three backend modes are exposed through one endpoint (`/api/users/recommendation
 ### Semantic Mode (`mode=semantic`)
 
 1. Build a search vector from seed anime and/or query text.
-2. Optionally blend with a user preference vector from scored list entries.
+2. Blend with a user preference vector from scored list entries when `listWeight > 0`.
+   In Smart Search UI, logged-in users default to `listWeight=0.20`.
 3. Run pgvector similarity search and filter out list/blacklist/seed items.
 
 ### Similar Mode (`mode=similar`)
@@ -71,6 +73,11 @@ Three backend modes are exposed through one endpoint (`/api/users/recommendation
 
 - `RECOMMENDATIONS_USE_CUSTOM_VECTORS=false` (default): query `embedding` (OpenAI, 1536-dim). Missing vectors can be backfilled on demand.
 - `RECOMMENDATIONS_USE_CUSTOM_VECTORS=true`: query `embedding_custom` (custom, 384-dim). Query text embedding requires sidecar.
+
+### Metadata Backfill for Recommendation Cards
+
+- Custom embedding imports can include optional metadata fields (`title_english`, `cover_image`, `genres`, `description`, `average_score`, `status`, `episodes`).
+- If a recommended anime row still has missing metadata, backend now fetches details from AniList at runtime, returns complete card data, and persists the missing metadata to `anime_embeddings`.
 
 ## API Endpoints
 

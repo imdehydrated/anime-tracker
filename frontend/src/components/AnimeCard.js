@@ -2,12 +2,21 @@ import { Link } from 'react-router-dom';
 
 function AnimeCard({ anime, children }) {
 	const title = anime.title.english || anime.title.romaji;
+	const coverUrl = typeof anime.coverImage === 'string'
+		? anime.coverImage
+		: anime.coverImage?.large || anime.coverImage?.medium || '';
 
 	return (
 		<div className="anime-card">
-			{anime.coverImage && (
+			{coverUrl && (
 				<Link to={`/anime/${anime.id}`}>
-					<img src={anime.coverImage.large} alt={anime.title.romaji} />
+					<img
+						src={coverUrl}
+						alt={anime.title.romaji}
+						onError={(e) => {
+							e.currentTarget.style.display = 'none';
+						}}
+					/>
 				</Link>
 			)}
 

@@ -119,18 +119,62 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	@Modifying
 	@Query(value = """
 			INSERT INTO anime_embeddings
-			    (anilist_id, title_romaji, embedding_custom, created_at, updated_at)
+			    (anilist_id, title_romaji, title_english, cover_image, genres,
+			     description, average_score, status, episodes, embedding_custom,
+			     created_at, updated_at)
 			VALUES
-			    (:anilistId, :titleRomaji, CAST(:embeddingCustom AS vector), NOW(), NOW())
+			    (:anilistId, :titleRomaji, :titleEnglish, :coverImage, :genres,
+			     :description, :averageScore, :status, :episodes,
+			     CAST(:embeddingCustom AS vector), NOW(), NOW())
 			ON CONFLICT (anilist_id) DO UPDATE SET
 			    title_romaji = COALESCE(EXCLUDED.title_romaji, anime_embeddings.title_romaji),
+			    title_english = COALESCE(EXCLUDED.title_english, anime_embeddings.title_english),
+			    cover_image = COALESCE(EXCLUDED.cover_image, anime_embeddings.cover_image),
+			    genres = COALESCE(EXCLUDED.genres, anime_embeddings.genres),
+			    description = COALESCE(EXCLUDED.description, anime_embeddings.description),
+			    average_score = COALESCE(EXCLUDED.average_score, anime_embeddings.average_score),
+			    status = COALESCE(EXCLUDED.status, anime_embeddings.status),
+			    episodes = COALESCE(EXCLUDED.episodes, anime_embeddings.episodes),
 			    embedding_custom = EXCLUDED.embedding_custom,
 			    updated_at = NOW()
 			""", nativeQuery = true)
 	void upsertCustomEmbedding(
 			@Param("anilistId") Integer anilistId,
 			@Param("titleRomaji") String titleRomaji,
+			@Param("titleEnglish") String titleEnglish,
+			@Param("coverImage") String coverImage,
+			@Param("genres") String genres,
+			@Param("description") String description,
+			@Param("averageScore") Integer averageScore,
+			@Param("status") String status,
+			@Param("episodes") Integer episodes,
 			@Param("embeddingCustom") String embeddingCustom);
+
+	@Transactional
+	@Modifying
+	@Query(value = """
+			UPDATE anime_embeddings
+			SET title_romaji = COALESCE(:titleRomaji, title_romaji),
+			    title_english = COALESCE(:titleEnglish, title_english),
+			    cover_image = COALESCE(:coverImage, cover_image),
+			    genres = COALESCE(:genres, genres),
+			    description = COALESCE(:description, description),
+			    average_score = COALESCE(:averageScore, average_score),
+			    status = COALESCE(:status, status),
+			    episodes = COALESCE(:episodes, episodes),
+			    updated_at = NOW()
+			WHERE anilist_id = :anilistId
+			""", nativeQuery = true)
+	int updateMetadataByAnilistId(
+			@Param("anilistId") Integer anilistId,
+			@Param("titleRomaji") String titleRomaji,
+			@Param("titleEnglish") String titleEnglish,
+			@Param("coverImage") String coverImage,
+			@Param("genres") String genres,
+			@Param("description") String description,
+			@Param("averageScore") Integer averageScore,
+			@Param("status") String status,
+			@Param("episodes") Integer episodes);
 
 	@Query(value = """
 			SELECT COUNT(*)

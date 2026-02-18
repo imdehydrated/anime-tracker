@@ -39,6 +39,9 @@ public class MlSidecarService {
         this.enabled = enabled;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newBuilder()
+                // Uvicorn does not support HTTP/2 cleartext upgrade (h2c) and can drop request bodies.
+                // Force HTTP/1.1 for stable JSON POST behavior to the sidecar.
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofMillis(timeoutMs))
                 .build();
 
@@ -66,6 +69,7 @@ public class MlSidecarService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/embed"))
                     .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
 
@@ -119,12 +123,13 @@ public class MlSidecarService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/semantic/rerank"))
                     .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                log.warn("Sidecar /semantic/rerank returned {}", response.statusCode());
+                log.warn("Sidecar /semantic/rerank returned {}: {}", response.statusCode(), response.body());
                 return null;
             }
 
@@ -161,12 +166,13 @@ public class MlSidecarService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/cf/recommend"))
                     .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                log.warn("Sidecar /cf/recommend returned {}", response.statusCode());
+                log.warn("Sidecar /cf/recommend returned {}: {}", response.statusCode(), response.body());
                 return null;
             }
 

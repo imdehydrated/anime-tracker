@@ -2,15 +2,24 @@ import { Link } from 'react-router-dom';
 
 function AnimeRecItem({ anime, children }) {
 	const title = anime.title.english || anime.title.romaji;
+	const coverUrl = typeof anime.coverImage === 'string'
+		? anime.coverImage
+		: anime.coverImage?.large || anime.coverImage?.medium || '';
 	const description = anime.description
 		? anime.description.slice(0, 200) + (anime.description.length > 200 ? '...' : '')
 		: 'No description available.';
 
 	return (
 		<div className="anime-rec-item">
-			{anime.coverImage && (
+			{coverUrl && (
 				<Link to={`/anime/${anime.id}`} className="anime-rec-item-image">
-					<img src={anime.coverImage.large} alt={anime.title.romaji} />
+					<img
+						src={coverUrl}
+						alt={anime.title.romaji}
+						onError={(e) => {
+							e.currentTarget.style.display = 'none';
+						}}
+					/>
 				</Link>
 			)}
 

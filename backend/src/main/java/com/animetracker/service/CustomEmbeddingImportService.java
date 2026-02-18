@@ -123,9 +123,25 @@ public class CustomEmbeddingImportService {
                         vector[i] = (float) embeddingNode.get(i).asDouble();
                     }
 
+                    String titleRomaji = title;
+                    String titleEnglish = readString(node, "title_english", "titleEnglish");
+                    String coverImage = readString(node, "cover_image", "coverImage");
+                    String genres = readGenres(node.path("genres"));
+                    String description = stripHtml(readString(node, "description"));
+                    Integer averageScore = readInteger(node, "average_score", "averageScore");
+                    String status = readString(node, "status");
+                    Integer episodes = readInteger(node, "episodes");
+
                     embeddingRepository.upsertCustomEmbedding(
                             anilistId,
-                            title,
+                            titleRomaji,
+                            titleEnglish,
+                            coverImage,
+                            genres,
+                            description,
+                            averageScore,
+                            status,
+                            episodes,
                             EmbeddingService.toVectorString(vector));
                     imported++;
 
@@ -207,6 +223,61 @@ public class CustomEmbeddingImportService {
         } catch (IOException | NoSuchAlgorithmException e) {
             throw new BadRequestException("Failed to fingerprint custom embeddings file: " + e.getMessage());
         }
+    }
+
+    private String stripHtml(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.replaceAll("<[^>]*>", "").trim();
+    }
+
+    private String readString(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node.path(key);
+            if (!value.isMissingNode() && !value.isNull()) {
+                String text = value.asText(null);
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+        }
+        return null;
+    }
+
+    private Integer readInteger(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node.path(key);
+            if (!value.isMissingNode() && !value.isNull()) {
+                return value.asInt();
+            }
+        }
+        return null;
+    }
+
+    private String readGenres(JsonNode genresNode) {
+        if (genresNode == null || genresNode.isMissingNode() || genresNode.isNull()) {
+            return null;
+        }
+        if (genresNode.isTextual()) {
+            String text = genresNode.asText();
+            return text == null || text.isBlank() ? null : text;
+        }
+        if (genresNode.isArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode genre : genresNode) {
+                String text = genre.asText(null);
+                if (text == null || text.isBlank()) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append(text);
+            }
+            return sb.length() == 0 ? null : sb.toString();
+        }
+        return null;
     }
 
     public record ImportStats(
