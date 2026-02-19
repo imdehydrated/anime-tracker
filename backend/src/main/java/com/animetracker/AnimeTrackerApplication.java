@@ -9,7 +9,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * This is the entry point of our Spring Boot application.
  * When you run "java -jar app.jar", this main() method executes.
  */
-@SpringBootApplication  // ← Magic annotation! Does 3 things (explained below)
+@SpringBootApplication
 public class AnimeTrackerApplication {
 
     /**

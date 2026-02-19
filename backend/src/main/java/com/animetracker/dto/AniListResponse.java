@@ -42,6 +42,9 @@ public class AniListResponse {
         private List<AnimeTag> tags;  // Only populated by POPULATE_QUERY (includes tag name + rank)
         private String description;
         private String status;
+        private String recommendationReason;
+        private List<String> reasonCodes;
+        private Double fusionScore;
 
         // Getters and setters
         public Integer getId() { return id; }
@@ -70,6 +73,15 @@ public class AniListResponse {
 
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
+
+        public String getRecommendationReason() { return recommendationReason; }
+        public void setRecommendationReason(String recommendationReason) { this.recommendationReason = recommendationReason; }
+
+        public List<String> getReasonCodes() { return reasonCodes; }
+        public void setReasonCodes(List<String> reasonCodes) { this.reasonCodes = reasonCodes; }
+
+        public Double getFusionScore() { return fusionScore; }
+        public void setFusionScore(Double fusionScore) { this.fusionScore = fusionScore; }
     }
 
     // Matches { "romaji": "...", "english": "..." }

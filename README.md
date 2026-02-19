@@ -28,6 +28,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - Live search with debounced queries
 - Anime detail pages with synopsis, genres, episode count, and AniList link
 - Add-to-list actions from search, detail, and recommendation views
+- AniList client resilience: request pacing, retry/backoff on 429/5xx, and in-memory caching for search + anime-by-id lookups
 
 ### AI Recommendations
 
@@ -36,6 +37,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 - **Similar Shows**: pick 1-5 example anime and get similar titles
 - **For You (CF)**: collaborative filtering predictions from rating patterns
 - Similar Shows supports optional list personalization
+- One-sentence recommendation explanations are attached to recommendation results
 - Recommendation blacklist shared by all recommendation modes
 - Anonymous recommendation support for non-login modes
 
@@ -68,6 +70,25 @@ Three backend modes are exposed through one endpoint (`/api/users/recommendation
 
 1. Send user ratings to sidecar collaborative filtering model.
 2. Return top predictions for unwatched anime.
+
+### Fusion Scoring (Phase 1 Infrastructure)
+
+- Added `FusionScoringService` for normalized score conversion and deterministic candidate fusion.
+- Added `RecommendationResponse` DTO to support optional `fusionScore` and `reasonCodes`.
+- Added fusion config under `recommendations.fusion.*` with startup validation:
+  - weights are clamped to `>= 0`, renormalized to sum to `1`
+  - zero/invalid weights fallback to semantic-only (`1.0 / 0.0`)
+  - diversity penalty is clamped to `[0, 1]`
+- This phase is infrastructure-only: existing recommendation endpoint behavior is unchanged.
+
+### Fusion Scoring (Phase 2 Wiring)
+
+- Semantic and Similar flows now create normalized semantic candidates and blend with overlapping CF signals for logged-in users when sidecar is enabled.
+- CF mode now emits normalized fusion score metadata per recommendation.
+- Recommendation metadata fields are attached to result items:
+  - `fusionScore` (0..1)
+  - `reasonCodes` (provenance tags)
+  - `recommendationReason` (single sentence)
 
 ### Vector Source Switch
 
@@ -108,6 +129,10 @@ ML_SIDECAR_ENABLED=true
 RECOMMENDATIONS_USE_CUSTOM_VECTORS=true
 CUSTOM_EMBEDDINGS_PATH=/app/models/anime_embeddings.jsonl
 AUTO_SYNC_CUSTOM_EMBEDDINGS=true
+FUSION_SEMANTIC_WEIGHT=0.6
+FUSION_CF_WEIGHT=0.4
+FUSION_DIVERSITY_PENALTY=0.10
+FUSION_CF_CANDIDATE_MULTIPLIER=2
 
 # Start all services (db, backend, frontend, ml-sidecar)
 docker-compose up --build
@@ -195,6 +220,10 @@ ML_SIDECAR_ENABLED=true
 RECOMMENDATIONS_USE_CUSTOM_VECTORS=true
 CUSTOM_EMBEDDINGS_PATH=/app/models/anime_embeddings.jsonl
 AUTO_SYNC_CUSTOM_EMBEDDINGS=true
+FUSION_SEMANTIC_WEIGHT=0.6
+FUSION_CF_WEIGHT=0.4
+FUSION_DIVERSITY_PENALTY=0.10
+FUSION_CF_CANDIDATE_MULTIPLIER=2
 ```
 
 Then start services:
@@ -272,3 +301,7 @@ animetracker/
 
 - Architecture conventions are documented in `ARCHITECTURE.md`.
 - Backend tests live in `backend/src/test/java` (run with `mvn test`).
+- AniList rate-limit mitigation lives in `backend/src/main/java/com/animetracker/service/AniListService.java`:
+  - Global request spacing (~2.8 req/sec per backend instance)
+  - Retry with jitter for `429` and `5xx`
+  - Cached search results (10 min TTL) and anime-by-id lookups (30 min TTL)

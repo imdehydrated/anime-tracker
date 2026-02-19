@@ -836,6 +836,13 @@ a:hover {
 	margin: 0.25rem 0;
 }
 
+.anime-rec-item-reason {
+	font-size: 0.86rem;
+	color: var(--accent);
+	font-weight: 600;
+	margin: 0.2rem 0;
+}
+
 .anime-rec-item-actions {
 	margin-top: auto;
 	display: flex;

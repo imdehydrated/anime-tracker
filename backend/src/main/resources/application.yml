@@ -109,3 +109,11 @@ recommendations:
   custom-embeddings-path: ${CUSTOM_EMBEDDINGS_PATH:/app/models/anime_embeddings.jsonl}
   # On startup, import custom embeddings only if source JSONL changed since last import.
   auto-sync-custom-embeddings: ${AUTO_SYNC_CUSTOM_EMBEDDINGS:true}
+  fusion:
+    # Source weights are clamped to >= 0 and renormalized to sum=1 at startup.
+    semantic-weight: ${FUSION_SEMANTIC_WEIGHT:0.6}
+    cf-weight: ${FUSION_CF_WEIGHT:0.4}
+    # Diversity overlap penalty applied post-fusion in [0, 1].
+    diversity-penalty: ${FUSION_DIVERSITY_PENALTY:0.10}
+    # Placeholder for phase 2 overfetch strategy (currently read but not applied).
+    cf-candidate-multiplier: ${FUSION_CF_CANDIDATE_MULTIPLIER:2}

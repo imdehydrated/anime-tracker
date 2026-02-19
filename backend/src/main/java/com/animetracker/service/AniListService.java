@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,13 +29,18 @@ public class AniListService {
     private static final Logger log = LoggerFactory.getLogger(AniListService.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(12);
     private static final Duration ANIME_BY_ID_CACHE_TTL = Duration.ofMinutes(30);
+    private static final Duration SEARCH_CACHE_TTL = Duration.ofMinutes(10);
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long RETRY_BASE_DELAY_MS = 750L;
-    private static final long RETRY_MAX_DELAY_MS = 5_000L;
+    private static final long RETRY_MAX_DELAY_MS = 60_000L;
+    private static final long REQUEST_SPACING_MS = 350L; // ~2.8 requests/sec max from this app instance
 
     private final WebClient webClient;
     private final Map<Integer, CachedAnimeInfo> animeByIdCache = new ConcurrentHashMap<>();
     private final Map<Integer, Object> animeByIdLocks = new ConcurrentHashMap<>();
+    private final Map<String, CachedSearchResults> searchCache = new ConcurrentHashMap<>();
+    private final Map<String, Object> searchLocks = new ConcurrentHashMap<>();
+    private final AtomicLong nextRequestAtMs = new AtomicLong(0L);
 
     public AniListService() {
         this.webClient = WebClient.builder()
@@ -114,6 +120,42 @@ public class AniListService {
             """;
 
     public List<AniListResponse.AnimeInfo> searchAnime(String query) {
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase();
+        if (normalizedQuery.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        Instant now = Instant.now();
+        CachedSearchResults cached = searchCache.get(normalizedQuery);
+        if (cached != null && cached.isFresh(now)) {
+            return copyAnimeList(cached.results());
+        }
+
+        Object lock = searchLocks.computeIfAbsent(normalizedQuery, ignored -> new Object());
+        synchronized (lock) {
+            now = Instant.now();
+            cached = searchCache.get(normalizedQuery);
+            if (cached != null && cached.isFresh(now)) {
+                return copyAnimeList(cached.results());
+            }
+
+            List<AniListResponse.AnimeInfo> fetched = fetchSearchUncached(query);
+            if (!fetched.isEmpty()) {
+                searchCache.put(
+                        normalizedQuery,
+                        new CachedSearchResults(copyAnimeList(fetched), now.plus(SEARCH_CACHE_TTL)));
+                return fetched;
+            }
+
+            if (cached != null) {
+                log.debug("Serving stale AniList search cache for query='{}' after request failure", normalizedQuery);
+                return copyAnimeList(cached.results());
+            }
+            return fetched;
+        }
+    }
+
+    private List<AniListResponse.AnimeInfo> fetchSearchUncached(String query) {
         Map<String, Object> requestBody = Map.of(
                 "query", SEARCH_QUERY,
                 "variables", Map.of("search", query));
@@ -124,7 +166,7 @@ public class AniListService {
                 || response.getData().getPage().getMedia() == null) {
             return Collections.emptyList();
         }
-        return response.getData().getPage().getMedia();
+        return copyAnimeList(response.getData().getPage().getMedia());
     }
 
     public AniListResponse.AnimeInfo getAnimeById(Integer id) {
@@ -187,6 +229,7 @@ public class AniListService {
     private AniListResponse executeGraphql(Map<String, Object> requestBody) {
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
             try {
+                throttleRequestRate();
                 return webClient.post()
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(requestBody)
@@ -195,10 +238,11 @@ public class AniListService {
                         .block(REQUEST_TIMEOUT);
             } catch (WebClientResponseException ex) {
                 int status = ex.getStatusCode().value();
-                if (status == 429 && attempt < MAX_RETRY_ATTEMPTS) {
+                if (isRetryableStatus(status) && attempt < MAX_RETRY_ATTEMPTS) {
                     long retryDelayMs = resolveRetryDelayMs(ex, attempt);
                     log.warn(
-                            "AniList rate limited (429). Retrying attempt {}/{} in {}ms",
+                            "AniList request retryable failure (status={}). Retrying attempt {}/{} in {}ms",
+                            status,
                             attempt + 1,
                             MAX_RETRY_ATTEMPTS,
                             retryDelayMs);
@@ -211,6 +255,19 @@ public class AniListService {
                         status, ex.getResponseBodyAsString());
                 return null;
             } catch (Exception ex) {
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    long retryDelayMs = resolveRetryDelayMs(null, attempt);
+                    log.warn(
+                            "AniList request transient error. Retrying attempt {}/{} in {}ms: {}",
+                            attempt + 1,
+                            MAX_RETRY_ATTEMPTS,
+                            retryDelayMs,
+                            ex.getMessage());
+                    if (!sleepQuietly(retryDelayMs)) {
+                        return null;
+                    }
+                    continue;
+                }
                 log.warn("AniList request failed: {}", ex.getMessage());
                 return null;
             }
@@ -218,7 +275,33 @@ public class AniListService {
         return null;
     }
 
+    private void throttleRequestRate() {
+        while (true) {
+            long now = System.currentTimeMillis();
+            long scheduled = nextRequestAtMs.get();
+            long startAt = Math.max(now, scheduled);
+            long nextSlot = startAt + REQUEST_SPACING_MS;
+            if (nextRequestAtMs.compareAndSet(scheduled, nextSlot)) {
+                long sleepMs = startAt - now;
+                if (sleepMs > 0) {
+                    sleepQuietly(sleepMs);
+                }
+                return;
+            }
+        }
+    }
+
+    private boolean isRetryableStatus(int status) {
+        return status == 429 || (status >= 500 && status < 600);
+    }
+
     private long resolveRetryDelayMs(WebClientResponseException ex, int attempt) {
+        if (ex == null) {
+            long exponentialDelay = RETRY_BASE_DELAY_MS * (1L << Math.max(0, attempt - 1));
+            long jitterMs = ThreadLocalRandom.current().nextLong(120L, 360L);
+            return Math.min(exponentialDelay + jitterMs, RETRY_MAX_DELAY_MS);
+        }
+
         String retryAfter = ex.getHeaders().getFirst("Retry-After");
         if (retryAfter != null) {
             try {
@@ -262,7 +345,23 @@ public class AniListService {
         copy.setCoverImage(copyCoverImage(source.getCoverImage()));
         copy.setGenres(source.getGenres() == null ? null : new ArrayList<>(source.getGenres()));
         copy.setTags(copyTags(source.getTags()));
+        copy.setRecommendationReason(source.getRecommendationReason());
+        copy.setReasonCodes(source.getReasonCodes() == null ? null : new ArrayList<>(source.getReasonCodes()));
+        copy.setFusionScore(source.getFusionScore());
         return copy;
+    }
+
+    private List<AniListResponse.AnimeInfo> copyAnimeList(List<AniListResponse.AnimeInfo> source) {
+        if (source == null || source.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<AniListResponse.AnimeInfo> copies = new ArrayList<>(source.size());
+        for (AniListResponse.AnimeInfo anime : source) {
+            if (anime != null) {
+                copies.add(copyAnimeInfo(anime));
+            }
+        }
+        return copies;
     }
 
     private AniListResponse.AnimeTitle copyTitle(AniListResponse.AnimeTitle source) {
@@ -302,6 +401,12 @@ public class AniListService {
     }
 
     private record CachedAnimeInfo(AniListResponse.AnimeInfo anime, Instant expiresAt) {
+        private boolean isFresh(Instant now) {
+            return now.isBefore(expiresAt);
+        }
+    }
+
+    private record CachedSearchResults(List<AniListResponse.AnimeInfo> results, Instant expiresAt) {
         private boolean isFresh(Instant now) {
             return now.isBefore(expiresAt);
         }

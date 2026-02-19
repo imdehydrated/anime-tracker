@@ -35,6 +35,8 @@ class SemanticRecommendationServiceTest {
     private AnimeEmbeddingPopulatorService populatorService;
     @Mock
     private MlSidecarService mlSidecarService;
+    @Mock
+    private FusionScoringService fusionScoringService;
 
     private SemanticRecommendationService service;
 
@@ -48,7 +50,8 @@ class SemanticRecommendationServiceTest {
                 userRepository,
                 aniListService,
                 populatorService,
-                mlSidecarService);
+                mlSidecarService,
+                fusionScoringService);
     }
 
     @Test

@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.entity.RecommendationBlacklist;
 import com.animetracker.entity.User;
@@ -41,6 +42,7 @@ public class SemanticRecommendationService {
     private final AniListService aniListService;
     private final AnimeEmbeddingPopulatorService populatorService;
     private final MlSidecarService mlSidecarService;
+    private final FusionScoringService fusionScoringService;
     @Value("${recommendations.use-custom-vectors:false}")
     private boolean useCustomVectors;
 
@@ -51,7 +53,8 @@ public class SemanticRecommendationService {
             UserRepository userRepository,
             AniListService aniListService,
             AnimeEmbeddingPopulatorService populatorService,
-            MlSidecarService mlSidecarService) {
+            MlSidecarService mlSidecarService,
+            FusionScoringService fusionScoringService) {
         this.embeddingService = embeddingService;
         this.embeddingRepository = embeddingRepository;
         this.animeListEntryService = animeListEntryService;
@@ -60,6 +63,7 @@ public class SemanticRecommendationService {
         this.aniListService = aniListService;
         this.populatorService = populatorService;
         this.mlSidecarService = mlSidecarService;
+        this.fusionScoringService = fusionScoringService;
     }
 
     /**
@@ -113,6 +117,7 @@ public class SemanticRecommendationService {
         if (effectiveListOnly) {
             listWeight = 1.0f;
         }
+        boolean usedListProfile = false;
 
         float[] searchVector = null;
         if (hasSeeds) {
@@ -143,6 +148,7 @@ public class SemanticRecommendationService {
                     throw new BadRequestException("Your list does not have enough embedded anime yet");
                 }
             } else {
+                usedListProfile = true;
                 searchVector = (searchVector == null)
                         ? listVector
                         : blend(searchVector, listVector, listWeight);
@@ -155,14 +161,24 @@ public class SemanticRecommendationService {
 
         List<Integer> excludeIds = buildExcludeIds(username, normalizedSeeds);
         String vectorStr = EmbeddingService.toVectorString(searchVector);
-        List<Object[]> rows = findSimilarRows(vectorStr, excludeIds, limit);
-
-        List<AniListResponse.AnimeInfo> semanticResults = new ArrayList<>();
+        int candidateLimit = Math.min(150, Math.max(limit, limit * 3));
+        List<Object[]> rows = findSimilarRows(vectorStr, excludeIds, candidateLimit);
+        List<String> baseReasonCodes = buildBaseReasonCodes(hasSeeds, hasQuery, usedListProfile);
+        List<FusionScoringService.ScoredCandidate> semanticCandidates = new ArrayList<>();
         for (Object[] row : rows) {
-            semanticResults.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
+            AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+            double distance = distanceFromRow(row);
+            double normalizedScore = FusionScoringService.normalizeSemanticDistance(distance);
+            semanticCandidates.add(new FusionScoringService.ScoredCandidate(
+                    anime.getId(),
+                    anime,
+                    normalizedScore,
+                    baseReasonCodes));
         }
 
-        return semanticResults;
+        List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
+                semanticCandidates, username, excludeIds, limit);
+        return finalizeCandidatesWithReasons(fused, "semantic", limit);
     }
 
     /**
@@ -190,10 +206,23 @@ public class SemanticRecommendationService {
         // Fetch full anime info for each predicted AniList ID
         List<AniListResponse.AnimeInfo> results = new ArrayList<>();
         for (Map<String, Object> pred : predictions) {
-            int anilistId = ((Number) pred.get("anilist_id")).intValue();
+            Object idValue = pred.get("anilist_id");
+            if (!(idValue instanceof Number idNumber)) {
+                continue;
+            }
+            int anilistId = idNumber.intValue();
+            double predictedScore = numberValue(pred.get("predicted_score"), 1.0d);
+            double watchConfidence = numberValue(pred.get("watch_confidence"), 0.0d);
+            double normalizedScore = FusionScoringService.normalizeCfScore(predictedScore, watchConfidence);
             try {
                 AniListResponse.AnimeInfo anime = aniListService.getAnimeById(anilistId);
                 if (anime != null) {
+                    List<String> reasonCodes = List.of(RecommendationResponse.CF_SIGNAL);
+                    applyRecommendationMeta(
+                            anime,
+                            normalizedScore,
+                            reasonCodes,
+                            buildReasonSentence("cf", reasonCodes));
                     results.add(anime);
                 }
             } catch (Exception e) {
@@ -229,11 +258,13 @@ public class SemanticRecommendationService {
         float[] searchVector = averageRows(seedRows);
         // Similar mode should only use list personalization when explicitly requested.
         float listWeight = (requestedListWeight == null) ? 0f : normalizeListWeight(requestedListWeight);
+        boolean usedListProfile = false;
 
         // Optional personalization: blend seed centroid with user's preference vector.
         if (username != null && listWeight > 0f) {
             float[] listVector = buildUserPreferenceVector(username);
             if (listVector != null) {
+                usedListProfile = true;
                 searchVector = blend(searchVector, listVector, listWeight);
             }
         }
@@ -244,8 +275,8 @@ public class SemanticRecommendationService {
 
         // Overfetch for reranking headroom
         List<Object[]> candidates = findSimilarRows(vectorStr, excludeIds, limit * 3);
-
-        List<AniListResponse.AnimeInfo> results;
+        List<FusionScoringService.ScoredCandidate> semanticCandidates;
+        List<String> baseReasonCodes = buildBaseReasonCodes(true, false, usedListProfile);
 
         // Sidecar reranking expects custom 384-dim vectors.
         // Skip reranking when using OpenAI 1536-dim retrieval to avoid dimension mismatch.
@@ -267,30 +298,53 @@ public class SemanticRecommendationService {
                     searchVector, candidateIds, candidateDistances, limit);
 
             if (reranked != null && !reranked.isEmpty()) {
-                results = new ArrayList<>();
+                semanticCandidates = new ArrayList<>();
                 for (Map<String, Object> item : reranked) {
                     int anilistId = ((Number) item.get("anilist_id")).intValue();
                     Object[] row = rowById.get(anilistId);
                     if (row != null) {
-                        results.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
+                        AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+                        double rerankedScore = numberValue(item.get("score"), Double.NaN);
+                        double normalizedScore = Double.isNaN(rerankedScore)
+                                ? FusionScoringService.normalizeSemanticDistance(distanceFromRow(row))
+                                : FusionScoringService.normalizeRerankedScore(rerankedScore);
+                        semanticCandidates.add(new FusionScoringService.ScoredCandidate(
+                                anime.getId(),
+                                anime,
+                                normalizedScore,
+                                baseReasonCodes));
                     }
                 }
             } else {
                 // Rerank failed - fall back to pgvector order
-                results = new ArrayList<>();
+                semanticCandidates = new ArrayList<>();
                 for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
-                    results.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
+                    AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+                    double normalizedScore = FusionScoringService.normalizeSemanticDistance(distanceFromRow(row));
+                    semanticCandidates.add(new FusionScoringService.ScoredCandidate(
+                            anime.getId(),
+                            anime,
+                            normalizedScore,
+                            baseReasonCodes));
                 }
             }
         } else {
             // No sidecar - use pgvector order directly
-            results = new ArrayList<>();
+            semanticCandidates = new ArrayList<>();
             for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
-                results.add(hydrateMetadataIfMissing(mapRowToAnimeInfo(row)));
+                AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+                double normalizedScore = FusionScoringService.normalizeSemanticDistance(distanceFromRow(row));
+                semanticCandidates.add(new FusionScoringService.ScoredCandidate(
+                        anime.getId(),
+                        anime,
+                        normalizedScore,
+                        baseReasonCodes));
             }
         }
 
-        return results;
+        List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
+                semanticCandidates, username, excludeIds, limit);
+        return finalizeCandidatesWithReasons(fused, "similar", limit);
     }
 
     /**
@@ -603,6 +657,200 @@ public class SemanticRecommendationService {
                 anime.getAverageScore(),
                 anime.getStatus(),
                 anime.getEpisodes());
+    }
+
+    private List<FusionScoringService.FusedCandidate> blendSemanticWithCfIfAvailable(
+            List<FusionScoringService.ScoredCandidate> semanticCandidates,
+            String username,
+            List<Integer> excludeIds,
+            int limit) {
+        if (semanticCandidates == null || semanticCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        List<FusionScoringService.ScoredCandidate> cfOverlapCandidates = buildCfOverlapCandidates(
+                username, excludeIds, limit, semanticCandidates);
+        List<FusionScoringService.FusedCandidate> fused = fusionScoringService.fuseAndRank(
+                semanticCandidates, cfOverlapCandidates);
+
+        if (!cfOverlapCandidates.isEmpty()) {
+            fused = fusionScoringService.applyDiversityPass(fused);
+        }
+
+        return fused;
+    }
+
+    private List<FusionScoringService.ScoredCandidate> buildCfOverlapCandidates(
+            String username,
+            List<Integer> excludeIds,
+            int limit,
+            List<FusionScoringService.ScoredCandidate> semanticCandidates) {
+        if (username == null || !mlSidecarService.isEnabled() || semanticCandidates == null || semanticCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Integer, Float> userRatings = buildUserRatingMap(username);
+        if (userRatings.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Integer> semanticIds = new LinkedHashSet<>();
+        Map<Integer, AniListResponse.AnimeInfo> animeById = new HashMap<>();
+        for (FusionScoringService.ScoredCandidate candidate : semanticCandidates) {
+            semanticIds.add(candidate.anilistId());
+            animeById.put(candidate.anilistId(), candidate.animeInfo());
+        }
+
+        int cfTopK = Math.max(limit, limit * Math.max(1, fusionScoringService.getCfCandidateMultiplier()));
+        List<Map<String, Object>> predictions = mlSidecarService.getCfRecommendations(userRatings, excludeIds, cfTopK);
+        if (predictions == null || predictions.isEmpty()) {
+            return List.of();
+        }
+
+        List<FusionScoringService.ScoredCandidate> cfOverlapCandidates = new ArrayList<>();
+        for (Map<String, Object> pred : predictions) {
+            Object idValue = pred.get("anilist_id");
+            if (!(idValue instanceof Number idNumber)) {
+                continue;
+            }
+            int anilistId = idNumber.intValue();
+            if (!semanticIds.contains(anilistId)) {
+                continue;
+            }
+
+            AniListResponse.AnimeInfo anime = animeById.get(anilistId);
+            if (anime == null) {
+                continue;
+            }
+
+            double predictedScore = numberValue(pred.get("predicted_score"), 1.0d);
+            double watchConfidence = numberValue(pred.get("watch_confidence"), 0.0d);
+            double normalizedScore = FusionScoringService.normalizeCfScore(predictedScore, watchConfidence);
+
+            cfOverlapCandidates.add(new FusionScoringService.ScoredCandidate(
+                    anilistId,
+                    anime,
+                    normalizedScore,
+                    List.of(RecommendationResponse.CF_SIGNAL)));
+        }
+        return cfOverlapCandidates;
+    }
+
+    private List<String> buildBaseReasonCodes(boolean hasSeeds, boolean hasQuery, boolean usedListProfile) {
+        List<String> reasonCodes = new ArrayList<>(4);
+        if (hasSeeds) {
+            reasonCodes.add(RecommendationResponse.SIMILAR_TO_SEED);
+        }
+        if (hasQuery) {
+            reasonCodes.add(RecommendationResponse.MATCHES_QUERY);
+        }
+        if (usedListProfile) {
+            reasonCodes.add(RecommendationResponse.MATCHES_TASTE_PROFILE);
+        }
+        return reasonCodes;
+    }
+
+    private List<AniListResponse.AnimeInfo> finalizeCandidatesWithReasons(
+            List<FusionScoringService.FusedCandidate> fusedCandidates,
+            String mode,
+            int limit) {
+        if (fusedCandidates == null || fusedCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        List<AniListResponse.AnimeInfo> results = new ArrayList<>();
+        int effectiveLimit = Math.min(limit, fusedCandidates.size());
+        for (FusionScoringService.FusedCandidate fused : fusedCandidates.subList(0, effectiveLimit)) {
+            AniListResponse.AnimeInfo anime = fused.animeInfo();
+            List<String> reasonCodes = fused.reasonCodes();
+            String reason = buildReasonSentence(mode, reasonCodes);
+            applyRecommendationMeta(anime, fused.fusionScore(), reasonCodes, reason);
+            results.add(anime);
+        }
+        return results;
+    }
+
+    private void applyRecommendationMeta(
+            AniListResponse.AnimeInfo anime,
+            Double fusionScore,
+            List<String> reasonCodes,
+            String reasonSentence) {
+        if (anime == null) {
+            return;
+        }
+
+        anime.setFusionScore(fusionScore);
+        anime.setReasonCodes((reasonCodes == null || reasonCodes.isEmpty()) ? null : List.copyOf(reasonCodes));
+        anime.setRecommendationReason(reasonSentence);
+    }
+
+    private String buildReasonSentence(String mode, List<String> reasonCodes) {
+        Set<String> codes = new LinkedHashSet<>();
+        if (reasonCodes != null) {
+            codes.addAll(reasonCodes);
+        }
+
+        List<String> clauses = new ArrayList<>(4);
+        if (codes.contains(RecommendationResponse.SIMILAR_TO_SEED)) {
+            clauses.add("it is similar to your selected seed anime");
+        }
+        if (codes.contains(RecommendationResponse.MATCHES_QUERY)) {
+            clauses.add("it matches your search description");
+        }
+        if (codes.contains(RecommendationResponse.MATCHES_TASTE_PROFILE)) {
+            clauses.add("it aligns with your rating history");
+        }
+        if (codes.contains(RecommendationResponse.CF_SIGNAL)) {
+            clauses.add("users with similar rating patterns also favor it");
+        }
+
+        if (clauses.isEmpty()) {
+            if ("cf".equals(mode)) {
+                return "Recommended because collaborative filtering found a strong match for your profile.";
+            }
+            if ("similar".equals(mode)) {
+                return "Recommended because it is close to your selected seed anime.";
+            }
+            return "Recommended because it matches your current recommendation signals.";
+        }
+
+        return "Recommended because " + joinClauses(clauses) + ".";
+    }
+
+    private String joinClauses(List<String> clauses) {
+        if (clauses.size() == 1) {
+            return clauses.get(0);
+        }
+        if (clauses.size() == 2) {
+            return clauses.get(0) + " and " + clauses.get(1);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < clauses.size(); i++) {
+            if (i == clauses.size() - 1) {
+                sb.append("and ").append(clauses.get(i));
+            } else {
+                sb.append(clauses.get(i)).append(", ");
+            }
+        }
+        return sb.toString();
+    }
+
+    private double distanceFromRow(Object[] row) {
+        if (row != null && row.length > 13 && row[13] instanceof Number distance) {
+            return distance.doubleValue();
+        }
+        return 1.0d;
+    }
+
+    private double numberValue(Object value, double fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        return fallback;
     }
 
     private int normalizeLimit(Integer limit) {

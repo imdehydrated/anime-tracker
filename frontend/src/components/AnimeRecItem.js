@@ -9,6 +9,7 @@ function AnimeRecItem({ anime, children }) {
 	const description = anime.description
 		? anime.description.slice(0, 200) + (anime.description.length > 200 ? '...' : '')
 		: 'No description available.';
+	const recommendationReason = anime.recommendationReason;
 
 	return (
 		<div className="anime-rec-item">
@@ -31,6 +32,10 @@ function AnimeRecItem({ anime, children }) {
 					{anime.genres && <span>{anime.genres.join(', ')}</span>}
 					<span>Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100</span>
 				</div>
+
+				{recommendationReason && (
+					<p className="anime-rec-item-reason">{recommendationReason}</p>
+				)}
 
 				<p className="anime-rec-item-desc">{description}</p>
 
