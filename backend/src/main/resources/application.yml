@@ -105,6 +105,10 @@ ml-sidecar:
 recommendations:
   # true: query embedding_custom (384-dim); false: query embedding (OpenAI 1536-dim)
   use-custom-vectors: ${RECOMMENDATIONS_USE_CUSTOM_VECTORS:false}
+  # Default list influence for Smart Search semantic mode when request listWeight is omitted.
+  default-list-weight: ${RECOMMENDATIONS_DEFAULT_LIST_WEIGHT:0.20}
+  # Default list influence for Similar mode when request listWeight is omitted.
+  default-similar-list-weight: ${RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT:0.00}
   # Used by POST /api/users/recommendations/custom-embeddings/import when path is omitted
   custom-embeddings-path: ${CUSTOM_EMBEDDINGS_PATH:/app/models/anime_embeddings.jsonl}
   # On startup, import custom embeddings only if source JSONL changed since last import.

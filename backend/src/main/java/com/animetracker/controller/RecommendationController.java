@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.dto.RecommendationBlacklistRequest;
 import com.animetracker.dto.SemanticRequest;
 import com.animetracker.exception.UnauthorizedException;
@@ -47,7 +48,25 @@ public class RecommendationController {
     public ResponseEntity<List<AniListResponse.AnimeInfo>> getSemanticRecommendations(
             @Valid @RequestBody SemanticRequest request) {
         String username = getCurrentUsernameOrNull();
-        List<AniListResponse.AnimeInfo> results = semanticService.recommend(
+        List<RecommendationResponse> scored = semanticService.recommend(
+                username,
+                request.getSeedIds(),
+                request.getQuery(),
+                request.getLimit(),
+                Boolean.TRUE.equals(request.getUseListOnly()),
+                request.getListWeight(),
+                request.getMode());
+        List<AniListResponse.AnimeInfo> legacy = scored.stream()
+                .map(RecommendationResponse::getAnime)
+                .toList();
+        return ResponseEntity.ok(legacy);
+    }
+
+    @PostMapping("/semantic/scored")
+    public ResponseEntity<List<RecommendationResponse>> getSemanticRecommendationsScored(
+            @Valid @RequestBody SemanticRequest request) {
+        String username = getCurrentUsernameOrNull();
+        List<RecommendationResponse> results = semanticService.recommend(
                 username,
                 request.getSeedIds(),
                 request.getQuery(),

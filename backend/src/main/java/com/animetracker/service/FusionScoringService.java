@@ -90,10 +90,24 @@ public class FusionScoringService {
      * Merge semantic and CF candidates into one fused ranking.
      */
     public List<FusedCandidate> fuseAndRank(List<ScoredCandidate> semanticCandidates, List<ScoredCandidate> cfCandidates) {
+        return fuseAndRank(semanticCandidates, cfCandidates, null, null);
+    }
+
+    /**
+     * Merge semantic and CF candidates into one fused ranking, optionally overriding
+     * configured weights for this call.
+     */
+    public List<FusedCandidate> fuseAndRank(
+            List<ScoredCandidate> semanticCandidates,
+            List<ScoredCandidate> cfCandidates,
+            Double semanticWeightOverride,
+            Double cfWeightOverride) {
         if ((semanticCandidates == null || semanticCandidates.isEmpty())
                 && (cfCandidates == null || cfCandidates.isEmpty())) {
             return List.of();
         }
+
+        WeightPair weights = resolveWeights(semanticWeightOverride, cfWeightOverride);
 
         Map<Integer, ScoredCandidate> semanticById = indexById(semanticCandidates);
         Map<Integer, ScoredCandidate> cfById = indexById(cfCandidates);
@@ -108,7 +122,7 @@ public class FusionScoringService {
             ScoredCandidate cf = cfById.get(anilistId);
 
             if (sem != null && cf != null) {
-                double score = clamp((semanticWeight * sem.score()) + (cfWeight * cf.score()), 0.0, 1.0);
+                double score = clamp((weights.semantic() * sem.score()) + (weights.cf() * cf.score()), 0.0, 1.0);
                 fused.add(new FusedCandidate(
                         anilistId,
                         sem.animeInfo(),
@@ -138,6 +152,20 @@ public class FusionScoringService {
         });
 
         return fused;
+    }
+
+    private WeightPair resolveWeights(Double semanticOverride, Double cfOverride) {
+        if (semanticOverride == null && cfOverride == null) {
+            return new WeightPair(semanticWeight, cfWeight);
+        }
+
+        double sem = semanticOverride == null ? semanticWeight : Math.max(0.0, semanticOverride);
+        double cf = cfOverride == null ? cfWeight : Math.max(0.0, cfOverride);
+        double sum = sem + cf;
+        if (sum <= 0.0) {
+            return new WeightPair(1.0, 0.0);
+        }
+        return new WeightPair(sem / sum, cf / sum);
     }
 
     /**
@@ -303,5 +331,8 @@ public class FusionScoringService {
             fusionScore = clamp(fusionScore, 0.0, 1.0);
             reasonCodes = reasonCodes == null ? List.of() : List.copyOf(reasonCodes);
         }
+    }
+
+    private record WeightPair(double semantic, double cf) {
     }
 }

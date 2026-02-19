@@ -32,6 +32,7 @@ yarn-error.log*
 STUDY-GUIDE.md
 MILESTONES.md
 DEV-COMMANDS.md
+EXECUTION-PLAN.md
 
 # Python / Notebook local artifacts
 __pycache__/

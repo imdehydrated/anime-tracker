@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -198,8 +199,9 @@ class FusionScoringServiceTest {
                         scored(2, 0.9, List.of("C")),
                         scored(4, 0.95, List.of("C"))));
 
-        assertEquals(List.of(1, 2, 4, 3), fused.stream().map(FusionScoringService.FusedCandidate::anilistId).toList());
-        assertEquals(0.6, fused.get(1).fusionScore(), EPS);
+        // Single-source candidates keep their original score; only overlap candidates are weight-blended.
+        assertEquals(List.of(4, 1, 2, 3), fused.stream().map(FusionScoringService.FusedCandidate::anilistId).toList());
+        assertEquals(0.6, fused.get(2).fusionScore(), EPS);
     }
 
     @Test
@@ -226,8 +228,8 @@ class FusionScoringServiceTest {
     void fuseAndRank_nullCandidateEntries_ignored() throws Exception {
         FusionScoringService service = serviceWithWeights(1.0, 0.0, 0.1, 2);
         List<FusionScoringService.FusedCandidate> fused = service.fuseAndRank(
-                List.of(null, scored(41, 0.6, List.of("S"))),
-                List.of(null));
+                Arrays.asList(null, scored(41, 0.6, List.of("S"))),
+                Arrays.asList((FusionScoringService.ScoredCandidate) null));
         assertEquals(1, fused.size());
         assertEquals(41, fused.get(0).anilistId());
     }

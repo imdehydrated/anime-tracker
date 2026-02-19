@@ -45,6 +45,10 @@ public class SemanticRecommendationService {
     private final FusionScoringService fusionScoringService;
     @Value("${recommendations.use-custom-vectors:false}")
     private boolean useCustomVectors;
+    @Value("${recommendations.default-list-weight:0.20}")
+    private float defaultListWeight;
+    @Value("${recommendations.default-similar-list-weight:0.00}")
+    private float defaultSimilarListWeight;
 
     public SemanticRecommendationService(EmbeddingService embeddingService,
             AnimeEmbeddingRepository embeddingRepository,
@@ -69,7 +73,7 @@ public class SemanticRecommendationService {
     /**
      * Primary recommendation entrypoint used by recommendation endpoints.
      */
-    public List<AniListResponse.AnimeInfo> recommend(
+    public List<RecommendationResponse> recommend(
             String username,
             List<Integer> seedIds,
             String query,
@@ -113,7 +117,7 @@ public class SemanticRecommendationService {
         }
 
         int limit = normalizeLimit(requestedLimit);
-        float listWeight = normalizeListWeight(requestedListWeight);
+        float listWeight = resolveListWeight(requestedListWeight, defaultListWeight);
         if (effectiveListOnly) {
             listWeight = 1.0f;
         }
@@ -177,14 +181,14 @@ public class SemanticRecommendationService {
         }
 
         List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
-                semanticCandidates, username, excludeIds, limit);
+                semanticCandidates, username, excludeIds, limit, listWeight);
         return finalizeCandidatesWithReasons(fused, "semantic", limit);
     }
 
     /**
      * CF-only mode: get predictions entirely from the sidecar's collaborative filtering model.
      */
-    private List<AniListResponse.AnimeInfo> recommendCf(String username, Integer requestedLimit) {
+    private List<RecommendationResponse> recommendCf(String username, Integer requestedLimit) {
         if (username == null) {
             throw new UnauthorizedException("Login required for CF recommendations");
         }
@@ -204,7 +208,7 @@ public class SemanticRecommendationService {
         }
 
         // Fetch full anime info for each predicted AniList ID
-        List<AniListResponse.AnimeInfo> results = new ArrayList<>();
+        List<RecommendationResponse> results = new ArrayList<>();
         for (Map<String, Object> pred : predictions) {
             Object idValue = pred.get("anilist_id");
             if (!(idValue instanceof Number idNumber)) {
@@ -218,12 +222,13 @@ public class SemanticRecommendationService {
                 AniListResponse.AnimeInfo anime = aniListService.getAnimeById(anilistId);
                 if (anime != null) {
                     List<String> reasonCodes = List.of(RecommendationResponse.CF_SIGNAL);
+                    String reasonSentence = buildReasonSentence("cf", reasonCodes);
                     applyRecommendationMeta(
                             anime,
                             normalizedScore,
                             reasonCodes,
-                            buildReasonSentence("cf", reasonCodes));
-                    results.add(anime);
+                            reasonSentence);
+                    results.add(new RecommendationResponse(anime, normalizedScore, reasonCodes));
                 }
             } catch (Exception e) {
                 log.warn("Failed to fetch anime {} for CF result: {}", anilistId, e.getMessage());
@@ -235,7 +240,7 @@ public class SemanticRecommendationService {
     /**
      * Similar mode: seed-based similarity with optional user-list influence.
      */
-    private List<AniListResponse.AnimeInfo> recommendSimilar(
+    private List<RecommendationResponse> recommendSimilar(
             String username,
             List<Integer> seedIds,
             Integer requestedLimit,
@@ -257,7 +262,7 @@ public class SemanticRecommendationService {
 
         float[] searchVector = averageRows(seedRows);
         // Similar mode should only use list personalization when explicitly requested.
-        float listWeight = (requestedListWeight == null) ? 0f : normalizeListWeight(requestedListWeight);
+        float listWeight = resolveListWeight(requestedListWeight, defaultSimilarListWeight);
         boolean usedListProfile = false;
 
         // Optional personalization: blend seed centroid with user's preference vector.
@@ -343,7 +348,7 @@ public class SemanticRecommendationService {
         }
 
         List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
-                semanticCandidates, username, excludeIds, limit);
+                semanticCandidates, username, excludeIds, limit, listWeight);
         return finalizeCandidatesWithReasons(fused, "similar", limit);
     }
 
@@ -663,15 +668,26 @@ public class SemanticRecommendationService {
             List<FusionScoringService.ScoredCandidate> semanticCandidates,
             String username,
             List<Integer> excludeIds,
-            int limit) {
+            int limit,
+            float cfSignalWeight) {
         if (semanticCandidates == null || semanticCandidates.isEmpty()) {
             return List.of();
         }
 
         List<FusionScoringService.ScoredCandidate> cfOverlapCandidates = buildCfOverlapCandidates(
                 username, excludeIds, limit, semanticCandidates);
-        List<FusionScoringService.FusedCandidate> fused = fusionScoringService.fuseAndRank(
-                semanticCandidates, cfOverlapCandidates);
+        List<FusionScoringService.FusedCandidate> fused;
+        if (cfOverlapCandidates.isEmpty()) {
+            fused = fusionScoringService.fuseAndRank(semanticCandidates, cfOverlapCandidates);
+        } else {
+            double cfWeightOverride = clampListWeight(cfSignalWeight);
+            double semanticWeightOverride = 1.0d - cfWeightOverride;
+            fused = fusionScoringService.fuseAndRank(
+                    semanticCandidates,
+                    cfOverlapCandidates,
+                    semanticWeightOverride,
+                    cfWeightOverride);
+        }
 
         if (!cfOverlapCandidates.isEmpty()) {
             fused = fusionScoringService.applyDiversityPass(fused);
@@ -750,7 +766,7 @@ public class SemanticRecommendationService {
         return reasonCodes;
     }
 
-    private List<AniListResponse.AnimeInfo> finalizeCandidatesWithReasons(
+    private List<RecommendationResponse> finalizeCandidatesWithReasons(
             List<FusionScoringService.FusedCandidate> fusedCandidates,
             String mode,
             int limit) {
@@ -758,14 +774,14 @@ public class SemanticRecommendationService {
             return List.of();
         }
 
-        List<AniListResponse.AnimeInfo> results = new ArrayList<>();
+        List<RecommendationResponse> results = new ArrayList<>();
         int effectiveLimit = Math.min(limit, fusedCandidates.size());
         for (FusionScoringService.FusedCandidate fused : fusedCandidates.subList(0, effectiveLimit)) {
             AniListResponse.AnimeInfo anime = fused.animeInfo();
             List<String> reasonCodes = fused.reasonCodes();
             String reason = buildReasonSentence(mode, reasonCodes);
             applyRecommendationMeta(anime, fused.fusionScore(), reasonCodes, reason);
-            results.add(anime);
+            results.add(new RecommendationResponse(anime, fused.fusionScore(), reasonCodes));
         }
         return results;
     }
@@ -860,8 +876,12 @@ public class SemanticRecommendationService {
         return limit;
     }
 
-    private float normalizeListWeight(Float listWeight) {
-        float value = (listWeight == null) ? 0.20f : listWeight;
+    private float resolveListWeight(Float requestedListWeight, float defaultWeight) {
+        float value = (requestedListWeight == null) ? defaultWeight : requestedListWeight;
+        return clampListWeight(value);
+    }
+
+    private float clampListWeight(float value) {
         if (value < 0f) {
             return 0f;
         }

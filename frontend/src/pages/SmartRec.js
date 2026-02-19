@@ -11,7 +11,6 @@ import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist'
 
 const MAX_SEEDS = 5;
 const SMART_REC_STATE_KEY = 'smart_rec_page_state_v1';
-const SMART_SEARCH_LIST_WEIGHT = 0.2;
 
 /**
  * SmartRec page:
@@ -149,9 +148,6 @@ function SmartRec() {
 			} else if (!isCfMode) {
 				body.seedIds = seeds.map((seed) => seed.id);
 				body.query = context.trim() || null;
-			}
-			if (isLoggedIn && !isCfMode && !isSimilarMode) {
-				body.listWeight = SMART_SEARCH_LIST_WEIGHT;
 			}
 			if (isCfMode) {
 				body.useListOnly = true;

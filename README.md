@@ -33,7 +33,7 @@ Full-stack anime list and recommendation application built with Spring Boot, Rea
 ### AI Recommendations
 
 - **Smart Search**: seed anime + optional natural-language query
-- Logged-in Smart Search auto-blends your list profile (default `listWeight=0.20` in UI)
+- Logged-in Smart Search auto-blends your list profile using backend global defaults
 - **Similar Shows**: pick 1-5 example anime and get similar titles
 - **For You (CF)**: collaborative filtering predictions from rating patterns
 - Similar Shows supports optional list personalization
@@ -56,14 +56,14 @@ Three backend modes are exposed through one endpoint (`/api/users/recommendation
 
 1. Build a search vector from seed anime and/or query text.
 2. Blend with a user preference vector from scored list entries when `listWeight > 0`.
-   In Smart Search UI, logged-in users default to `listWeight=0.20`.
+   If request `listWeight` is omitted, backend uses `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT` (default `0.20`).
 3. Run pgvector similarity search and filter out list/blacklist/seed items.
 
 ### Similar Mode (`mode=similar`)
 
 1. Require 1-5 seed anime.
 2. Average seed vectors into a centroid.
-3. Optionally blend centroid with the user's list profile if `listWeight` is explicitly provided.
+3. Optionally blend centroid with the user's list profile (request `listWeight` override or backend default `RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT`, default `0.00`).
 4. Query pgvector, overfetch, and rerank with sidecar when available.
 
 ### CF Mode (`mode=cf`)
@@ -90,6 +90,14 @@ Three backend modes are exposed through one endpoint (`/api/users/recommendation
   - `reasonCodes` (provenance tags)
   - `recommendationReason` (single sentence)
 
+### Fusion Scoring (Phase 3 Compatibility Rollout)
+
+- Legacy endpoint remains available:
+  - `POST /api/users/recommendations/semantic` returns `List<AnimeInfo>`.
+- Scored endpoint is now available for migration:
+  - `POST /api/users/recommendations/semantic/scored` returns `List<RecommendationResponse>`.
+- Frontend currently prefers scored endpoint and falls back to legacy endpoint if unavailable.
+
 ### Vector Source Switch
 
 - `RECOMMENDATIONS_USE_CUSTOM_VECTORS=false` (default): query `embedding` (OpenAI, 1536-dim). Missing vectors can be backfilled on demand.
@@ -112,7 +120,8 @@ Three backend modes are exposed through one endpoint (`/api/users/recommendation
 | DELETE | `/api/users/list/{id}` | Yes | Delete list entry |
 | GET | `/api/anime/search?q=` | No | Search AniList anime |
 | GET | `/api/anime/{id}` | No | Get AniList anime details |
-| POST | `/api/users/recommendations/semantic` | No | Recommendations (`semantic`, `similar`, `cf`) |
+| POST | `/api/users/recommendations/semantic` | No | Legacy recommendations (`semantic`, `similar`, `cf`) returning `List<AnimeInfo>` |
+| POST | `/api/users/recommendations/semantic/scored` | No | Scored recommendations returning `List<RecommendationResponse>` |
 | POST | `/api/users/recommendations/blacklist` | Yes | Add blacklist entry |
 | GET | `/api/users/recommendations/blacklist` | Yes | List blacklist entries |
 | DELETE | `/api/users/recommendations/blacklist/{id}` | Yes | Remove blacklist entry |
@@ -129,6 +138,8 @@ ML_SIDECAR_ENABLED=true
 RECOMMENDATIONS_USE_CUSTOM_VECTORS=true
 CUSTOM_EMBEDDINGS_PATH=/app/models/anime_embeddings.jsonl
 AUTO_SYNC_CUSTOM_EMBEDDINGS=true
+RECOMMENDATIONS_DEFAULT_LIST_WEIGHT=0.20
+RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT=0.00
 FUSION_SEMANTIC_WEIGHT=0.6
 FUSION_CF_WEIGHT=0.4
 FUSION_DIVERSITY_PENALTY=0.10
@@ -211,7 +222,25 @@ Expected key outputs:
 
 `05_export.ipynb` writes deployable artifacts to project-root `ml-models/` when run locally from `notebooks/`.
 
-### 4. Run the app with custom models
+### 4. Run offline baseline evaluation (recommended before model changes)
+
+Run this after `05_export.ipynb` so evaluation uses the same `ml-models/` artifacts served by the app:
+
+```bash
+python notebooks/evaluate_models.py --max-users 1000 --top-k 10
+```
+
+The evaluator computes:
+- `Recall@10`
+- `NDCG@10`
+- `Coverage@10`
+- `Long-tail share`
+- `Novelty`
+
+It uses a time split if ratings include timestamps, otherwise it automatically falls back to a stratified per-user split.
+Baseline snapshots are saved to `notebooks/eval/baseline_metrics_*.json`.
+
+### 5. Run the app with custom models
 
 Set `.env` values:
 
@@ -220,6 +249,8 @@ ML_SIDECAR_ENABLED=true
 RECOMMENDATIONS_USE_CUSTOM_VECTORS=true
 CUSTOM_EMBEDDINGS_PATH=/app/models/anime_embeddings.jsonl
 AUTO_SYNC_CUSTOM_EMBEDDINGS=true
+RECOMMENDATIONS_DEFAULT_LIST_WEIGHT=0.20
+RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT=0.00
 FUSION_SEMANTIC_WEIGHT=0.6
 FUSION_CF_WEIGHT=0.4
 FUSION_DIVERSITY_PENALTY=0.10
@@ -232,7 +263,7 @@ Then start services:
 docker-compose up --build
 ```
 
-### 5. Verify models are loaded
+### 6. Verify models are loaded
 
 ```bash
 # Backend
@@ -250,7 +281,7 @@ curl -X POST http://localhost:8080/api/users/recommendations/custom-embeddings/i
   -H "Authorization: Bearer <JWT_TOKEN>"
 ```
 
-### 6. Run without custom models (OpenAI-only fallback)
+### 7. Run without custom models (OpenAI-only fallback)
 
 Set:
 

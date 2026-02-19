@@ -1,6 +1,7 @@
 package com.animetracker.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 
 // Top-level wrapper: matches { "data": { "Page": { ... } } }
@@ -31,6 +32,7 @@ public class AniListResponse {
     }
 
     // Each anime result — the fields we asked for in our GraphQL query
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class AnimeInfo {
 
         private Integer id;
