@@ -121,3 +121,12 @@ recommendations:
     diversity-penalty: ${FUSION_DIVERSITY_PENALTY:0.10}
     # Placeholder for phase 2 overfetch strategy (currently read but not applied).
     cf-candidate-multiplier: ${FUSION_CF_CANDIDATE_MULTIPLIER:2}
+    # Phase 8: dynamically adjust CF blend weight by user profile richness.
+    dynamic-blend-enabled: ${FUSION_DYNAMIC_BLEND_ENABLED:true}
+    dynamic-blend-min-rated-anime: ${FUSION_DYNAMIC_BLEND_MIN_RATED_ANIME:10}
+    dynamic-blend-max-rated-anime: ${FUSION_DYNAMIC_BLEND_MAX_RATED_ANIME:80}
+    dynamic-blend-min-cf-weight: ${FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT:0.15}
+    dynamic-blend-max-cf-weight: ${FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT:0.55}
+  explanations:
+    # Phase 8: add optional CF contributor hint in the one-sentence reason.
+    cf-contributors-enabled: ${RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED:false}

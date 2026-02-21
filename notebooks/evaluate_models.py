@@ -3,6 +3,7 @@
 
 Metrics:
 - Recall@K
+- HitRate@K
 - NDCG@K
 - Coverage@K
 - Long-tail share
@@ -20,7 +21,7 @@ import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -76,11 +77,14 @@ class UserRecord:
 class EvalResult:
     evaluated_users: int
     recall_at_k: float
+    hit_rate_at_k: float
     ndcg_at_k: float
     coverage_at_k: float
     long_tail_share: float
     novelty: float
     avg_ground_truth_size: float
+    max_possible_recall_at_k: float
+    recall_utilization: float
 
 
 def parse_args() -> argparse.Namespace:
@@ -147,10 +151,28 @@ def parse_args() -> argparse.Namespace:
         help="Per-user test holdout ratio.",
     )
     parser.add_argument(
+        "--relevance-threshold",
+        type=float,
+        default=7.0,
+        help="Minimum rating in held-out set treated as relevant for ranking metrics.",
+    )
+    parser.add_argument(
         "--long-tail-percentile",
         type=float,
         default=0.8,
         help="Items at or below this popularity quantile are treated as long-tail.",
+    )
+    parser.add_argument(
+        "--cf-popularity-alpha",
+        type=float,
+        default=0.0,
+        help="Offline CF popularity attenuation alpha (0.0 disables).",
+    )
+    parser.add_argument(
+        "--cf-popularity-smoothing",
+        type=float,
+        default=1.0,
+        help="Offline CF popularity attenuation smoothing term.",
     )
     parser.add_argument(
         "--seed",
@@ -169,6 +191,71 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "notebooks" / "eval",
         help="Directory for baseline metric snapshots.",
+    )
+    parser.add_argument(
+        "--eval-keep-latest",
+        type=int,
+        default=40,
+        help="Always keep at least this many newest baseline snapshots.",
+    )
+    parser.add_argument(
+        "--eval-max-age-days",
+        type=int,
+        default=30,
+        help="Delete baseline snapshots older than this many days (beyond keep-latest).",
+    )
+    parser.add_argument(
+        "--disable-eval-prune",
+        action="store_true",
+        help="Disable automatic pruning of old baseline snapshots.",
+    )
+    parser.add_argument(
+        "--write-cf-popularity-path",
+        type=Path,
+        default=None,
+        help="Optional output path for sidecar CF popularity attenuation JSON.",
+    )
+    parser.add_argument(
+        "--experiment-label",
+        type=str,
+        default=None,
+        help="Optional label for this eval run (stored in snapshot metadata).",
+    )
+    parser.add_argument(
+        "--cf-train-long-tail-alpha",
+        type=float,
+        default=None,
+        help="Optional metadata: long_tail_alpha used during CF training.",
+    )
+    parser.add_argument(
+        "--cf-train-max-pos-weight",
+        type=float,
+        default=None,
+        help="Optional metadata: max_pos_weight used during CF training.",
+    )
+    parser.add_argument(
+        "--cf-train-weak-negative-weight",
+        type=float,
+        default=None,
+        help="Optional metadata: weak negative watch-loss weight used in CF training.",
+    )
+    parser.add_argument(
+        "--cf-train-min-kept-items",
+        type=int,
+        default=None,
+        help="Optional metadata: min_kept_items used by CF denoising dataset.",
+    )
+    parser.add_argument(
+        "--cf-train-dropout-min",
+        type=float,
+        default=None,
+        help="Optional metadata: min dropout used by CF denoising dataset.",
+    )
+    parser.add_argument(
+        "--cf-train-dropout-max",
+        type=float,
+        default=None,
+        help="Optional metadata: max dropout used by CF denoising dataset.",
     )
     return parser.parse_args()
 
@@ -379,6 +466,17 @@ def compute_ranking_metrics(recommended: Iterable[int], ground_truth: set[int], 
     return recall, ndcg
 
 
+def relevant_test_set(
+    test_ratings: dict[int, float],
+    relevance_threshold: float,
+) -> set[int]:
+    return {
+        int(item_id)
+        for item_id, rating in test_ratings.items()
+        if np.isfinite(float(rating)) and float(rating) >= relevance_threshold
+    }
+
+
 def safe_mean(values: list[float]) -> float:
     return float(np.mean(values)) if values else 0.0
 
@@ -408,26 +506,38 @@ def build_novelty_lookup(
 
 def summarize_metrics(
     per_user_recall: list[float],
+    per_user_hit_rate: list[float],
     per_user_ndcg: list[float],
     recommended_items: list[int],
     catalog_size: int,
     long_tail_items: set[int],
     novelty_lookup: dict[int, float],
     gt_sizes: list[int],
+    top_k: int,
 ) -> EvalResult:
     unique_recommended = set(recommended_items)
     coverage = float(len(unique_recommended)) / float(max(catalog_size, 1))
     long_tail_hits = sum(1 for item in recommended_items if item in long_tail_items)
     long_tail_share = float(long_tail_hits) / float(max(len(recommended_items), 1))
     novelty_vals = [novelty_lookup[item] for item in recommended_items if item in novelty_lookup]
+    avg_gt = safe_mean([float(x) for x in gt_sizes])
+    max_possible_recall = min(1.0, float(top_k) / avg_gt) if avg_gt > 0.0 else 0.0
+    recall_utilization = (
+        safe_mean(per_user_recall) / max_possible_recall
+        if max_possible_recall > 0.0
+        else 0.0
+    )
     return EvalResult(
         evaluated_users=len(per_user_recall),
         recall_at_k=safe_mean(per_user_recall),
+        hit_rate_at_k=safe_mean(per_user_hit_rate),
         ndcg_at_k=safe_mean(per_user_ndcg),
         coverage_at_k=coverage,
         long_tail_share=long_tail_share,
         novelty=safe_mean(novelty_vals),
-        avg_ground_truth_size=safe_mean([float(x) for x in gt_sizes]),
+        avg_ground_truth_size=avg_gt,
+        max_possible_recall_at_k=max_possible_recall,
+        recall_utilization=recall_utilization,
     )
 
 
@@ -455,6 +565,9 @@ def cf_predict_top_k(
     n_anime: int,
     train_idx_ratings: dict[int, float],
     top_k: int,
+    item_popularity_idx: dict[int, int] | None = None,
+    popularity_alpha: float = 0.0,
+    popularity_smoothing: float = 1.0,
 ) -> list[int]:
     watched = np.zeros(n_anime, dtype=np.float32)
     ratings = np.zeros(n_anime, dtype=np.float32)
@@ -475,6 +588,17 @@ def cf_predict_top_k(
 
     denorm_rating = np.clip(rating_pred + user_mean, 1.0, 10.0)
     blended_score = watch_prob * denorm_rating
+    if popularity_alpha > 0.0 and item_popularity_idx:
+        attenuation = np.ones(n_anime, dtype=np.float32)
+        smooth = max(0.0, float(popularity_smoothing))
+        for idx in range(n_anime):
+            pop = item_popularity_idx.get(idx)
+            if pop is None:
+                continue
+            denom = 1.0 + float(np.log1p(float(pop) + smooth))
+            if denom > 0.0:
+                attenuation[idx] = float(denom ** (-float(popularity_alpha)))
+        blended_score = blended_score * attenuation
     blended_score[watched > 0.0] = -np.inf
 
     top_k = min(top_k, n_anime)
@@ -491,8 +615,11 @@ def evaluate_cf(
     model: AnimeCFAutoencoder,
     mal_to_idx: dict[int, int],
     top_k: int,
+    relevance_threshold: float,
     long_tail_percentile: float,
     item_popularity_mal: dict[int, int],
+    cf_popularity_alpha: float,
+    cf_popularity_smoothing: float,
 ) -> EvalResult:
     n_anime = len(mal_to_idx)
     item_popularity_idx = {
@@ -504,33 +631,46 @@ def evaluate_cf(
     novelty_lookup = build_novelty_lookup(item_popularity_idx)
 
     recalls: list[float] = []
+    hit_rates: list[float] = []
     ndcgs: list[float] = []
     gt_sizes: list[int] = []
     all_recommended: list[int] = []
 
     for train_mal, test_mal in tqdm(splits.values(), desc="Evaluating CF"):
         train_idx = {mal_to_idx[item]: rating for item, rating in train_mal.items() if item in mal_to_idx}
-        test_idx = {mal_to_idx[item] for item in test_mal if item in mal_to_idx}
+        test_relevant_mal = relevant_test_set(test_mal, relevance_threshold=relevance_threshold)
+        test_idx = {mal_to_idx[item] for item in test_relevant_mal if item in mal_to_idx}
         if len(train_idx) < 1 or not test_idx:
             continue
 
-        rec_idx = cf_predict_top_k(model=model, n_anime=n_anime, train_idx_ratings=train_idx, top_k=top_k)
+        rec_idx = cf_predict_top_k(
+            model=model,
+            n_anime=n_anime,
+            train_idx_ratings=train_idx,
+            top_k=top_k,
+            item_popularity_idx=item_popularity_idx,
+            popularity_alpha=cf_popularity_alpha,
+            popularity_smoothing=cf_popularity_smoothing,
+        )
         if not rec_idx:
             continue
         recall, ndcg = compute_ranking_metrics(rec_idx, test_idx, top_k)
         recalls.append(recall)
+        hit_rates.append(1.0 if recall > 0.0 else 0.0)
         ndcgs.append(ndcg)
         gt_sizes.append(len(test_idx))
         all_recommended.extend(rec_idx)
 
     return summarize_metrics(
         per_user_recall=recalls,
+        per_user_hit_rate=hit_rates,
         per_user_ndcg=ndcgs,
         recommended_items=all_recommended,
         catalog_size=n_anime,
         long_tail_items=long_tail,
         novelty_lookup=novelty_lookup,
         gt_sizes=gt_sizes,
+        top_k=top_k,
     )
 
 
@@ -560,6 +700,58 @@ def load_semantic_artifacts(
     if not anime_ids:
         raise ValueError(f"No semantic embeddings loaded from: {semantic_embeddings_path}")
     return mal_to_anilist, np.asarray(anime_ids, dtype=np.int64), np.vstack(vectors).astype(np.float32)
+
+
+def write_cf_popularity_file(
+    item_popularity_mal: dict[int, int],
+    mal_to_anilist: dict[int, int],
+    output_path: Path,
+) -> int:
+    anilist_popularity: dict[int, int] = defaultdict(int)
+    for mal_id, cnt in item_popularity_mal.items():
+        aid = mal_to_anilist.get(mal_id)
+        if aid is None:
+            continue
+        anilist_popularity[int(aid)] += int(cnt)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "anilist_popularity": {
+            str(k): int(v)
+            for k, v in sorted(anilist_popularity.items(), key=lambda x: x[0])
+        },
+    }
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return len(anilist_popularity)
+
+
+def prune_eval_snapshots(
+    output_dir: Path,
+    pattern: str,
+    keep_latest: int,
+    max_age_days: int,
+) -> int:
+    keep_latest = max(0, int(keep_latest))
+    max_age_days = max(0, int(max_age_days))
+    candidates = sorted(
+        output_dir.glob(pattern),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    cutoff_epoch = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).timestamp()
+    deleted = 0
+    for idx, path in enumerate(candidates):
+        if idx < keep_latest:
+            continue
+        try:
+            if path.stat().st_mtime <= cutoff_epoch:
+                path.unlink()
+                deleted += 1
+        except OSError:
+            continue
+    return deleted
 
 
 def semantic_recommend_top_k(
@@ -612,6 +804,7 @@ def evaluate_semantic(
     anime_ids: np.ndarray,
     embedding_matrix: np.ndarray,
     top_k: int,
+    relevance_threshold: float,
     long_tail_percentile: float,
     item_popularity_mal: dict[int, int],
 ) -> EvalResult:
@@ -627,6 +820,7 @@ def evaluate_semantic(
     novelty_lookup = build_novelty_lookup(item_popularity_anilist)
 
     recalls: list[float] = []
+    hit_rates: list[float] = []
     ndcgs: list[float] = []
     gt_sizes: list[int] = []
     all_recommended: list[int] = []
@@ -637,9 +831,10 @@ def evaluate_semantic(
             for item, rating in train_mal.items()
             if item in mal_to_anilist and mal_to_anilist[item] in id_to_row
         }
+        test_relevant_mal = relevant_test_set(test_mal, relevance_threshold=relevance_threshold)
         test_ali = {
             mal_to_anilist[item]
-            for item in test_mal
+            for item in test_relevant_mal
             if item in mal_to_anilist and mal_to_anilist[item] in id_to_row
         }
         if len(train_ali) < 1 or not test_ali:
@@ -656,18 +851,21 @@ def evaluate_semantic(
             continue
         recall, ndcg = compute_ranking_metrics(rec_ali, test_ali, top_k)
         recalls.append(recall)
+        hit_rates.append(1.0 if recall > 0.0 else 0.0)
         ndcgs.append(ndcg)
         gt_sizes.append(len(test_ali))
         all_recommended.extend(rec_ali)
 
     return summarize_metrics(
         per_user_recall=recalls,
+        per_user_hit_rate=hit_rates,
         per_user_ndcg=ndcgs,
         recommended_items=all_recommended,
         catalog_size=len(anime_ids),
         long_tail_items=long_tail,
         novelty_lookup=novelty_lookup,
         gt_sizes=gt_sizes,
+        top_k=top_k,
     )
 
 
@@ -675,11 +873,14 @@ def result_to_dict(result: EvalResult) -> dict[str, float | int]:
     return {
         "evaluated_users": result.evaluated_users,
         "recall_at_k": round(result.recall_at_k, 6),
+        "hit_rate_at_k": round(result.hit_rate_at_k, 6),
         "ndcg_at_k": round(result.ndcg_at_k, 6),
         "coverage_at_k": round(result.coverage_at_k, 6),
         "long_tail_share": round(result.long_tail_share, 6),
         "novelty": round(result.novelty, 6),
         "avg_ground_truth_size": round(result.avg_ground_truth_size, 4),
+        "max_possible_recall_at_k": round(result.max_possible_recall_at_k, 6),
+        "recall_utilization": round(result.recall_utilization, 6),
     }
 
 
@@ -687,21 +888,29 @@ def print_summary(top_k: int, cf_result: EvalResult, semantic_result: EvalResult
     print("\nOffline Baseline Metrics")
     print("=" * 72)
     print(
-        f"{'Model':<12} {'Users':>8} {'Recall@K':>10} {'NDCG@K':>10} "
-        f"{'Coverage@K':>12} {'LongTail':>10} {'Novelty':>10}"
+        f"{'Model':<10} {'Users':>7} {'Recall@K':>9} {'Hit@K':>8} {'NDCG@K':>9} "
+        f"{'Coverage@K':>11} {'LongTail':>9} {'Novelty':>9}"
     )
     print("-" * 72)
     print(
-        f"{'CF':<12} {cf_result.evaluated_users:>8} {cf_result.recall_at_k:>10.4f} "
-        f"{cf_result.ndcg_at_k:>10.4f} {cf_result.coverage_at_k:>12.4f} "
-        f"{cf_result.long_tail_share:>10.4f} {cf_result.novelty:>10.4f}"
+        f"{'CF':<10} {cf_result.evaluated_users:>7} {cf_result.recall_at_k:>9.4f} "
+        f"{cf_result.hit_rate_at_k:>8.4f} {cf_result.ndcg_at_k:>9.4f} "
+        f"{cf_result.coverage_at_k:>11.4f} {cf_result.long_tail_share:>9.4f} {cf_result.novelty:>9.4f}"
     )
     print(
-        f"{'Semantic':<12} {semantic_result.evaluated_users:>8} {semantic_result.recall_at_k:>10.4f} "
-        f"{semantic_result.ndcg_at_k:>10.4f} {semantic_result.coverage_at_k:>12.4f} "
-        f"{semantic_result.long_tail_share:>10.4f} {semantic_result.novelty:>10.4f}"
+        f"{'Semantic':<10} {semantic_result.evaluated_users:>7} {semantic_result.recall_at_k:>9.4f} "
+        f"{semantic_result.hit_rate_at_k:>8.4f} {semantic_result.ndcg_at_k:>9.4f} "
+        f"{semantic_result.coverage_at_k:>11.4f} {semantic_result.long_tail_share:>9.4f} {semantic_result.novelty:>9.4f}"
     )
     print(f"\nK={top_k}")
+    print(
+        f"CF recall utilization={cf_result.recall_utilization:.3f} "
+        f"(max_possible_recall@K={cf_result.max_possible_recall_at_k:.3f})"
+    )
+    print(
+        f"Semantic recall utilization={semantic_result.recall_utilization:.3f} "
+        f"(max_possible_recall@K={semantic_result.max_possible_recall_at_k:.3f})"
+    )
 
 
 def main() -> None:
@@ -760,20 +969,36 @@ def main() -> None:
         model=cf_model,
         mal_to_idx=mal_to_idx,
         top_k=args.top_k,
+        relevance_threshold=args.relevance_threshold,
         long_tail_percentile=args.long_tail_percentile,
         item_popularity_mal=item_counts,
+        cf_popularity_alpha=max(0.0, float(args.cf_popularity_alpha)),
+        cf_popularity_smoothing=max(0.0, float(args.cf_popularity_smoothing)),
     )
 
     mal_to_anilist, anime_ids, embedding_matrix = load_semantic_artifacts(
         id_map_path=args.id_map_path.resolve(),
         semantic_embeddings_path=args.semantic_embeddings_path.resolve(),
     )
+    popularity_written_entries = 0
+    popularity_output_path: str | None = None
+    if args.write_cf_popularity_path is not None:
+        pop_path = args.write_cf_popularity_path.resolve()
+        popularity_written_entries = write_cf_popularity_file(
+            item_popularity_mal=item_counts,
+            mal_to_anilist=mal_to_anilist,
+            output_path=pop_path,
+        )
+        popularity_output_path = str(pop_path)
+        print(f"Wrote CF popularity file: {pop_path} (entries={popularity_written_entries})")
+
     semantic_result = evaluate_semantic(
         splits=splits,
         mal_to_anilist=mal_to_anilist,
         anime_ids=anime_ids,
         embedding_matrix=embedding_matrix,
         top_k=args.top_k,
+        relevance_threshold=args.relevance_threshold,
         long_tail_percentile=args.long_tail_percentile,
         item_popularity_mal=item_counts,
     )
@@ -800,8 +1025,24 @@ def main() -> None:
             "min_user_interactions": args.min_user_interactions,
             "min_train_items": args.min_train_items,
             "test_ratio": args.test_ratio,
+            "relevance_threshold": args.relevance_threshold,
             "long_tail_percentile": args.long_tail_percentile,
+            "cf_popularity_alpha": args.cf_popularity_alpha,
+            "cf_popularity_smoothing": args.cf_popularity_smoothing,
             "seed": args.seed,
+        },
+        "artifacts": {
+            "cf_popularity_output_path": popularity_output_path,
+            "cf_popularity_entries": popularity_written_entries,
+        },
+        "experiment": {
+            "label": args.experiment_label,
+            "cf_train_long_tail_alpha": args.cf_train_long_tail_alpha,
+            "cf_train_max_pos_weight": args.cf_train_max_pos_weight,
+            "cf_train_weak_negative_weight": args.cf_train_weak_negative_weight,
+            "cf_train_min_kept_items": args.cf_train_min_kept_items,
+            "cf_train_dropout_min": args.cf_train_dropout_min,
+            "cf_train_dropout_max": args.cf_train_dropout_max,
         },
         "cf": result_to_dict(cf_result),
         "semantic": result_to_dict(semantic_result),
@@ -811,6 +1052,18 @@ def main() -> None:
         json.dump(payload, f, indent=2)
 
     print(f"\nSaved baseline snapshot: {output_path}")
+    if not args.disable_eval_prune:
+        pruned_count = prune_eval_snapshots(
+            output_dir=args.output_dir,
+            pattern="baseline_metrics_*.json",
+            keep_latest=args.eval_keep_latest,
+            max_age_days=args.eval_max_age_days,
+        )
+        if pruned_count > 0:
+            print(
+                f"Pruned old baseline snapshots: {pruned_count} "
+                f"(keep_latest={args.eval_keep_latest}, max_age_days={args.eval_max_age_days})"
+            )
 
 
 if __name__ == "__main__":

@@ -63,6 +63,25 @@ All modes use the same request DTO (`SemanticRequest`) with `mode`:
 - `similar`: seed-centric similarity (+ optional list profile blend).
 - `cf`: collaborative filtering only (requires logged-in user + sidecar).
 
+### Semantic Preprocessing (Notebook 02)
+
+Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies a preprocessing pass that:
+
+- removes AniList/markdown noise from review text
+- masks anime title mentions to a neutral token (`[TITLE]`)
+- extracts higher-signal opinion sentences (story, characters, pacing, visuals, etc.)
+- feeds that filtered text into both:
+  - `corpus.jsonl` (MLM + embedding corpus)
+  - `triplets.jsonl` (triplet fine-tuning data)
+
+### Semantic Experiment Track (Phase 7)
+
+- Baseline remains triplet fine-tuning from notebook `03`.
+- Experimental path now uses multi-positive label training with hard-neighbor batches:
+  - `notebooks/semantic_multipos_experiment.py`
+- Rationale: this avoids assuming only one valid match per query, which better fits anime retrieval where multiple titles can be good answers.
+- Legacy `notebooks/semantic_mnrl_experiment.py` is kept as a compatibility wrapper that forwards to the new script.
+
 ### Vector Sources
 
 - `RECOMMENDATIONS_USE_CUSTOM_VECTORS=false`: use OpenAI vector column (`embedding`, 1536-dim).
@@ -81,6 +100,11 @@ All modes use the same request DTO (`SemanticRequest`) with `mode`:
    - `reasonCodes`
    - one-sentence `recommendationReason`
 
+Phase 8 additions:
+
+- Dynamic blend policy can increase CF influence as a user has more rated anime.
+- Optional CF contributor hint can enrich the one-sentence reason text (behind a flag).
+
 ### Defaults and Config
 
 List influence defaults come from backend config:
@@ -94,6 +118,15 @@ Fusion config:
 - `FUSION_CF_WEIGHT`
 - `FUSION_DIVERSITY_PENALTY`
 - `FUSION_CF_CANDIDATE_MULTIPLIER`
+- `FUSION_DYNAMIC_BLEND_ENABLED`
+- `FUSION_DYNAMIC_BLEND_MIN_RATED_ANIME`
+- `FUSION_DYNAMIC_BLEND_MAX_RATED_ANIME`
+- `FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT`
+- `FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT`
+
+Explanation config:
+
+- `RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED`
 
 ## Data and Infra Notes
 
@@ -107,10 +140,18 @@ Fusion config:
 - Script: `notebooks/evaluate_models.py`
 - Input: `notebooks/data/ratings_filtered.csv` + exported `ml-models/` artifacts.
 - Output: `notebooks/eval/baseline_metrics_*.json`
+- Snapshot cleanup: auto-prunes old eval JSONs by retention policy (default keep 40 latest, prune files older than 30 days beyond that).
+- Eval snapshots can include optional experiment metadata (label + CF training hyperparameters) for A/B traceability.
+- Ranking helper: `notebooks/eval_leaderboard.py` to compare/rank snapshots and view deltas vs a selected baseline.
+- Promotion gate script: `notebooks/promotion_gate.py`
+  - compares baseline vs candidate CF snapshots with threshold checks
+  - checks semantic experiment delta vs baseline
+  - outputs explicit PASS/FAIL before model promotion
 
 What it measures:
 
 - `Recall@10`
+- `HitRate@10`
 - `NDCG@10`
 - `Coverage@10`
 - `Long-tail share`
@@ -121,6 +162,8 @@ Simple meaning of each metric:
 - `Recall@10`: Of the anime the user actually liked in the test set, how many showed up in top 10 recommendations.
   Higher is better.
 - `NDCG@10`: Like recall, but gives more credit when good recommendations are near the top of the list.
+  Higher is better.
+- `HitRate@10`: Percentage of users with at least one relevant hit in top 10.
   Higher is better.
 - `Coverage@10`: How much of the full catalog the model recommends across all users.
   Higher means less “same few shows for everyone.”
@@ -139,6 +182,28 @@ Split behavior:
 
 - Uses time split if a timestamp column exists in ratings.
 - Falls back to stratified per-user split when no timestamp column exists.
+- Relevant held-out items are defined by rating threshold (default `>= 7.0`).
+- Evaluator can run CF popularity attenuation A/B via:
+  - `--cf-popularity-alpha`
+  - `--cf-popularity-smoothing`
+
+## CF Phase 6 (In Progress)
+
+- Sidecar CF ranking now supports optional popularity attenuation.
+- Controlled by env vars:
+  - `CF_POPULARITY_PENALTY_ALPHA` (`0.0` disables, default `0.15`)
+  - `CF_POPULARITY_PENALTY_SMOOTHING`
+- Popularity priors are loaded from:
+  - `/app/models/cf/item_popularity.json`
+- A/B eval snapshots on the same split seed/user sample:
+  - `alpha=0.00`: recall `0.23716`, ndcg `0.596103`, coverage `0.120475`
+  - `alpha=0.15`: recall `0.237763`, ndcg `0.596700`, coverage `0.127484`
+  - `alpha=0.25`: recall `0.237192`, ndcg `0.596102`, coverage `0.133339`
+- Decision: use `0.15` as default because it improves ranking quality and diversity together without a large hit-rate drop.
+- Notebook 4 training now applies:
+  - weak-negative weighting for unwatched entries in BCE watch loss
+  - long-tail item reweighting for watched/rating reconstruction loss
+  - stronger denoising masking on observed items with minimum kept-signal protection
 
 ## Change Checklist
 

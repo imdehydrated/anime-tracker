@@ -138,6 +138,11 @@ services:
     volumes:
       - ./ml-models:/app/models
 
+    # Optional CF popularity attenuation controls (Phase 6)
+    environment:
+      CF_POPULARITY_PENALTY_ALPHA: ${CF_POPULARITY_PENALTY_ALPHA:-0.15}
+      CF_POPULARITY_PENALTY_SMOOTHING: ${CF_POPULARITY_PENALTY_SMOOTHING:-1.0}
+
     networks:
       - animetracker-network
 

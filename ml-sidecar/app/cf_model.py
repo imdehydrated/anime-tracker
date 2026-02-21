@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +58,7 @@ class CFModel:
         cf_dir = MODELS_DIR / "cf"
         model_path = cf_dir / "model.pt"
         index_path = cf_dir / "anime_index.json"
+        popularity_path = cf_dir / "item_popularity.json"
 
         if not model_path.exists():
             raise FileNotFoundError(f"CF model not found at {model_path}")
@@ -81,6 +83,28 @@ class CFModel:
 
         self.n_anime = len(anime_index)
 
+        # Optional popularity attenuation (Phase 6):
+        # rank_score *= attenuation(popularity) where attenuation in (0, 1].
+        # Default is a mild value tuned from offline A/B runs.
+        self.popularity_penalty_alpha = max(0.0, float(os.getenv("CF_POPULARITY_PENALTY_ALPHA", "0.15")))
+        self.popularity_penalty_smoothing = max(0.0, float(os.getenv("CF_POPULARITY_PENALTY_SMOOTHING", "1.0")))
+        self.anilist_popularity: dict[int, float] = {}
+        if self.popularity_penalty_alpha > 0.0:
+            self.anilist_popularity = self._load_popularity(popularity_path)
+            if self.anilist_popularity:
+                logger.info(
+                    "CF popularity attenuation enabled: alpha=%.3f smoothing=%.3f entries=%d",
+                    self.popularity_penalty_alpha,
+                    self.popularity_penalty_smoothing,
+                    len(self.anilist_popularity),
+                )
+            else:
+                logger.warning(
+                    "CF popularity attenuation requested (alpha=%.3f) but no popularity file was loaded: %s",
+                    self.popularity_penalty_alpha,
+                    popularity_path,
+                )
+
         # Load model
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
         self.model = AnimeCFAutoencoder(checkpoint["n_anime"])
@@ -88,6 +112,42 @@ class CFModel:
         self.model.eval()
 
         logger.info(f"CF model loaded: {self.n_anime} anime, epoch {checkpoint.get('epoch', '?')}")
+
+    def _load_popularity(self, popularity_path: Path) -> dict[int, float]:
+        if not popularity_path.exists():
+            return {}
+        try:
+            with open(popularity_path, "r") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict) and "anilist_popularity" in raw and isinstance(raw["anilist_popularity"], dict):
+                raw = raw["anilist_popularity"]
+            if not isinstance(raw, dict):
+                logger.warning("Invalid popularity file format at %s (expected JSON object)", popularity_path)
+                return {}
+            parsed: dict[int, float] = {}
+            for key, value in raw.items():
+                try:
+                    aid = int(key)
+                    cnt = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if np.isfinite(cnt) and cnt >= 0.0:
+                    parsed[aid] = cnt
+            return parsed
+        except Exception as e:
+            logger.warning("Failed loading CF popularity file %s: %s", popularity_path, e)
+            return {}
+
+    def _popularity_attenuation(self, anilist_id: int) -> float:
+        if self.popularity_penalty_alpha <= 0.0:
+            return 1.0
+        pop = self.anilist_popularity.get(anilist_id)
+        if pop is None:
+            return 1.0
+        denom = 1.0 + float(np.log1p(pop + self.popularity_penalty_smoothing))
+        if denom <= 0.0:
+            return 1.0
+        return float(denom ** (-self.popularity_penalty_alpha))
 
     def predict(
         self,
@@ -149,13 +209,19 @@ class CFModel:
 
             predicted_score = float(np.clip(pred_ratings[idx] + user_mean, 1.0, 10.0))
             confidence = float(watch_probs[idx])
+            attenuation = self._popularity_attenuation(anilist_id)
+            rank_score = confidence * predicted_score * attenuation
 
             results.append({
                 "anilist_id": anilist_id,
                 "predicted_score": round(predicted_score, 2),
-                "watch_confidence": round(confidence, 4)
+                "watch_confidence": round(confidence, 4),
+                "_rank_score": rank_score,
             })
 
-        # Sort by combined signal: confidence * predicted_score
-        results.sort(key=lambda x: x["watch_confidence"] * x["predicted_score"], reverse=True)
-        return results[:top_k]
+        # Sort by combined signal with optional popularity attenuation.
+        results.sort(key=lambda x: x["_rank_score"], reverse=True)
+        trimmed = results[:top_k]
+        for row in trimmed:
+            row.pop("_rank_score", None)
+        return trimmed
