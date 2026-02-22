@@ -10,11 +10,11 @@ import { useDebounceSearch } from '../hooks/useDebounceSearch';
 import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
 
 const MAX_SEEDS = 5;
-const SMART_REC_STATE_KEY = 'smart_rec_page_state_v1';
+const SMART_REC_STATE_KEY = 'smart_rec_page_state_v2';
 
 /**
  * SmartRec page:
- * - Seed + text-query semantic search
+ * - Query-driven semantic search
  * - Optional list influence blending
  * - Shared blacklist modal/actions
  */
@@ -128,7 +128,7 @@ function SmartRec() {
 		? true
 		: isSimilarMode
 			? seeds.length > 0
-			: (seeds.length > 0 || context.trim());
+			: context.trim().length > 0;
 
 	const handleSearch = async () => {
 		if (!canSearch) return;
@@ -146,7 +146,6 @@ function SmartRec() {
 					body.listWeight = similarListWeight;
 				}
 			} else if (!isCfMode) {
-				body.seedIds = seeds.map((seed) => seed.id);
 				body.query = context.trim() || null;
 			}
 			if (isCfMode) {
@@ -177,7 +176,7 @@ function SmartRec() {
 					? 'Get predictions based on your rating patterns.'
 					: isSimilarMode
 							? 'Pick anime you love and find similar shows.'
-							: 'Pick anime you love and describe what you\'re looking for.'}
+							: 'Describe what you\'re looking for and get text-driven recommendations.'}
 			</p>
 
 			<div className="smart-rec-mode-tabs">
@@ -199,12 +198,9 @@ function SmartRec() {
 				})}
 			</div>
 
-			{!isCfMode && (
-			<>
+			{isSimilarMode && (
 			<div className="smart-rec-section">
-				<label className="smart-rec-label">
-					{isSimilarMode ? 'Seed Anime (pick 1-5)' : `Seed Anime (up to ${MAX_SEEDS})`}
-				</label>
+				<label className="smart-rec-label">Seed Anime (pick 1-5)</label>
 
 				{seeds.length > 0 && (
 					<div className="seed-chips">
@@ -257,10 +253,11 @@ function SmartRec() {
 					</div>
 				)}
 			</div>
+			)}
 
-			{!isSimilarMode && (
+			{!isCfMode && !isSimilarMode && (
 			<div className="smart-rec-section">
-				<label className="smart-rec-label">What are you in the mood for? (optional)</label>
+				<label className="smart-rec-label">What are you in the mood for?</label>
 				<textarea
 					className="smart-rec-context"
 					placeholder="e.g. dark psychological thriller with plot twists, or something lighthearted and funny..."
@@ -269,8 +266,6 @@ function SmartRec() {
 					rows={3}
 				/>
 			</div>
-			)}
-			</>
 			)}
 
 			{isLoggedIn && isSimilarMode && (

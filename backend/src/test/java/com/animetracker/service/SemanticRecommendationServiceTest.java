@@ -1,6 +1,13 @@
 package com.animetracker.service;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.List;
 
@@ -64,5 +71,36 @@ class SemanticRecommendationServiceTest {
     void recommend_listOnlyWithoutUser_throwsUnauthorized() {
         assertThrows(UnauthorizedException.class,
                 () -> service.recommend(null, List.of(), null, 15, true, 1.0f, "semantic"));
+    }
+
+    @Test
+    void recommend_semanticModeSeedOnly_throwsBadRequest() {
+        assertThrows(BadRequestException.class,
+                () -> service.recommend(null, List.of(1, 2), null, 15, false, null, "semantic"));
+    }
+
+    @Test
+    void recommend_semanticModeWithQueryAndSeeds_ignoresSeedsAndDoesNotThrow() {
+        when(embeddingService.embed(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilar(anyString(), anyList(), anyInt())).thenReturn(List.of());
+
+        assertDoesNotThrow(() -> service.recommend(
+                null,
+                List.of(1, 2, 3),
+                "dark thriller",
+                15,
+                false,
+                null,
+                "semantic"));
+
+        verify(embeddingService).embed("dark thriller");
+        verify(embeddingRepository, never()).findEmbeddingsByAnilistIds(anyList());
+        verify(embeddingRepository).findSimilar(anyString(), anyList(), anyInt());
+    }
+
+    @Test
+    void recommend_similarModeWithoutSeeds_throwsBadRequest() {
+        assertThrows(BadRequestException.class,
+                () -> service.recommend(null, List.of(), "any query", 15, false, null, "similar"));
     }
 }

@@ -59,7 +59,7 @@ Frontend currently calls scored first, then falls back to legacy on `404`.
 
 All modes use the same request DTO (`SemanticRequest`) with `mode`:
 
-- `semantic`: seeds + optional text query (+ optional list profile blend).
+- `semantic`: text-query intent retrieval (+ optional list profile blend). `seedIds` are ignored in this mode for compatibility.
 - `similar`: seed-centric similarity (+ optional list profile blend).
 - `cf`: collaborative filtering only (requires logged-in user + sidecar).
 

@@ -919,7 +919,7 @@ a:hover {
 	color: var(--text);
 }
 
-/* Seed chips */
+/* Similar mode seed chips */
 .seed-chips {
 	display: flex;
 	flex-wrap: wrap;
@@ -949,7 +949,7 @@ a:hover {
 	line-height: 1;
 }
 
-/* Seed picker dropdown */
+/* Similar mode seed picker dropdown */
 .seed-picker {
 	position: relative;
 }

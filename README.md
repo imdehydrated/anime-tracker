@@ -9,7 +9,7 @@ It combines a Spring Boot API, React frontend, PostgreSQL + pgvector, and a Pyth
 - Personal anime list management (status, score, progress)
 - AniList search + details
 - AI recommendation modes:
-  - Smart Search (semantic query + optional seeds)
+  - Smart Search (semantic text query + optional taste blending when logged in)
   - Similar Shows (seed-based similarity)
   - For You (collaborative filtering)
 - Recommendation explanations (single-sentence reason text)

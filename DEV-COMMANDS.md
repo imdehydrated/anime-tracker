@@ -264,6 +264,32 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic `
 curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
   -H "Content-Type: application/json" `
   -d "{\"mode\":\"semantic\",\"query\":\"dark thriller\",\"limit\":5}"
+
+# Smart Search contract: seedIds are ignored in semantic mode (query is still required)
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
+  -H "Content-Type: application/json" `
+  -d "{\"mode\":\"semantic\",\"seedIds\":[1,20],\"query\":\"dark thriller\",\"limit\":5}"
+```
+
+---
+
+## Local References (Sprout + Yuno)
+
+```powershell
+# Local-only references for research (folder is gitignored)
+mkdir references
+git clone --depth 1 https://github.com/ameobea/sprout references/sprout
+git clone --depth 1 https://github.com/IAmPara0x/yuno references/yuno
+
+# Pin commit SHAs for reproducible comparisons
+git -C references/sprout rev-parse HEAD
+git -C references/yuno rev-parse HEAD
+
+# Refresh later
+git -C references/sprout fetch --depth 1 origin
+git -C references/sprout reset --hard origin/main
+git -C references/yuno fetch --depth 1 origin
+git -C references/yuno reset --hard origin/main
 ```
 
 ---

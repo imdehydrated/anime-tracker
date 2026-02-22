@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,13 +27,14 @@ import com.animetracker.repository.UserRepository;
 
 /**
  * Semantic recommendation engine.
- * Builds a search vector from seed anime, optional text query, and optional user-list preference vector,
+ * Builds a search vector from text query and optional user-list preference vector,
  * then queries pgvector for nearest neighbors.
  */
 @Service
 public class SemanticRecommendationService {
 
     private static final Logger log = LoggerFactory.getLogger(SemanticRecommendationService.class);
+    private static final AtomicBoolean SEMANTIC_SEED_WARNING_LOGGED = new AtomicBoolean(false);
 
     private final EmbeddingService embeddingService;
     private final AnimeEmbeddingRepository embeddingRepository;
@@ -109,23 +111,23 @@ public class SemanticRecommendationService {
         }
 
         List<Integer> normalizedSeeds = normalizeIds(seedIds);
-        boolean hasSeeds = !normalizedSeeds.isEmpty();
+        boolean hasSemanticSeedInput = !normalizedSeeds.isEmpty();
         boolean hasQuery = query != null && !query.isBlank();
         boolean effectiveListOnly = useListOnly
                 || (username != null
                 && requestedListWeight != null
                 && requestedListWeight >= 1.0f
-                && !hasSeeds
                 && !hasQuery);
+
+        if (hasSemanticSeedInput && SEMANTIC_SEED_WARNING_LOGGED.compareAndSet(false, true)) {
+            log.warn("Semantic mode now ignores seedIds for /api/users/recommendations/semantic*; use mode=similar for seed-based recommendations");
+        }
 
         if (effectiveListOnly && username == null) {
             throw new UnauthorizedException("Login required for list-only recommendations");
         }
-        if (!effectiveListOnly && !hasSeeds && !hasQuery) {
-            throw new BadRequestException("Provide at least one seed anime or a text query");
-        }
-        if (normalizedSeeds.size() > 5) {
-            throw new BadRequestException("Maximum 5 seed anime allowed");
+        if (!effectiveListOnly && !hasQuery) {
+            throw new BadRequestException("Provide a text query for Smart Search");
         }
 
         int limit = normalizeLimit(requestedLimit);
@@ -136,14 +138,6 @@ public class SemanticRecommendationService {
         boolean usedListProfile = false;
 
         float[] searchVector = null;
-        if (hasSeeds) {
-            List<Object[]> seedRows = loadEmbeddings(normalizedSeeds, true);
-            if (seedRows.isEmpty()) {
-                log.warn("No seed embeddings available for seeds {}", normalizedSeeds);
-                return List.of();
-            }
-            searchVector = averageRows(seedRows);
-        }
 
         if (hasQuery) {
             String normalizedQuery = query.trim();
@@ -175,11 +169,11 @@ public class SemanticRecommendationService {
             return List.of();
         }
 
-        List<Integer> excludeIds = buildExcludeIds(username, normalizedSeeds);
+        List<Integer> excludeIds = buildExcludeIds(username, List.of());
         String vectorStr = EmbeddingService.toVectorString(searchVector);
         int candidateLimit = Math.min(150, Math.max(limit, limit * 3));
         List<Object[]> rows = findSimilarRows(vectorStr, excludeIds, candidateLimit);
-        List<String> baseReasonCodes = buildBaseReasonCodes(hasSeeds, hasQuery, usedListProfile);
+        List<String> baseReasonCodes = buildBaseReasonCodes(false, hasQuery, usedListProfile);
         List<FusionScoringService.ScoredCandidate> semanticCandidates = new ArrayList<>();
         for (Object[] row : rows) {
             AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));

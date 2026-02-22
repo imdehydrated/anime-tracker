@@ -50,6 +50,7 @@ notebooks/data/
 notebooks/models/
 notebooks/ml-models/
 ml-models/
+references/
 notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
 
 # Test JSON files for curl commands
