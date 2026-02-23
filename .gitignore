@@ -49,6 +49,7 @@ env/
 notebooks/data/
 notebooks/models/
 notebooks/ml-models/
+notebooks/checkpoints/
 ml-models/
 references/
 notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
@@ -57,3 +58,4 @@ notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
 *.json
 !**/package.json
 !**/package-lock.json
+!notebooks/eval/semantic_query_testset.json

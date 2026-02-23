@@ -105,6 +105,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-texts-per-anime", type=int, default=12)
     parser.add_argument("--min-texts-per-anime", type=int, default=2)
     parser.add_argument("--hard-neighbor-topk", type=int, default=5)
+    parser.add_argument(
+        "--hard-neighbor-refresh-epochs",
+        type=int,
+        default=0,
+        help=(
+            "Refresh hard-neighbor mining every N epochs (0 disables refresh and keeps "
+            "single-pass behavior)."
+        ),
+    )
     parser.add_argument("--labels-per-batch", type=int, default=8)
     parser.add_argument("--examples-per-label", type=int, default=4)
     parser.add_argument("--steps-per-epoch", type=int, default=400)
@@ -229,6 +238,32 @@ def build_hard_neighbors(
     return out
 
 
+def build_train_loader(
+    examples: list[InputExample],
+    label_to_indices: dict[int, list[int]],
+    hard_neighbors: dict[int, list[int]],
+    labels_per_batch: int,
+    examples_per_label: int,
+    steps_per_epoch: int,
+    seed: int,
+) -> DataLoader:
+    index_sampler = HardNeighborIndexSampler(
+        label_to_indices=label_to_indices,
+        hard_neighbors=hard_neighbors,
+        labels_per_batch=int(labels_per_batch),
+        examples_per_label=int(examples_per_label),
+        steps_per_epoch=int(steps_per_epoch),
+        seed=int(seed),
+    )
+    batch_size = int(labels_per_batch) * int(examples_per_label)
+    return DataLoader(
+        examples,
+        sampler=index_sampler,
+        batch_size=batch_size,
+        drop_last=True,
+    )
+
+
 def make_triplet_evaluator(eval_triplets: list[TripletSample]) -> TripletEvaluator:
     return TripletEvaluator(
         anchors=[t.anchor for t in eval_triplets],
@@ -317,28 +352,6 @@ def main() -> None:
     model.max_seq_length = int(args.max_seq_length)
 
     examples, anime_to_label, label_to_indices = build_examples(anime_texts)
-    hard_neighbors = build_hard_neighbors(
-        anime_texts=anime_texts,
-        anime_to_label=anime_to_label,
-        model=model,
-        topk=int(args.hard_neighbor_topk),
-    )
-
-    index_sampler = HardNeighborIndexSampler(
-        label_to_indices=label_to_indices,
-        hard_neighbors=hard_neighbors,
-        labels_per_batch=int(args.labels_per_batch),
-        examples_per_label=int(args.examples_per_label),
-        steps_per_epoch=int(args.steps_per_epoch),
-        seed=args.seed,
-    )
-    batch_size = int(args.labels_per_batch) * int(args.examples_per_label)
-    train_loader = DataLoader(
-        examples,
-        sampler=index_sampler,
-        batch_size=batch_size,
-        drop_last=True,
-    )
     evaluator = make_triplet_evaluator(eval_triplets)
 
     train_loss = losses.BatchHardTripletLoss(
@@ -347,29 +360,92 @@ def main() -> None:
         margin=float(args.triplet_margin),
     )
 
+    refresh_interval = max(0, int(args.hard_neighbor_refresh_epochs))
     warmup_steps = int(
         max(1, round(int(args.steps_per_epoch) * int(args.epochs) * float(args.warmup_ratio)))
+    )
+    warmup_steps_per_epoch = int(
+        max(1, round(int(args.steps_per_epoch) * float(args.warmup_ratio)))
     )
     args.output_path.mkdir(parents=True, exist_ok=True)
     print(
         "Training multi-positive hard-neighbor model: "
         f"epochs={args.epochs}, labels_per_batch={args.labels_per_batch}, "
         f"examples_per_label={args.examples_per_label}, steps_per_epoch={args.steps_per_epoch}, "
-        f"lr={args.lr}, margin={args.triplet_margin}, warmup_steps={warmup_steps}"
+        f"lr={args.lr}, margin={args.triplet_margin}, warmup_steps={warmup_steps}, "
+        f"hard_neighbor_refresh_epochs={refresh_interval}"
     )
 
-    model.fit(
-        train_objectives=[(train_loader, train_loss)],
-        evaluator=evaluator,
-        epochs=int(args.epochs),
-        warmup_steps=warmup_steps,
-        optimizer_params={"lr": float(args.lr)},
-        weight_decay=0.01,
-        output_path=str(args.output_path),
-        evaluation_steps=max(100, int(args.steps_per_epoch) // 2),
-        save_best_model=True,
-        show_progress_bar=True,
-    )
+    hard_neighbor_refresh_points: list[int] = []
+    hard_neighbors: dict[int, list[int]] | None = None
+
+    # Preserve prior behavior by default (single fit call) unless refresh is enabled.
+    if refresh_interval == 0:
+        hard_neighbors = build_hard_neighbors(
+            anime_texts=anime_texts,
+            anime_to_label=anime_to_label,
+            model=model,
+            topk=int(args.hard_neighbor_topk),
+        )
+        hard_neighbor_refresh_points.append(1)
+        train_loader = build_train_loader(
+            examples=examples,
+            label_to_indices=label_to_indices,
+            hard_neighbors=hard_neighbors,
+            labels_per_batch=int(args.labels_per_batch),
+            examples_per_label=int(args.examples_per_label),
+            steps_per_epoch=int(args.steps_per_epoch),
+            seed=int(args.seed),
+        )
+        model.fit(
+            train_objectives=[(train_loader, train_loss)],
+            evaluator=evaluator,
+            epochs=int(args.epochs),
+            warmup_steps=warmup_steps,
+            optimizer_params={"lr": float(args.lr)},
+            weight_decay=0.01,
+            output_path=str(args.output_path),
+            evaluation_steps=max(100, int(args.steps_per_epoch) // 2),
+            save_best_model=True,
+            show_progress_bar=True,
+        )
+    else:
+        for epoch_idx in range(int(args.epochs)):
+            epoch_num = epoch_idx + 1
+            should_refresh = hard_neighbors is None or (epoch_idx % refresh_interval == 0)
+            if should_refresh:
+                hard_neighbors = build_hard_neighbors(
+                    anime_texts=anime_texts,
+                    anime_to_label=anime_to_label,
+                    model=model,
+                    topk=int(args.hard_neighbor_topk),
+                )
+                hard_neighbor_refresh_points.append(epoch_num)
+                print(f"Refreshed hard neighbors at epoch {epoch_num}")
+
+            train_loader = build_train_loader(
+                examples=examples,
+                label_to_indices=label_to_indices,
+                hard_neighbors=hard_neighbors,
+                labels_per_batch=int(args.labels_per_batch),
+                examples_per_label=int(args.examples_per_label),
+                steps_per_epoch=int(args.steps_per_epoch),
+                seed=int(args.seed + epoch_idx),
+            )
+
+            print(f"Training epoch {epoch_num}/{int(args.epochs)}")
+            model.fit(
+                train_objectives=[(train_loader, train_loss)],
+                evaluator=evaluator,
+                epochs=1,
+                warmup_steps=warmup_steps_per_epoch,
+                optimizer_params={"lr": float(args.lr)},
+                weight_decay=0.01,
+                output_path=str(args.output_path),
+                evaluation_steps=max(100, int(args.steps_per_epoch) // 2),
+                save_best_model=True,
+                show_progress_bar=True,
+            )
 
     multipos_score = evaluate_triplet_accuracy(args.output_path, evaluator, device=device)
     baseline_score = None
@@ -393,6 +469,7 @@ def main() -> None:
             "max_texts_per_anime": args.max_texts_per_anime,
             "min_texts_per_anime": args.min_texts_per_anime,
             "hard_neighbor_topk": args.hard_neighbor_topk,
+            "hard_neighbor_refresh_epochs": args.hard_neighbor_refresh_epochs,
             "labels_per_batch": args.labels_per_batch,
             "examples_per_label": args.examples_per_label,
             "steps_per_epoch": args.steps_per_epoch,
@@ -408,7 +485,9 @@ def main() -> None:
             "eval_triplets": len(eval_triplets),
             "anime_labels": len(anime_to_label),
             "train_examples": len(examples),
+            "hard_neighbor_refresh_events": len(hard_neighbor_refresh_points),
         },
+        "hard_neighbor_refresh_points": hard_neighbor_refresh_points,
         "metrics": {
             "multipos_triplet_eval_cosine_accuracy": multipos_score,
             "baseline_triplet_eval_cosine_accuracy": baseline_score,
@@ -423,6 +502,7 @@ def main() -> None:
         delta = multipos_score - baseline_score
         print(f"Baseline triplet cosine accuracy: {baseline_score:.6f}")
         print(f"Delta vs baseline: {delta:+.6f}")
+    print(f"Hard-neighbor refresh epochs: {hard_neighbor_refresh_points}")
     print(f"Saved experiment snapshot: {result_path}")
     if not args.disable_eval_prune:
         pruned_count = prune_eval_snapshots(

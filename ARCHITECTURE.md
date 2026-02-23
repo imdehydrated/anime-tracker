@@ -84,6 +84,7 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
 - Baseline remains triplet fine-tuning from notebook `03`.
 - Experimental path now uses multi-positive label training with hard-neighbor batches:
   - `notebooks/semantic_multipos_experiment.py`
+- Hard-neighbor mining can be refreshed during training (`--hard-neighbor-refresh-epochs`) so confuser negatives stay aligned with the latest embedding space.
 - Rationale: this avoids assuming only one valid match per query, which better fits anime retrieval where multiple titles can be good answers.
 - Legacy `notebooks/semantic_mnrl_experiment.py` is kept as a compatibility wrapper that forwards to the new script.
 
@@ -158,6 +159,10 @@ Explanation config:
 - Script: `notebooks/evaluate_models.py`
 - Input: `notebooks/data/ratings_filtered.csv` + exported `ml-models/` artifacts.
 - Output: `notebooks/eval/baseline_metrics_*.json`
+- Query-intent benchmark script: `notebooks/semantic_query_tests.py`
+  - Input: `notebooks/eval/semantic_query_testset.json` + exported semantic embeddings
+  - Output: `notebooks/eval/semantic_query_benchmark_*.json`
+  - Measures direct search quality with `Hit@K` + `MRR@K` against multiple acceptable titles per query
 - Snapshot cleanup: auto-prunes old eval JSONs by retention policy (default keep 40 latest, prune files older than 30 days beyond that).
 - Eval snapshots can include optional experiment metadata (label + CF training hyperparameters) for A/B traceability.
 - Ranking helper: `notebooks/eval_leaderboard.py` to compare/rank snapshots and view deltas vs a selected baseline.

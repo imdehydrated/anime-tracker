@@ -73,6 +73,8 @@ Use these docs for details:
 - Eval scripts auto-prune old snapshot JSONs by retention defaults (tunable flags in `DEV-COMMANDS.md`)
 - Eval A/B comparison tooling includes `notebooks/eval_leaderboard.py` for ranking snapshot runs
 - Promotion gating for model updates uses `notebooks/promotion_gate.py` (commands in `DEV-COMMANDS.md`)
+- Direct query-intent semantic testing uses `notebooks/semantic_query_tests.py` with a curated benchmark set
+- Semantic experiment runs support optional hard-neighbor refresh across epochs (documented in `DEV-COMMANDS.md`)
 
 ## Project Structure
 

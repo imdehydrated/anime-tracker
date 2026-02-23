@@ -611,6 +611,9 @@ python -c "from notebooks.semantic_preprocessing import preprocess_review_text; 
 # Run the new multi-positive + hard-neighbor semantic experiment
 notebooks\.venv311\Scripts\python notebooks\semantic_multipos_experiment.py --epochs 3 --steps-per-epoch 400 --labels-per-batch 8 --examples-per-label 4
 
+# Refresh hard-neighbor mining every epoch (uses latest embedding space each cycle)
+notebooks\.venv311\Scripts\python notebooks\semantic_multipos_experiment.py --epochs 3 --steps-per-epoch 400 --hard-neighbor-refresh-epochs 1
+
 # Optional smaller smoke run
 notebooks\.venv311\Scripts\python notebooks\semantic_multipos_experiment.py --epochs 1 --steps-per-epoch 100 --max-train-triplets 20000
 
@@ -717,6 +720,27 @@ notebooks\.venv311\Scripts\python notebooks\evaluate_models.py --max-users 1000 
 # Output snapshots are written to:
 # notebooks\eval\baseline_metrics_*.json
 Get-ChildItem .\notebooks\eval\baseline_metrics_*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+```
+
+### Semantic Query Benchmark Tests
+
+```powershell
+# Query-intent semantic tests using curated query->acceptable-title cases
+# Test set file: notebooks\eval\semantic_query_testset.json
+notebooks\.venv311\Scripts\python notebooks\semantic_query_tests.py --top-k 10 --show-top-n 5
+
+# Smaller/faster pass while iterating
+notebooks\.venv311\Scripts\python notebooks\semantic_query_tests.py --top-k 5 --show-top-n 3
+
+# Use a different model path (for candidate model validation)
+notebooks\.venv311\Scripts\python notebooks\semantic_query_tests.py `
+  --model-path notebooks\models\anime_semantic_multipos `
+  --embeddings-path ml-models\anime_embeddings.jsonl `
+  --top-k 10
+
+# Output snapshots are written to:
+# notebooks\eval\semantic_query_benchmark_*.json
+Get-ChildItem .\notebooks\eval\semantic_query_benchmark_*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 5
 ```
 
 ### Eval Leaderboard (A/B Ranking)

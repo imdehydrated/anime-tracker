@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "description": "Curated semantic query benchmark with multiple acceptable matches per query.",
+  "cases": [
+    {
+      "query": "cute girls doing cute things in high school",
+      "acceptable_titles": [
+        "K-On!",
+        "Yuru Yuri",
+        "Gochuumon wa Usagi Desu ka?",
+        "Nichijou"
+      ]
+    },
+    {
+      "query": "dark psychological thriller with mind games",
+      "acceptable_titles": [
+        "DEATH NOTE",
+        "MONSTER",
+        "PSYCHO-PASS",
+        "serial experiments lain"
+      ]
+    },
+    {
+      "query": "mecha robots fighting in space",
+      "acceptable_titles": [
+        "Kidou Senshi Gundam",
+        "Top wo Nerae! GunBuster",
+        "Tengen Toppa Gurren Lagann",
+        "Neon Genesis Evangelion"
+      ]
+    },
+    {
+      "query": "romantic comedy with tsundere characters",
+      "acceptable_titles": [
+        "Toradora!",
+        "Zero no Tsukaima",
+        "Shakugan no Shana",
+        "Yahari Ore no Seishun Love Comedy wa Machigatteiru."
+      ]
+    },
+    {
+      "query": "isekai protagonist transported to fantasy world",
+      "acceptable_titles": [
+        "Re:Zero kara Hajimeru Isekai Seikatsu",
+        "Kono Subarashii Sekai ni Shukufuku wo!",
+        "Mushoku Tensei: Isekai Ittara Honki Dasu",
+        "Tensei Shitara Slime Datta Ken"
+      ]
+    },
+    {
+      "query": "sports anime about basketball",
+      "acceptable_titles": [
+        "Kuroko no Basket",
+        "SLAM DUNK",
+        "Ahiru no Sora",
+        "Ro-Kyu-Bu!"
+      ]
+    },
+    {
+      "query": "time travel suspense thriller",
+      "acceptable_titles": [
+        "Steins;Gate",
+        "Boku dake ga Inai Machi",
+        "Tokyo Revengers"
+      ]
+    },
+    {
+      "query": "wholesome countryside slice of life",
+      "acceptable_titles": [
+        "Non Non Biyori",
+        "Barakamon",
+        "Yuru Camp",
+        "Aria The Animation"
+      ]
+    },
+    {
+      "query": "cyberpunk future police story",
+      "acceptable_titles": [
+        "PSYCHO-PASS",
+        "Koukaku Kidoutai",
+        "Akudama Drive"
+      ]
+    },
+    {
+      "query": "samurai action with revenge themes",
+      "acceptable_titles": [
+        "Rurouni Kenshin: Meiji Kenkaku Romantan",
+        "Samurai Champloo",
+        "Dororo"
+      ]
+    },
+    {
+      "query": "idol girls trying to succeed in music",
+      "acceptable_titles": [
+        "Love Live! School Idol Project",
+        "THE iDOLM@STER",
+        "Zombieland Saga"
+      ]
+    },
+    {
+      "query": "volleyball team tournament anime",
+      "acceptable_titles": [
+        "Haikyuu!!",
+        "2.43: Seiin Koukou Danshi Volley-bu"
+      ]
+    },
+    {
+      "query": "pirate adventure searching for treasure",
+      "acceptable_titles": [
+        "ONE PIECE"
+      ]
+    },
+    {
+      "query": "space western bounty hunters",
+      "acceptable_titles": [
+        "Cowboy Bebop",
+        "Trigun",
+        "Outlaw Star"
+      ]
+    },
+    {
+      "query": "post apocalyptic city with giant monsters",
+      "acceptable_titles": [
+        "Shingeki no Kyojin",
+        "Koutetsujou no Kabaneri",
+        "Owari no Seraph"
+      ]
+    },
+    {
+      "query": "magic school battle tournament",
+      "acceptable_titles": [
+        "Mahouka Koukou no Rettousei",
+        "Rakudai Kishi no Cavalry",
+        "Toaru Majutsu no Index"
+      ]
+    },
+    {
+      "query": "healing anime about camping and nature",
+      "acceptable_titles": [
+        "Yuru Camp",
+        "Sora yori mo Tooi Basho",
+        "Aria The Animation"
+      ]
+    },
+    {
+      "query": "detective mystery with a genius lead",
+      "acceptable_titles": [
+        "Meitantei Conan",
+        "Hyouka",
+        "Death Note"
+      ]
+    },
+    {
+      "query": "college romance drama",
+      "acceptable_titles": [
+        "Golden Time",
+        "Honey and Clover",
+        "Nodame Cantabile"
+      ]
+    },
+    {
+      "query": "psychological mecha with existential themes",
+      "acceptable_titles": [
+        "Neon Genesis Evangelion",
+        "RahXephon",
+        "Bokurano"
+      ]
+    }
+  ]
+}
