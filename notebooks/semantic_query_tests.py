@@ -20,6 +20,27 @@ from sentence_transformers import SentenceTransformer
 
 
 TITLE_KEYS = ("title", "title_romaji", "title_english", "title_native")
+TITLE_ALIASES = {
+    "neon genesis evangelion": [
+        "shin seiki evangelion",
+    ],
+    "yahari ore no seishun love comedy wa machigatteiru": [
+        "yahari ore no seishun love come wa machigatteiru",
+    ],
+    "koukaku kidoutai": [
+        "ghost in the shell koukaku kidoutai",
+        "koukaku kidoutai stand alone complex",
+    ],
+    "zombieland saga": [
+        "zombie land saga",
+    ],
+    "outlaw star": [
+        "seihou bukyou outlaw star",
+    ],
+    "honey and clover": [
+        "hachimitsu to clover",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -194,6 +215,13 @@ def resolve_expected_ids(
         if not key:
             continue
         ids = title_to_ids.get(key)
+        if not ids:
+            aliases = TITLE_ALIASES.get(key, [])
+            for alias in aliases:
+                alias_key = normalize_text(alias)
+                ids = title_to_ids.get(alias_key)
+                if ids:
+                    break
         if ids:
             expected.update(ids)
         else:

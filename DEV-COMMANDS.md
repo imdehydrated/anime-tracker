@@ -751,6 +751,7 @@ Get-ChildItem .\notebooks\eval\baseline_metrics_*.json | Sort-Object LastWriteTi
 # Query-intent semantic tests using curated query->acceptable-title cases
 # Test set file: notebooks\eval\semantic_query_testset.json
 notebooks\.venv311\Scripts\python notebooks\semantic_query_tests.py --top-k 10 --show-top-n 5
+# If unresolved titles appear, update TITLE_ALIASES in notebooks\semantic_query_tests.py
 
 # Smaller/faster pass while iterating
 notebooks\.venv311\Scripts\python notebooks\semantic_query_tests.py --top-k 5 --show-top-n 3

@@ -83,6 +83,7 @@ Use these docs for details:
 - Eval A/B comparison tooling includes `notebooks/eval_leaderboard.py` for ranking snapshot runs
 - Promotion gating for model updates uses `notebooks/promotion_gate.py` (commands in `DEV-COMMANDS.md`)
 - Direct query-intent semantic testing uses `notebooks/semantic_query_tests.py` with a curated benchmark set
+  - benchmark title resolution includes alias mapping for common English/romanized title variants
 - Semantic experiment runs support optional hard-neighbor refresh across epochs (documented in `DEV-COMMANDS.md`)
 
 ## Project Structure

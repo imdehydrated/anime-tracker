@@ -208,6 +208,7 @@ Explanation config:
   - Input: `notebooks/eval/semantic_query_testset.json` + exported semantic embeddings
   - Output: `notebooks/eval/semantic_query_benchmark_*.json`
   - Measures direct search quality with `Hit@K` + `MRR@K` against multiple acceptable titles per query
+  - Includes title-alias normalization (English/romanized variants) to reduce unresolved benchmark mappings
 - Snapshot cleanup: auto-prunes old eval JSONs by retention policy (default keep 40 latest, prune files older than 30 days beyond that).
 - Eval snapshots can include optional experiment metadata (label + CF training hyperparameters) for A/B traceability.
 - Ranking helper: `notebooks/eval_leaderboard.py` to compare/rank:
