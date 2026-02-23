@@ -294,6 +294,61 @@ git -C references/yuno reset --hard origin/main
 
 ---
 
+## Semantic Query Preprocessing (Backend)
+
+Smart Search (`mode=semantic`) now preprocesses query text before embedding:
+- lowercase + punctuation cleanup
+- whitespace normalization
+- anime shorthand expansion (example: `romcom`, `isekai`, `mecha`)
+
+Quick smoke check:
+
+```powershell
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
+  -H "Content-Type: application/json" `
+  -d "{\"mode\":\"semantic\",\"query\":\"romcom isekai\",\"limit\":5}"
+```
+
+## Semantic Hybrid Retrieval + Calibration (Track A)
+
+```powershell
+# Optional semantic retrieval tuning (Smart Search mode)
+RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED=true
+RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT=30
+RECOMMENDATIONS_SEMANTIC_LEXICAL_MAX_PATTERNS=3
+RECOMMENDATIONS_SEMANTIC_LEXICAL_BOOST=0.08
+RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED=true
+RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE=1.00
+
+# Restart backend after changing these values
+docker-compose restart backend
+
+# Semantic smoke test (phrase + shorthand)
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
+  -H "Content-Type: application/json" `
+  -d "{\"mode\":\"semantic\",\"query\":\"dark romcom in high school\",\"limit\":10}"
+```
+
+---
+
+## Recommendation Warm-Up (Reduce First-Request Latency)
+
+Run these once after backend/sidecar restart to warm model paths and caches:
+
+```powershell
+# Semantic warm-up
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
+  -H "Content-Type: application/json" `
+  -d "{\"mode\":\"semantic\",\"query\":\"romcom isekai\",\"limit\":5}"
+
+# Similar warm-up (replace IDs with valid anime IDs in your DB)
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
+  -H "Content-Type: application/json" `
+  -d "{\"mode\":\"similar\",\"seedIds\":[1],\"limit\":5}"
+```
+
+---
+
 ## Database Queries
 
 Run these after connecting with: `docker exec -it animetracker-db psql -U anime_user -d animetracker`

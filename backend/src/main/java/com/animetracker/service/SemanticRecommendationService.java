@@ -1,7 +1,10 @@
 package com.animetracker.service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +38,9 @@ public class SemanticRecommendationService {
 
     private static final Logger log = LoggerFactory.getLogger(SemanticRecommendationService.class);
     private static final AtomicBoolean SEMANTIC_SEED_WARNING_LOGGED = new AtomicBoolean(false);
+    private static final Map<String, String> QUERY_SYNONYMS = buildQuerySynonyms();
+    private static final Set<String> QUERY_STOP_WORDS = Set.of(
+            "anime", "show", "shows", "with", "about", "that", "this", "and", "the", "for", "from");
 
     private final EmbeddingService embeddingService;
     private final AnimeEmbeddingRepository embeddingRepository;
@@ -51,6 +57,18 @@ public class SemanticRecommendationService {
     private float defaultListWeight;
     @Value("${recommendations.default-similar-list-weight:0.00}")
     private float defaultSimilarListWeight;
+    @Value("${recommendations.semantic.lexical-enabled:true}")
+    private boolean semanticLexicalEnabled;
+    @Value("${recommendations.semantic.lexical-candidate-limit:30}")
+    private int semanticLexicalCandidateLimit;
+    @Value("${recommendations.semantic.lexical-max-patterns:3}")
+    private int semanticLexicalMaxPatterns;
+    @Value("${recommendations.semantic.lexical-boost:0.08}")
+    private float semanticLexicalBoost;
+    @Value("${recommendations.semantic.score-calibration-enabled:true}")
+    private boolean semanticScoreCalibrationEnabled;
+    @Value("${recommendations.semantic.score-calibration-temperature:1.00}")
+    private float semanticScoreCalibrationTemperature;
     @Value("${recommendations.fusion.dynamic-blend-enabled:true}")
     private boolean dynamicBlendEnabled;
     @Value("${recommendations.fusion.dynamic-blend-min-rated-anime:10}")
@@ -112,7 +130,8 @@ public class SemanticRecommendationService {
 
         List<Integer> normalizedSeeds = normalizeIds(seedIds);
         boolean hasSemanticSeedInput = !normalizedSeeds.isEmpty();
-        boolean hasQuery = query != null && !query.isBlank();
+        String normalizedQuery = preprocessSemanticQuery(query);
+        boolean hasQuery = !normalizedQuery.isBlank();
         boolean effectiveListOnly = useListOnly
                 || (username != null
                 && requestedListWeight != null
@@ -140,7 +159,6 @@ public class SemanticRecommendationService {
         float[] searchVector = null;
 
         if (hasQuery) {
-            String normalizedQuery = query.trim();
             if (normalizedQuery.length() > 500) {
                 normalizedQuery = normalizedQuery.substring(0, 500);
             }
@@ -172,19 +190,30 @@ public class SemanticRecommendationService {
         List<Integer> excludeIds = buildExcludeIds(username, List.of());
         String vectorStr = EmbeddingService.toVectorString(searchVector);
         int candidateLimit = Math.min(150, Math.max(limit, limit * 3));
-        List<Object[]> rows = findSimilarRows(vectorStr, excludeIds, candidateLimit);
+        SemanticRowSelection rowSelection = selectSemanticRows(
+                vectorStr,
+                excludeIds,
+                candidateLimit,
+                normalizedQuery);
         List<String> baseReasonCodes = buildBaseReasonCodes(false, hasQuery, usedListProfile);
         List<FusionScoringService.ScoredCandidate> semanticCandidates = new ArrayList<>();
-        for (Object[] row : rows) {
-            AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+        for (Object[] row : rowSelection.rows()) {
+            AniListResponse.AnimeInfo anime = mapRowToAnimeInfo(row);
             double distance = distanceFromRow(row);
             double normalizedScore = FusionScoringService.normalizeSemanticDistance(distance);
+            if (anime.getId() != null && rowSelection.lexicalBoostIds().contains(anime.getId())) {
+                normalizedScore = FusionScoringService.clamp(
+                        normalizedScore + semanticLexicalBoost,
+                        0.0,
+                        1.0);
+            }
             semanticCandidates.add(new FusionScoringService.ScoredCandidate(
                     anime.getId(),
                     anime,
                     normalizedScore,
                     baseReasonCodes));
         }
+        semanticCandidates = applyQueryScoreCalibration(semanticCandidates, hasQuery);
 
         List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
                 semanticCandidates, username, excludeIds, limit, requestedListWeight, listWeight);
@@ -216,7 +245,26 @@ public class SemanticRecommendationService {
             throw new BadRequestException("CF model returned no predictions - your list may be too small");
         }
 
-        // Fetch full anime info for each predicted AniList ID
+        List<Integer> predictedIds = new ArrayList<>(predictions.size());
+        for (Map<String, Object> pred : predictions) {
+            Object idValue = pred.get("anilist_id");
+            if (idValue instanceof Number idNumber) {
+                predictedIds.add(idNumber.intValue());
+            }
+        }
+
+        Map<Integer, AniListResponse.AnimeInfo> localMetadataById = new HashMap<>();
+        if (!predictedIds.isEmpty()) {
+            List<Object[]> metadataRows = embeddingRepository.findMetadataByAnilistIds(predictedIds);
+            for (Object[] row : metadataRows) {
+                AniListResponse.AnimeInfo anime = mapMetadataRowToAnimeInfo(row);
+                if (anime != null && anime.getId() != null) {
+                    localMetadataById.put(anime.getId(), anime);
+                }
+            }
+        }
+
+        // Build recommendation payload; use local metadata first, AniList as fallback only when missing locally.
         List<RecommendationResponse> results = new ArrayList<>();
         for (Map<String, Object> pred : predictions) {
             Object idValue = pred.get("anilist_id");
@@ -228,7 +276,10 @@ public class SemanticRecommendationService {
             double watchConfidence = numberValue(pred.get("watch_confidence"), 0.0d);
             double normalizedScore = FusionScoringService.normalizeCfScore(predictedScore, watchConfidence);
             try {
-                AniListResponse.AnimeInfo anime = aniListService.getAnimeById(anilistId);
+                AniListResponse.AnimeInfo anime = localMetadataById.get(anilistId);
+                if (anime == null) {
+                    anime = aniListService.getAnimeById(anilistId);
+                }
                 if (anime != null) {
                     List<String> reasonCodes = List.of(RecommendationResponse.CF_SIGNAL);
                     String cfContributor = findTopContributorTitle(anime, watchedProfiles);
@@ -318,7 +369,7 @@ public class SemanticRecommendationService {
                     int anilistId = ((Number) item.get("anilist_id")).intValue();
                     Object[] row = rowById.get(anilistId);
                     if (row != null) {
-                        AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+                        AniListResponse.AnimeInfo anime = mapRowToAnimeInfo(row);
                         double rerankedScore = numberValue(item.get("score"), Double.NaN);
                         double normalizedScore = Double.isNaN(rerankedScore)
                                 ? FusionScoringService.normalizeSemanticDistance(distanceFromRow(row))
@@ -334,7 +385,7 @@ public class SemanticRecommendationService {
                 // Rerank failed - fall back to pgvector order
                 semanticCandidates = new ArrayList<>();
                 for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
-                    AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+                    AniListResponse.AnimeInfo anime = mapRowToAnimeInfo(row);
                     double normalizedScore = FusionScoringService.normalizeSemanticDistance(distanceFromRow(row));
                     semanticCandidates.add(new FusionScoringService.ScoredCandidate(
                             anime.getId(),
@@ -347,7 +398,7 @@ public class SemanticRecommendationService {
             // No sidecar - use pgvector order directly
             semanticCandidates = new ArrayList<>();
             for (Object[] row : candidates.subList(0, Math.min(limit, candidates.size()))) {
-                AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(mapRowToAnimeInfo(row));
+                AniListResponse.AnimeInfo anime = mapRowToAnimeInfo(row);
                 double normalizedScore = FusionScoringService.normalizeSemanticDistance(distanceFromRow(row));
                 semanticCandidates.add(new FusionScoringService.ScoredCandidate(
                         anime.getId(),
@@ -377,6 +428,193 @@ public class SemanticRecommendationService {
             throw new BadRequestException("ML sidecar failed to embed query text");
         }
         return embeddingService.embed(text);
+    }
+
+    /**
+     * Normalize user query text and expand common anime shorthand into richer semantic terms.
+     */
+    private String preprocessSemanticQuery(String rawQuery) {
+        if (rawQuery == null) {
+            return "";
+        }
+
+        String normalized = rawQuery.toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        if (normalized.isBlank()) {
+            return "";
+        }
+
+        String[] tokens = normalized.split(" ");
+        List<String> expanded = new ArrayList<>(tokens.length * 2);
+        for (String token : tokens) {
+            expanded.add(token);
+            String replacement = QUERY_SYNONYMS.get(token);
+            if (replacement != null) {
+                expanded.add(replacement);
+            }
+        }
+
+        return String.join(" ", expanded)
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private static Map<String, String> buildQuerySynonyms() {
+        Map<String, String> synonyms = new LinkedHashMap<>();
+        synonyms.put("romcom", "romance comedy");
+        synonyms.put("sol", "slice of life");
+        synonyms.put("iyashikei", "healing slice of life");
+        synonyms.put("cgdct", "cute girls slice of life comedy");
+        synonyms.put("isekai", "another world fantasy adventure");
+        synonyms.put("mecha", "robot sci fi");
+        synonyms.put("shonen", "battle action coming of age");
+        synonyms.put("shounen", "battle action coming of age");
+        synonyms.put("shojo", "romance drama");
+        synonyms.put("shoujo", "romance drama");
+        synonyms.put("seinen", "mature psychological action");
+        synonyms.put("josei", "adult romance slice of life");
+        synonyms.put("tsundere", "romantic comedy tsundere");
+        return Collections.unmodifiableMap(synonyms);
+    }
+
+    private SemanticRowSelection selectSemanticRows(
+            String vectorStr,
+            List<Integer> excludeIds,
+            int candidateLimit,
+            String normalizedQuery) {
+        List<Object[]> vectorRows = findSimilarRows(vectorStr, excludeIds, candidateLimit);
+        if (!semanticLexicalEnabled || normalizedQuery == null || normalizedQuery.isBlank()) {
+            return new SemanticRowSelection(vectorRows, Set.of());
+        }
+
+        List<String> lexicalPatterns = buildLexicalPatterns(normalizedQuery);
+        if (lexicalPatterns.isEmpty()) {
+            return new SemanticRowSelection(vectorRows, Set.of());
+        }
+
+        Map<Integer, Object[]> rowsById = new LinkedHashMap<>();
+        Set<Integer> lexicalBoostIds = new LinkedHashSet<>();
+        for (Object[] row : vectorRows) {
+            if (row != null && row.length > 1 && row[1] instanceof Integer id) {
+                rowsById.put(id, row);
+            }
+        }
+
+        int perPatternLimit = Math.max(5, semanticLexicalCandidateLimit / lexicalPatterns.size());
+        for (String pattern : lexicalPatterns) {
+            List<Object[]> lexicalRows = embeddingRepository.findLexicalMatches(
+                    pattern,
+                    excludeIds,
+                    perPatternLimit);
+            if (lexicalRows == null || lexicalRows.isEmpty()) {
+                continue;
+            }
+            for (Object[] row : lexicalRows) {
+                if (row == null || row.length <= 1 || !(row[1] instanceof Integer id)) {
+                    continue;
+                }
+                lexicalBoostIds.add(id);
+                Object[] existing = rowsById.get(id);
+                if (existing == null || distanceFromRow(row) < distanceFromRow(existing)) {
+                    rowsById.put(id, row);
+                }
+            }
+        }
+
+        List<Object[]> mergedRows = new ArrayList<>(rowsById.values());
+        mergedRows.sort(Comparator
+                .comparingDouble(this::distanceFromRow)
+                .thenComparingInt(row -> (Integer) row[1]));
+
+        if (mergedRows.size() > candidateLimit) {
+            mergedRows = mergedRows.subList(0, candidateLimit);
+        }
+
+        Set<Integer> keptIds = new LinkedHashSet<>();
+        for (Object[] row : mergedRows) {
+            keptIds.add((Integer) row[1]);
+        }
+        lexicalBoostIds.retainAll(keptIds);
+
+        return new SemanticRowSelection(mergedRows, Set.copyOf(lexicalBoostIds));
+    }
+
+    private List<String> buildLexicalPatterns(String normalizedQuery) {
+        if (normalizedQuery == null || normalizedQuery.isBlank()) {
+            return List.of();
+        }
+
+        List<String> patterns = new ArrayList<>();
+        String wildcardPhrase = "%" + normalizedQuery.replace(" ", "%") + "%";
+        patterns.add(wildcardPhrase);
+
+        int tokenPatternBudget = Math.max(0, semanticLexicalMaxPatterns - 1);
+        if (tokenPatternBudget == 0) {
+            return patterns;
+        }
+
+        Set<String> seenTokens = new LinkedHashSet<>();
+        for (String token : normalizedQuery.split(" ")) {
+            if (token == null || token.isBlank()) {
+                continue;
+            }
+            if (token.length() < 4 || QUERY_STOP_WORDS.contains(token)) {
+                continue;
+            }
+            if (!seenTokens.add(token)) {
+                continue;
+            }
+            patterns.add("%" + token + "%");
+            if (patterns.size() >= semanticLexicalMaxPatterns) {
+                break;
+            }
+        }
+
+        return patterns;
+    }
+
+    private List<FusionScoringService.ScoredCandidate> applyQueryScoreCalibration(
+            List<FusionScoringService.ScoredCandidate> candidates,
+            boolean queryDriven) {
+        if (!queryDriven
+                || !semanticScoreCalibrationEnabled
+                || candidates == null
+                || candidates.size() < 3) {
+            return candidates;
+        }
+
+        double mean = 0.0d;
+        for (FusionScoringService.ScoredCandidate candidate : candidates) {
+            mean += candidate.score();
+        }
+        mean /= candidates.size();
+
+        double variance = 0.0d;
+        for (FusionScoringService.ScoredCandidate candidate : candidates) {
+            double delta = candidate.score() - mean;
+            variance += delta * delta;
+        }
+        variance /= candidates.size();
+        double stdDev = Math.sqrt(variance);
+        if (stdDev < 1e-6d) {
+            return candidates;
+        }
+
+        double temperature = Math.max(0.1d, semanticScoreCalibrationTemperature);
+        List<FusionScoringService.ScoredCandidate> calibrated = new ArrayList<>(candidates.size());
+        for (FusionScoringService.ScoredCandidate candidate : candidates) {
+            double zScore = (candidate.score() - mean) / (stdDev * temperature);
+            double score = 1.0d / (1.0d + Math.exp(-zScore));
+            calibrated.add(new FusionScoringService.ScoredCandidate(
+                    candidate.anilistId(),
+                    candidate.animeInfo(),
+                    FusionScoringService.clamp(score, 0.0d, 1.0d),
+                    candidate.reasonCodes()));
+        }
+        return calibrated;
     }
 
     /**
@@ -619,6 +857,31 @@ public class SemanticRecommendationService {
         return anime;
     }
 
+    private AniListResponse.AnimeInfo mapMetadataRowToAnimeInfo(Object[] row) {
+        if (row == null || row.length < 9 || !(row[0] instanceof Number anilistIdValue)) {
+            return null;
+        }
+
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setId(anilistIdValue.intValue());
+
+        AniListResponse.AnimeTitle title = new AniListResponse.AnimeTitle();
+        title.setRomaji((String) row[1]);
+        title.setEnglish((String) row[2]);
+        anime.setTitle(title);
+
+        AniListResponse.AnimeCoverImage cover = new AniListResponse.AnimeCoverImage();
+        cover.setLarge((String) row[3]);
+        anime.setCoverImage(cover);
+
+        anime.setGenres(row[4] != null ? List.of(((String) row[4]).split(", ")) : null);
+        anime.setDescription((String) row[5]);
+        anime.setAverageScore((Integer) row[6]);
+        anime.setStatus((String) row[7]);
+        anime.setEpisodes((Integer) row[8]);
+        return anime;
+    }
+
     private AniListResponse.AnimeInfo hydrateMetadataIfMissing(AniListResponse.AnimeInfo anime) {
         if (anime == null || anime.getId() == null || !isMetadataIncomplete(anime)) {
             return anime;
@@ -857,7 +1120,7 @@ public class SemanticRecommendationService {
         List<FusionScoringService.FusedCandidate> topCandidates = fusedCandidates.subList(0, effectiveLimit);
         Map<Integer, String> cfContributorsByAnimeId = buildCfContributorHints(username, topCandidates);
         for (FusionScoringService.FusedCandidate fused : topCandidates) {
-            AniListResponse.AnimeInfo anime = fused.animeInfo();
+            AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(fused.animeInfo());
             List<String> reasonCodes = fused.reasonCodes();
             String cfContributor = anime == null ? null : cfContributorsByAnimeId.get(anime.getId());
             String reason = buildReasonSentence(mode, reasonCodes, cfContributor);
@@ -1145,6 +1408,11 @@ public class SemanticRecommendationService {
             return embeddingRepository.findCustomEmbeddingsByAnilistIds(anilistIds);
         }
         return embeddingRepository.findEmbeddingsByAnilistIds(anilistIds);
+    }
+
+    private record SemanticRowSelection(
+            List<Object[]> rows,
+            Set<Integer> lexicalBoostIds) {
     }
 
     private record CfOverlapResult(

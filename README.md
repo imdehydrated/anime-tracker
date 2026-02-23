@@ -28,6 +28,11 @@ For deeper design details, see `ARCHITECTURE.md`.
 ## Core Recommendation Flow
 
 - Semantic and Similar modes retrieve vector candidates and can blend with user taste profile.
+- Smart Search query text is normalized (cleanup + shorthand expansion) before semantic embedding.
+- Smart Search now uses hybrid semantic retrieval:
+  - vector candidates from pgvector
+  - lexical/title-genre-description fallback candidates
+  - per-query score calibration to reduce overconfident outliers
 - CF mode predicts unwatched anime using a trained autoencoder.
 - CF ranking uses a mild popularity attenuation by default (tunable via env vars).
 - Fusion can dynamically shift semantic-vs-CF weight based on how rich a user profile is.

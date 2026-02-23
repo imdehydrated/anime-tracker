@@ -60,6 +60,11 @@ Frontend currently calls scored first, then falls back to legacy on `404`.
 All modes use the same request DTO (`SemanticRequest`) with `mode`:
 
 - `semantic`: text-query intent retrieval (+ optional list profile blend). `seedIds` are ignored in this mode for compatibility.
+  Query text is normalized before embedding (lowercase, punctuation cleanup). Shorthand terms are preserved and expanded (for example `romcom -> romcom romance comedy`, `isekai -> isekai another world fantasy adventure`).
+  Candidate generation is hybrid:
+  - vector nearest-neighbor candidates from pgvector
+  - lexical fallback/boost candidates from title + genres + description text matching
+  - merged candidate scores are calibrated per query to reduce overconfident outliers
 - `similar`: seed-centric similarity (+ optional list profile blend).
 - `cf`: collaborative filtering only (requires logged-in user + sidecar).
 
@@ -100,6 +105,10 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
    - `reasonCodes`
    - one-sentence `recommendationReason`
 
+Performance note:
+- Candidate retrieval overfetches for ranking quality, but metadata hydration from AniList is deferred to final top results to reduce first-request latency spikes.
+- CF recommendations now load anime metadata from local `anime_embeddings` in batch first, then call AniList only for IDs missing locally.
+
 Phase 8 additions:
 
 - Dynamic blend policy can increase CF influence as a user has more rated anime.
@@ -111,6 +120,15 @@ List influence defaults come from backend config:
 
 - `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT` (semantic default)
 - `RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT` (similar default)
+
+Semantic retrieval config:
+
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_MAX_PATTERNS`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_BOOST`
+- `RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE`
 
 Fusion config:
 

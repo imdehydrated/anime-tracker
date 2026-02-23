@@ -51,6 +51,37 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("limit") int limit);
 
 	/**
+	 * Lightweight lexical fallback/boost retrieval used by semantic mode.
+	 * Matches title/genres/description with LIKE pattern and returns a synthetic
+	 * distance so rows can be merged with vector candidates.
+	 */
+	@Query(value = """
+			SELECT id, anilist_id, title_romaji, title_english, cover_image,
+			       genres, description, average_score, status, episodes,
+			       embedding_text, created_at, updated_at,
+			       CASE
+			         WHEN LOWER(COALESCE(title_romaji, '')) LIKE :pattern
+			           OR LOWER(COALESCE(title_english, '')) LIKE :pattern THEN 0.15
+			         WHEN LOWER(COALESCE(genres, '')) LIKE :pattern THEN 0.30
+			         ELSE 0.40
+			       END AS distance
+			FROM anime_embeddings
+			WHERE anilist_id NOT IN (:excludeIds)
+			  AND (
+			       LOWER(COALESCE(title_romaji, '')) LIKE :pattern
+			    OR LOWER(COALESCE(title_english, '')) LIKE :pattern
+			    OR LOWER(COALESCE(genres, '')) LIKE :pattern
+			    OR LOWER(COALESCE(description, '')) LIKE :pattern
+			  )
+			ORDER BY distance ASC, anilist_id ASC
+			LIMIT :limit
+			""", nativeQuery = true)
+	List<Object[]> findLexicalMatches(
+			@Param("pattern") String pattern,
+			@Param("excludeIds") List<Integer> excludeIds,
+			@Param("limit") int limit);
+
+	/**
 	 * Upsert: insert a new anime embedding, or update if anilist_id already exists.
 	 * Uses PostgreSQL's ON CONFLICT ... DO UPDATE for atomic upsert.
 	 * The embedding is passed as a string like "[0.1,0.2,...]" and cast to vector.
@@ -202,4 +233,15 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			  AND embedding_custom IS NOT NULL
 			""", nativeQuery = true)
 	List<Object[]> findCustomEmbeddingsByAnilistIds(@Param("anilistIds") List<Integer> anilistIds);
+
+	/**
+	 * Fetch metadata fields used by recommendation cards for a batch of AniList IDs.
+	 */
+	@Query(value = """
+			SELECT anilist_id, title_romaji, title_english, cover_image,
+			       genres, description, average_score, status, episodes
+			FROM anime_embeddings
+			WHERE anilist_id IN (:anilistIds)
+			""", nativeQuery = true)
+	List<Object[]> findMetadataByAnilistIds(@Param("anilistIds") List<Integer> anilistIds);
 }
