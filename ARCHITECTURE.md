@@ -4,7 +4,7 @@
 
 AniRec has 4 running services:
 
-- `backend/` (Spring Boot): auth, list CRUD, recommendation APIs, AniList + OpenAI integration.
+- `backend/` (Spring Boot): auth, list CRUD, recommendation APIs, AniList integration, and recommendation orchestration.
 - `frontend/` (React): route-based UI that calls backend APIs.
 - `db/` (PostgreSQL + pgvector): app data + vector search.
 - `ml-sidecar/` (FastAPI): custom semantic embedding/rerank + CF predictions.
@@ -90,8 +90,8 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
 
 ### Vector Sources
 
-- `RECOMMENDATIONS_USE_CUSTOM_VECTORS=false`: use OpenAI vector column (`embedding`, 1536-dim).
-- `RECOMMENDATIONS_USE_CUSTOM_VECTORS=true`: use custom vector column (`embedding_custom`, 384-dim).
+- OpenAI embedding fallback is disabled in app code.
+- `RECOMMENDATIONS_USE_CUSTOM_VECTORS=true`: use custom vector column (`embedding_custom`, 384-dim) for semantic retrieval.
 
 ### Scoring + Fusion
 
@@ -106,6 +106,7 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
    - `reasonCodes`
    - one-sentence `recommendationReason`
    - sentence now uses concrete signals when available (matched query terms, genre overlap, CF contributor hints, and highly-rated genre context)
+   - optional hosted or local LLM rewrite can convert evidence into more natural one-sentence explanations while preserving deterministic fallback behavior
 6. Reason codes on fused items are contribution-aware:
    - a source reason is included only when that source contributes enough score share
    - this avoids misleading explanations when one source had negligible impact
@@ -164,6 +165,17 @@ Fusion config:
 Explanation config:
 
 - `RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED`
+- `RECOMMENDATIONS_EXPLANATIONS_LLM_ENABLED`
+- `RECOMMENDATIONS_EXPLANATIONS_PROVIDER` (`deterministic`, `openai`, `ollama`)
+- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY`
+- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_BASE_URL`
+- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_MODEL`
+- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_TIMEOUT_MS`
+- `RECOMMENDATIONS_EXPLANATIONS_OLLAMA_BASE_URL`
+- `RECOMMENDATIONS_EXPLANATIONS_OLLAMA_MODEL`
+- `RECOMMENDATIONS_EXPLANATIONS_OLLAMA_TIMEOUT_MS`
+- `RECOMMENDATIONS_EXPLANATIONS_LLM_CACHE_SIZE` (in-memory LRU cache entries for generated reasons)
+- `RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST`
 
 ## Data and Infra Notes
 

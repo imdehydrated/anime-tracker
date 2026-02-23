@@ -11,7 +11,7 @@ import jakarta.persistence.Table;
 
 /**
  * JPA entity for the anime_embeddings table.
- * Stores denormalized anime metadata + a 1536-dim OpenAI embedding vector.
+ * Stores denormalized anime metadata and vector columns used by recommendation retrieval.
  *
  * The embedding column is NOT mapped here because Hibernate doesn't natively
  * understand pgvector's vector type. All vector operations (insert, search)

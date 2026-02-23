@@ -39,8 +39,6 @@ class SemanticRecommendationServiceTest {
     private static final double EPS = 1e-6;
 
     @Mock
-    private EmbeddingService embeddingService;
-    @Mock
     private AnimeEmbeddingRepository embeddingRepository;
     @Mock
     private AnimeListEntryService animeListEntryService;
@@ -62,7 +60,6 @@ class SemanticRecommendationServiceTest {
     @BeforeEach
     void setUp() {
         service = new SemanticRecommendationService(
-                embeddingService,
                 embeddingRepository,
                 animeListEntryService,
                 blacklistRepository,
@@ -71,6 +68,7 @@ class SemanticRecommendationServiceTest {
                 populatorService,
                 mlSidecarService,
                 fusionScoringService);
+        assertDoesNotThrow(() -> setField(service, "useCustomVectors", true));
     }
 
     @Test
@@ -93,8 +91,9 @@ class SemanticRecommendationServiceTest {
 
     @Test
     void recommend_semanticModeWithQueryAndSeeds_ignoresSeedsAndDoesNotThrow() {
-        when(embeddingService.embed(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
-        when(embeddingRepository.findSimilar(anyString(), anyList(), anyInt())).thenReturn(List.of());
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(List.of());
 
         assertDoesNotThrow(() -> service.recommend(
                 null,
@@ -105,9 +104,9 @@ class SemanticRecommendationServiceTest {
                 null,
                 "semantic"));
 
-        verify(embeddingService).embed("dark thriller");
+        verify(mlSidecarService).embedText("dark thriller");
         verify(embeddingRepository, never()).findEmbeddingsByAnilistIds(anyList());
-        verify(embeddingRepository).findSimilar(anyString(), anyList(), anyInt());
+        verify(embeddingRepository).findSimilarCustom(anyString(), anyList(), anyInt());
     }
 
     @Test
@@ -118,8 +117,9 @@ class SemanticRecommendationServiceTest {
 
     @Test
     void recommend_semanticMode_preprocessesQueryBeforeEmbedding() {
-        when(embeddingService.embed(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
-        when(embeddingRepository.findSimilar(anyString(), anyList(), anyInt())).thenReturn(List.of());
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(List.of());
 
         assertDoesNotThrow(() -> service.recommend(
                 null,
@@ -130,14 +130,15 @@ class SemanticRecommendationServiceTest {
                 null,
                 "semantic"));
 
-        verify(embeddingService).embed(eq("romcom romance comedy isekai another world fantasy adventure"));
+        verify(mlSidecarService).embedText(eq("romcom romance comedy isekai another world fantasy adventure"));
     }
 
     @Test
     void recommend_semanticMode_usesLexicalFallbackCandidatesWhenVectorIsEmpty() {
         assertDoesNotThrow(() -> setField(service, "semanticLexicalEnabled", true));
-        when(embeddingService.embed(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
-        when(embeddingRepository.findSimilar(anyString(), anyList(), anyInt())).thenReturn(List.of());
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(List.of());
         when(embeddingRepository.findLexicalMatches(anyString(), anyList(), anyInt()))
                 .thenReturn(java.util.Collections.singletonList(sampleSemanticRow(777, "Lexical Match", 0.20d)));
 

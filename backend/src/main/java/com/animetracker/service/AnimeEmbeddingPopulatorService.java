@@ -13,34 +13,34 @@ import com.animetracker.repository.AnimeEmbeddingRepository;
 
 /**
  * Bulk populator that scrapes anime from AniList (by popularity) and stores
- * their OpenAI embeddings in the anime_embeddings table.
+ * their local custom embeddings in the anime_embeddings table.
  *
  * Pipeline per page:
  * 1. Fetch 50 anime from AniList (sorted by POPULARITY_DESC)
  * 2. For each anime, build an embedding text from its metadata
- * 3. Call OpenAI to embed the text into a 1536-dim vector
- * 4. Upsert the anime + embedding into the database
+ * 3. Call ML sidecar to embed the text into a 384-dim vector
+ * 4. Upsert the anime + custom embedding into the database
  * 5. Wait 700ms before the next AniList page (rate limit: 90 req/min)
  *
  * Triggered manually by a maintenance script/job.
- * Target: ~5,000-15,000 anime. Cost: ~$0.06 for 15k at text-embedding-3-small pricing.
+ * Target: ~5,000-15,000 anime, embedded through the local sidecar model.
  */
 @Service
 public class AnimeEmbeddingPopulatorService {
 
-	private static final Logger log = LoggerFactory.getLogger(AnimeEmbeddingPopulatorService.class);
+    private static final Logger log = LoggerFactory.getLogger(AnimeEmbeddingPopulatorService.class);
 
-	private final AniListService aniListService;
-	private final EmbeddingService embeddingService;
-	private final AnimeEmbeddingRepository embeddingRepository;
+    private final AniListService aniListService;
+    private final MlSidecarService mlSidecarService;
+    private final AnimeEmbeddingRepository embeddingRepository;
 
-	public AnimeEmbeddingPopulatorService(AniListService aniListService,
-			EmbeddingService embeddingService,
-			AnimeEmbeddingRepository embeddingRepository) {
-		this.aniListService = aniListService;
-		this.embeddingService = embeddingService;
-		this.embeddingRepository = embeddingRepository;
-	}
+    public AnimeEmbeddingPopulatorService(AniListService aniListService,
+            MlSidecarService mlSidecarService,
+            AnimeEmbeddingRepository embeddingRepository) {
+        this.aniListService = aniListService;
+        this.mlSidecarService = mlSidecarService;
+        this.embeddingRepository = embeddingRepository;
+    }
 
 	/**
 	 * Populate the anime_embeddings table with the top anime by popularity.
@@ -49,9 +49,13 @@ public class AnimeEmbeddingPopulatorService {
 	 * @return Number of anime successfully embedded.
 	 */
 	@Transactional
-	public int populate(int totalPages) {
-		int embedded = 0;
-		int skipped = 0;
+    public int populate(int totalPages) {
+        if (!mlSidecarService.isEnabled()) {
+            throw new IllegalStateException("ML sidecar must be enabled for embedding population");
+        }
+
+        int embedded = 0;
+        int skipped = 0;
 
 		for (int page = 1; page <= totalPages; page++) {
 			log.info("Fetching AniList page {}/{}", page, totalPages);
@@ -80,9 +84,13 @@ public class AnimeEmbeddingPopulatorService {
 					// Build the text that captures this anime's semantic identity
 					String embeddingText = buildEmbeddingText(anime);
 
-					// Call OpenAI to embed the text
-					float[] vector = embeddingService.embed(embeddingText);
-					String vectorStr = EmbeddingService.toVectorString(vector);
+                    // Call sidecar to embed the text
+                    float[] vector = mlSidecarService.embedText(embeddingText);
+                    if (vector == null || vector.length == 0) {
+                        log.warn("Skipping anime {} because sidecar embedding failed", anime.getId());
+                        continue;
+                    }
+                    String vectorStr = EmbeddingService.toVectorString(vector);
 
 					// Extract metadata for storage
 					String titleRomaji = anime.getTitle() != null ? anime.getTitle().getRomaji() : null;
@@ -91,12 +99,12 @@ public class AnimeEmbeddingPopulatorService {
 					String genres = anime.getGenres() != null ? String.join(", ", anime.getGenres()) : null;
 					String description = stripHtml(anime.getDescription());
 
-					// Upsert into database (insert or update if anilist_id exists)
-					embeddingRepository.upsertWithEmbedding(
-							anime.getId(), titleRomaji, titleEnglish, coverImage,
-							genres, description, anime.getAverageScore(),
-							anime.getStatus(), anime.getEpisodes(),
-							embeddingText, vectorStr);
+                    // Upsert into database (insert or update if anilist_id exists)
+                    embeddingRepository.upsertCustomEmbedding(
+                            anime.getId(), titleRomaji, titleEnglish, coverImage,
+                            genres, description, anime.getAverageScore(),
+                            anime.getStatus(), anime.getEpisodes(),
+                            vectorStr);
 
 					embedded++;
 
@@ -128,7 +136,7 @@ public class AnimeEmbeddingPopulatorService {
 	}
 
 	/**
-	 * Build the text string that will be embedded by OpenAI.
+     * Build the text string that will be embedded by the local model.
 	 * Combines title, genres, tags, and description into a single string
 	 * that captures the anime's semantic identity.
 	 *

@@ -144,7 +144,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 
 	/**
 	 * Upsert only the custom 384-dim embedding.
-	 * Supports rows that don't have OpenAI embeddings yet.
+	 * Supports rows that don't have legacy 1536-dim embeddings.
 	 */
 	@Transactional
 	@Modifying

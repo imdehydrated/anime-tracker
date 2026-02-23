@@ -91,10 +91,6 @@ logging:
 jwt:
   secret: ${JWT_SECRET}
 
-# OpenAI Configuration (fallback embedding engine)
-openai:
-  api-key: ${OPENAI_API_KEY}
-
 # ML Sidecar Configuration (custom semantic + CF models)
 ml-sidecar:
   base-url: ${ML_SIDECAR_URL:http://ml-sidecar:5000}
@@ -103,8 +99,9 @@ ml-sidecar:
 
 # Recommendation vector retrieval configuration
 recommendations:
-  # true: query embedding_custom (384-dim); false: query embedding (OpenAI 1536-dim)
-  use-custom-vectors: ${RECOMMENDATIONS_USE_CUSTOM_VECTORS:false}
+  # OpenAI embedding fallback is removed; custom vectors should remain enabled.
+  # true: query embedding_custom (384-dim)
+  use-custom-vectors: ${RECOMMENDATIONS_USE_CUSTOM_VECTORS:true}
   # Default list influence for Smart Search semantic mode when request listWeight is omitted.
   default-list-weight: ${RECOMMENDATIONS_DEFAULT_LIST_WEIGHT:0.20}
   # Default list influence for Similar mode when request listWeight is omitted.
@@ -141,3 +138,18 @@ recommendations:
   explanations:
     # Phase 8: add optional CF contributor hint in the one-sentence reason.
     cf-contributors-enabled: ${RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED:false}
+    # Optional hosted/local LLM explanation rewrite. Falls back to deterministic reasons on error.
+    llm-enabled: ${RECOMMENDATIONS_EXPLANATIONS_LLM_ENABLED:false}
+    # provider: deterministic | openai | ollama
+    provider: ${RECOMMENDATIONS_EXPLANATIONS_PROVIDER:openai}
+    openai-api-key: ${RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY:}
+    openai-base-url: ${RECOMMENDATIONS_EXPLANATIONS_OPENAI_BASE_URL:https://api.openai.com/v1}
+    openai-model: ${RECOMMENDATIONS_EXPLANATIONS_OPENAI_MODEL:gpt-4o-mini}
+    openai-timeout-ms: ${RECOMMENDATIONS_EXPLANATIONS_OPENAI_TIMEOUT_MS:2500}
+    ollama-base-url: ${RECOMMENDATIONS_EXPLANATIONS_OLLAMA_BASE_URL:}
+    ollama-model: ${RECOMMENDATIONS_EXPLANATIONS_OLLAMA_MODEL:llama3.2:3b}
+    ollama-timeout-ms: ${RECOMMENDATIONS_EXPLANATIONS_OLLAMA_TIMEOUT_MS:2500}
+    # Number of LLM-generated explanation sentences cached in-memory (LRU).
+    llm-cache-size: ${RECOMMENDATIONS_EXPLANATIONS_LLM_CACHE_SIZE:2000}
+    # Max LLM rewrites per response. Set <=0 for unlimited (higher cost).
+    llm-max-rewrites-per-request: ${RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST:5}

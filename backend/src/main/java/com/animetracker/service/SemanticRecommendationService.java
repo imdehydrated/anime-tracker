@@ -1,5 +1,10 @@
 package com.animetracker.service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collections;
@@ -27,6 +32,8 @@ import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.repository.AnimeEmbeddingRepository;
 import com.animetracker.repository.RecommendationBlacklistRepository;
 import com.animetracker.repository.UserRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Semantic recommendation engine.
@@ -42,7 +49,6 @@ public class SemanticRecommendationService {
     private static final Set<String> QUERY_STOP_WORDS = Set.of(
             "anime", "show", "shows", "with", "about", "that", "this", "and", "the", "for", "from");
 
-    private final EmbeddingService embeddingService;
     private final AnimeEmbeddingRepository embeddingRepository;
     private final AnimeListEntryService animeListEntryService;
     private final RecommendationBlacklistRepository blacklistRepository;
@@ -51,7 +57,12 @@ public class SemanticRecommendationService {
     private final AnimeEmbeddingPopulatorService populatorService;
     private final MlSidecarService mlSidecarService;
     private final FusionScoringService fusionScoringService;
-    @Value("${recommendations.use-custom-vectors:false}")
+    private final HttpClient explanationHttpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(Duration.ofSeconds(2))
+            .build();
+    private final ObjectMapper explanationObjectMapper = new ObjectMapper();
+    @Value("${recommendations.use-custom-vectors:true}")
     private boolean useCustomVectors;
     @Value("${recommendations.default-list-weight:0.20}")
     private float defaultListWeight;
@@ -81,9 +92,37 @@ public class SemanticRecommendationService {
     private float dynamicBlendMaxCfWeight;
     @Value("${recommendations.explanations.cf-contributors-enabled:false}")
     private boolean cfContributorExplanationsEnabled;
+    @Value("${recommendations.explanations.llm-enabled:false}")
+    private boolean llmExplanationsEnabled;
+    @Value("${recommendations.explanations.provider:deterministic}")
+    private String explanationProvider;
+    @Value("${recommendations.explanations.openai-api-key:}")
+    private String openAiExplanationApiKey;
+    @Value("${recommendations.explanations.openai-base-url:https://api.openai.com/v1}")
+    private String openAiExplanationBaseUrl;
+    @Value("${recommendations.explanations.openai-model:gpt-4o-mini}")
+    private String openAiExplanationModel;
+    @Value("${recommendations.explanations.openai-timeout-ms:2500}")
+    private int openAiExplanationTimeoutMs;
+    @Value("${recommendations.explanations.ollama-base-url:}")
+    private String ollamaExplanationBaseUrl;
+    @Value("${recommendations.explanations.ollama-model:llama3.2:3b}")
+    private String ollamaExplanationModel;
+    @Value("${recommendations.explanations.ollama-timeout-ms:2500}")
+    private int ollamaExplanationTimeoutMs;
+    @Value("${recommendations.explanations.llm-max-rewrites-per-request:5}")
+    private int llmMaxRewritesPerRequest;
+    @Value("${recommendations.explanations.llm-cache-size:2000}")
+    private int llmReasonCacheSize;
+    private final Map<String, String> llmReasonCache = Collections.synchronizedMap(
+            new LinkedHashMap<>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                    return size() > Math.max(1, llmReasonCacheSize);
+                }
+            });
 
-    public SemanticRecommendationService(EmbeddingService embeddingService,
-            AnimeEmbeddingRepository embeddingRepository,
+    public SemanticRecommendationService(AnimeEmbeddingRepository embeddingRepository,
             AnimeListEntryService animeListEntryService,
             RecommendationBlacklistRepository blacklistRepository,
             UserRepository userRepository,
@@ -91,7 +130,6 @@ public class SemanticRecommendationService {
             AnimeEmbeddingPopulatorService populatorService,
             MlSidecarService mlSidecarService,
             FusionScoringService fusionScoringService) {
-        this.embeddingService = embeddingService;
         this.embeddingRepository = embeddingRepository;
         this.animeListEntryService = animeListEntryService;
         this.blacklistRepository = blacklistRepository;
@@ -163,7 +201,7 @@ public class SemanticRecommendationService {
             if (normalizedQuery.length() > 500) {
                 normalizedQuery = normalizedQuery.substring(0, 500);
             }
-            // Use sidecar for embedding if available, else fall back to OpenAI
+            // Use local sidecar custom embeddings.
             float[] queryVector = embedQuery(normalizedQuery);
             searchVector = (searchVector == null)
                     ? queryVector
@@ -276,6 +314,7 @@ public class SemanticRecommendationService {
         // Build recommendation payload; use local metadata first, AniList as fallback only when missing locally.
         List<RecommendationResponse> results = new ArrayList<>();
         List<String> topTasteGenres = buildTopUserGenres(username, 3);
+        int explanationRewriteIndex = 0;
         for (Map<String, Object> pred : predictions) {
             Object idValue = pred.get("anilist_id");
             if (!(idValue instanceof Number idNumber)) {
@@ -296,13 +335,15 @@ public class SemanticRecommendationService {
                     String reasonSentence = buildCfReasonSentence(
                             anime,
                             cfContributor,
-                            topTasteGenres);
+                            topTasteGenres,
+                            canUseLlmForIndex(explanationRewriteIndex));
                     applyRecommendationMeta(
                             anime,
                             normalizedScore,
                             reasonCodes,
                             reasonSentence);
                     results.add(new RecommendationResponse(anime, normalizedScore, reasonCodes));
+                    explanationRewriteIndex++;
                 }
             } catch (Exception e) {
                 log.warn("Failed to fetch anime {} for CF result: {}", anilistId, e.getMessage());
@@ -358,7 +399,6 @@ public class SemanticRecommendationService {
         List<String> baseReasonCodes = buildBaseReasonCodes(true, false, usedListProfile);
 
         // Sidecar reranking expects custom 384-dim vectors.
-        // Skip reranking when using OpenAI 1536-dim retrieval to avoid dimension mismatch.
         if (useCustomVectors && mlSidecarService.isEnabled() && !candidates.isEmpty()) {
             // Extract candidate IDs and cosine distances for reranking
             List<Integer> candidateIds = new ArrayList<>();
@@ -435,20 +475,21 @@ public class SemanticRecommendationService {
     }
 
     /**
-     * Embed a query string - prefers sidecar custom model, falls back to OpenAI.
+     * Embed a query string with the local sidecar custom model (no paid API fallback).
      */
     private float[] embedQuery(String text) {
-        if (useCustomVectors) {
-            if (!mlSidecarService.isEnabled()) {
-                throw new BadRequestException("Custom semantic retrieval requires ML sidecar to be enabled");
-            }
-            float[] custom = mlSidecarService.embedText(text);
-            if (custom != null) {
-                return custom;
-            }
-            throw new BadRequestException("ML sidecar failed to embed query text");
+        if (!useCustomVectors) {
+            throw new BadRequestException(
+                    "OpenAI embedding fallback is disabled. Set RECOMMENDATIONS_USE_CUSTOM_VECTORS=true.");
         }
-        return embeddingService.embed(text);
+        if (!mlSidecarService.isEnabled()) {
+            throw new BadRequestException("Custom semantic retrieval requires ML sidecar to be enabled");
+        }
+        float[] custom = mlSidecarService.embedText(text);
+        if (custom != null) {
+            return custom;
+        }
+        throw new BadRequestException("ML sidecar failed to embed query text");
     }
 
     /**
@@ -808,7 +849,7 @@ public class SemanticRecommendationService {
         }
 
         List<Object[]> rows = findEmbeddingRowsByIds(normalizedIds);
-        if (!embedMissing || rows.size() >= normalizedIds.size() || useCustomVectors) {
+        if (!embedMissing || rows.size() >= normalizedIds.size()) {
             return rows;
         }
 
@@ -827,6 +868,15 @@ public class SemanticRecommendationService {
     }
 
     private void embedOnTheFly(Integer anilistId) {
+        if (!useCustomVectors) {
+            log.debug("Skipping on-the-fly embedding for {} because custom vectors are disabled", anilistId);
+            return;
+        }
+        if (!mlSidecarService.isEnabled()) {
+            log.debug("Skipping on-the-fly embedding for {} because ML sidecar is disabled", anilistId);
+            return;
+        }
+
         try {
             AniListResponse.AnimeInfo anime = aniListService.getAnimeById(anilistId);
             if (anime == null) {
@@ -835,7 +885,11 @@ public class SemanticRecommendationService {
             }
 
             String embeddingText = populatorService.buildEmbeddingText(anime);
-            float[] vector = embeddingService.embed(embeddingText);
+            float[] vector = mlSidecarService.embedText(embeddingText);
+            if (vector == null || vector.length == 0) {
+                log.warn("Could not generate custom embedding on-the-fly for anime {}", anilistId);
+                return;
+            }
             String vectorStr = EmbeddingService.toVectorString(vector);
 
             String titleRomaji = anime.getTitle() != null ? anime.getTitle().getRomaji() : null;
@@ -846,11 +900,11 @@ public class SemanticRecommendationService {
                     ? anime.getDescription().replaceAll("<[^>]*>", "").trim()
                     : null;
 
-            embeddingRepository.upsertWithEmbedding(
+            embeddingRepository.upsertCustomEmbedding(
                     anime.getId(), titleRomaji, titleEnglish, coverImage,
                     genres, description, anime.getAverageScore(),
                     anime.getStatus(), anime.getEpisodes(),
-                    embeddingText, vectorStr);
+                    vectorStr);
         } catch (Exception e) {
             log.error("Failed to embed anime {} on the fly: {}", anilistId, e.getMessage());
         }
@@ -1141,13 +1195,22 @@ public class SemanticRecommendationService {
         int effectiveLimit = Math.min(limit, fusedCandidates.size());
         List<FusionScoringService.FusedCandidate> topCandidates = fusedCandidates.subList(0, effectiveLimit);
         Map<Integer, String> cfContributorsByAnimeId = buildCfContributorHints(username, topCandidates);
+        int index = 0;
         for (FusionScoringService.FusedCandidate fused : topCandidates) {
             AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(fused.animeInfo());
             List<String> reasonCodes = fused.reasonCodes();
             String cfContributor = anime == null ? null : cfContributorsByAnimeId.get(anime.getId());
-            String reason = buildReasonSentence(mode, anime, reasonCodes, cfContributor, reasoningContext);
+            boolean allowLlmRewrite = canUseLlmForIndex(index);
+            String reason = buildReasonSentence(
+                    mode,
+                    anime,
+                    reasonCodes,
+                    cfContributor,
+                    reasoningContext,
+                    allowLlmRewrite);
             applyRecommendationMeta(anime, fused.fusionScore(), reasonCodes, reason);
             results.add(new RecommendationResponse(anime, fused.fusionScore(), reasonCodes));
+            index++;
         }
         return results;
     }
@@ -1366,21 +1429,6 @@ public class SemanticRecommendationService {
         return overlap;
     }
 
-    private String prettyList(List<String> items) {
-        if (items == null || items.isEmpty()) {
-            return "";
-        }
-        if (items.size() == 1) {
-            return items.get(0);
-        }
-        if (items.size() == 2) {
-            return items.get(0) + " and " + items.get(1);
-        }
-        return String.join(", ", items.subList(0, items.size() - 1))
-                + ", and "
-                + items.get(items.size() - 1);
-    }
-
     private List<String> topAnimeGenres(AniListResponse.AnimeInfo anime, int maxGenres) {
         if (anime == null || anime.getGenres() == null || anime.getGenres().isEmpty() || maxGenres <= 0) {
             return List.of();
@@ -1436,125 +1484,343 @@ public class SemanticRecommendationService {
             AniListResponse.AnimeInfo anime,
             List<String> reasonCodes,
             String cfContributor,
-            ReasoningContext context) {
+            ReasoningContext context,
+            boolean allowLlmRewrite) {
         Set<String> codes = new LinkedHashSet<>();
         if (reasonCodes != null) {
             codes.addAll(reasonCodes);
         }
-        List<String> queryKeywords = context == null ? List.of() : context.queryKeywords();
-        List<String> tasteGenres = context == null ? List.of() : context.topTasteGenres();
-
-        List<String> clauses = new ArrayList<>(4);
-        if (codes.contains(RecommendationResponse.SIMILAR_TO_SEED)) {
-            List<String> genreHints = topAnimeGenres(anime, 2);
-            if (!genreHints.isEmpty()) {
-                clauses.add("its " + prettyList(genreHints) + " focus is close to your selected seed shows");
-            } else {
-                clauses.add("its themes are close to your selected seed shows");
-            }
-        }
-        if (codes.contains(RecommendationResponse.MATCHES_QUERY)) {
-            List<String> matchedThemes = findMatchedQueryThemes(anime, queryKeywords, 2);
-            if (!matchedThemes.isEmpty()) {
-                clauses.add("it directly matches your query on " + prettyList(matchedThemes));
-            } else {
-                List<String> genreHints = topAnimeGenres(anime, 2);
-                if (!genreHints.isEmpty()) {
-                    clauses.add("its " + prettyList(genreHints) + " themes align with your search intent");
-                } else {
-                    clauses.add("its content aligns with your search intent");
-                }
-            }
-        }
-        if (codes.contains(RecommendationResponse.MATCHES_TASTE_PROFILE)) {
-            List<String> overlapGenres = findGenreOverlap(anime, tasteGenres, 2);
-            if (!overlapGenres.isEmpty()) {
-                clauses.add("it overlaps with your top genres: " + prettyList(overlapGenres));
-            } else if (!tasteGenres.isEmpty()) {
-                clauses.add("it fits your rating profile around " + prettyList(tasteGenres.subList(0, Math.min(2, tasteGenres.size()))));
-            } else {
-                clauses.add("it aligns with your rating history");
-            }
-        }
-        if (codes.contains(RecommendationResponse.CF_SIGNAL)) {
-            if (cfContributor != null && !cfContributor.isBlank()) {
-                clauses.add("it is similar to " + cfContributor + " from your list");
-            } else {
-                List<String> overlapGenres = findGenreOverlap(anime, tasteGenres, 2);
-                if (!overlapGenres.isEmpty()) {
-                    clauses.add("it has common themes with shows you enjoyed, especially " + prettyList(overlapGenres));
-                } else {
-                    List<String> genreHints = topAnimeGenres(anime, 2);
-                    if (!genreHints.isEmpty()) {
-                        clauses.add("it is a highly rated " + prettyList(genreHints) + " show");
-                    } else {
-                        clauses.add("users with similar tastes rate it highly");
-                    }
-                }
-            }
-        }
-
-        if (clauses.isEmpty()) {
-            if ("cf".equals(mode)) {
-                return "Recommended because collaborative filtering found a strong match for your profile.";
-            }
-            if ("similar".equals(mode)) {
-                return "Recommended because it is close to your selected seed anime.";
-            }
-            return "Recommended because it matches your current recommendation signals.";
-        }
-
-        return "Recommended because " + joinClauses(clauses) + ".";
+        String fallback = buildEmergencyFallback(mode, List.copyOf(codes), cfContributor);
+        return maybeRewriteReasonWithLlm(
+                fallback,
+                mode,
+                anime,
+                List.copyOf(codes),
+                cfContributor,
+                context,
+                allowLlmRewrite);
     }
 
     /**
      * Backward-compatible helper used by unit tests.
      */
     private String buildReasonSentence(String mode, List<String> reasonCodes, String cfContributor) {
-        return buildReasonSentence(mode, null, reasonCodes, cfContributor, new ReasoningContext(List.of(), List.of()));
+        return buildReasonSentence(
+                mode,
+                null,
+                reasonCodes,
+                cfContributor,
+                new ReasoningContext(List.of(), List.of()),
+                false);
     }
 
     private String buildCfReasonSentence(
             AniListResponse.AnimeInfo anime,
             String cfContributor,
-            List<String> topTasteGenres) {
-        List<String> clauses = new ArrayList<>(2);
-        if (cfContributor != null && !cfContributor.isBlank()) {
-            clauses.add("it is similar to " + cfContributor + " from your list");
-        }
-
-        List<String> overlapGenres = findGenreOverlap(anime, topTasteGenres, 2);
-        if (!overlapGenres.isEmpty()) {
-            clauses.add("it has common themes with shows you enjoyed, especially " + prettyList(overlapGenres));
-        } else {
-            List<String> genreHints = topAnimeGenres(anime, 2);
-            if (!genreHints.isEmpty()) {
-                clauses.add("it is a highly rated " + prettyList(genreHints) + " show");
-            } else if (clauses.isEmpty()) {
-                clauses.add("users with similar tastes rate it highly");
-            }
-        }
-
-        return "Recommended because " + joinClauses(clauses) + ".";
+            List<String> topTasteGenres,
+            boolean allowLlmRewrite) {
+        String fallback = buildEmergencyFallback(
+                "cf",
+                List.of(RecommendationResponse.CF_SIGNAL),
+                cfContributor);
+        return maybeRewriteReasonWithLlm(
+                fallback,
+                "cf",
+                anime,
+                List.of(RecommendationResponse.CF_SIGNAL),
+                cfContributor,
+                new ReasoningContext(List.of(), topTasteGenres),
+                allowLlmRewrite);
     }
 
-    private String joinClauses(List<String> clauses) {
-        if (clauses.size() == 1) {
-            return clauses.get(0);
-        }
-        if (clauses.size() == 2) {
-            return clauses.get(0) + " and " + clauses.get(1);
+    private String maybeRewriteReasonWithLlm(
+            String fallback,
+            String mode,
+            AniListResponse.AnimeInfo anime,
+            List<String> reasonCodes,
+            String cfContributor,
+            ReasoningContext context,
+            boolean allowLlmRewrite) {
+        if (!allowLlmRewrite
+                || !llmExplanationsEnabled) {
+            return fallback;
         }
 
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < clauses.size(); i++) {
-            if (i == clauses.size() - 1) {
-                sb.append("and ").append(clauses.get(i));
-            } else {
-                sb.append(clauses.get(i)).append(", ");
+        try {
+            String provider = explanationProvider == null
+                    ? "deterministic"
+                    : explanationProvider.trim().toLowerCase();
+            if (provider.isBlank() || "deterministic".equals(provider) || "none".equals(provider)) {
+                return fallback;
             }
+
+            String title = null;
+            if (anime != null && anime.getTitle() != null) {
+                title = anime.getTitle().getEnglish() != null
+                        ? anime.getTitle().getEnglish()
+                        : anime.getTitle().getRomaji();
+            }
+
+            List<String> queryKeywords = context == null ? List.of() : context.queryKeywords();
+            List<String> tasteGenres = context == null ? List.of() : context.topTasteGenres();
+            List<String> matchedThemes = findMatchedQueryThemes(anime, queryKeywords, 3);
+            List<String> overlapGenres = findGenreOverlap(anime, tasteGenres, 3);
+            List<String> animeGenres = topAnimeGenres(anime, 3);
+            String cacheKey = buildLlmReasonCacheKey(
+                    provider,
+                    mode,
+                    title,
+                    reasonCodes,
+                    matchedThemes,
+                    overlapGenres,
+                    animeGenres,
+                    cfContributor);
+            String cached = llmReasonCache.get(cacheKey);
+            if (cached != null && !cached.isBlank()) {
+                return cached;
+            }
+
+            String prompt = """
+                    You are writing a recommendation reason for an anime app.
+                    Write exactly one natural sentence. Make it specific and user-facing.
+                    Do not mention models, algorithms, scores, confidence, or internal system details.
+                    Keep the sentence under 28 words.
+                    Prefer concrete language like "similar to X", "shares themes like Y", or "matches your search for Z".
+
+                    Candidate title: %s
+                    Mode: %s
+                    Reason codes: %s
+                    Query keyword matches: %s
+                    User taste overlap genres: %s
+                    Candidate genres: %s
+                    Closest liked show anchor: %s
+                    If evidence is weak, still write a natural one-sentence reason without sounding generic.
+                    """.formatted(
+                    title == null ? "unknown" : title,
+                    mode == null ? "semantic" : mode,
+                    reasonCodes == null ? List.of() : reasonCodes,
+                    matchedThemes,
+                    overlapGenres,
+                    animeGenres,
+                    cfContributor == null ? "" : cfContributor);
+            String rewritten = fallback;
+            if ("openai".equals(provider)) {
+                rewritten = rewriteWithOpenAi(prompt, fallback);
+            } else if ("ollama".equals(provider)) {
+                rewritten = rewriteWithOllama(prompt, fallback);
+            } else {
+                log.debug("Unknown explanation provider '{}', using fallback.", provider);
+            }
+            llmReasonCache.put(cacheKey, rewritten);
+            return rewritten;
+        } catch (Exception e) {
+            log.debug("LLM explanation rewrite failed, using fallback: {}", e.getMessage());
+            return fallback;
         }
-        return sb.toString();
+    }
+
+    private String rewriteWithOpenAi(String prompt, String fallback) {
+        if (openAiExplanationApiKey == null
+                || openAiExplanationApiKey.isBlank()
+                || openAiExplanationModel == null
+                || openAiExplanationModel.isBlank()) {
+            return fallback;
+        }
+
+        try {
+            List<Map<String, String>> messages = List.of(
+                    Map.of(
+                            "role", "system",
+                            "content", "Write exactly one concise, natural recommendation sentence grounded in provided evidence."),
+                    Map.of("role", "user", "content", prompt));
+
+            Map<String, Object> requestBody = new LinkedHashMap<>();
+            requestBody.put("model", openAiExplanationModel);
+            requestBody.put("messages", messages);
+            requestBody.put("temperature", 0.2);
+            requestBody.put("max_tokens", 80);
+            String requestJson = explanationObjectMapper.writeValueAsString(requestBody);
+
+            String base = openAiExplanationBaseUrl == null || openAiExplanationBaseUrl.isBlank()
+                    ? "https://api.openai.com/v1"
+                    : openAiExplanationBaseUrl.trim();
+            String endpoint = base.endsWith("/")
+                    ? base + "chat/completions"
+                    : base + "/chat/completions";
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + openAiExplanationApiKey)
+                    .timeout(Duration.ofMillis(Math.max(500, openAiExplanationTimeoutMs)))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                    .build();
+
+            HttpResponse<String> response = explanationHttpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.debug("OpenAI explanation call returned {}: {}", response.statusCode(), response.body());
+                return fallback;
+            }
+
+            Map<String, Object> payload = explanationObjectMapper.readValue(
+                    response.body(),
+                    new TypeReference<>() {});
+            Object choicesObj = payload.get("choices");
+            if (!(choicesObj instanceof List<?> choices) || choices.isEmpty()) {
+                return fallback;
+            }
+            Object firstChoiceObj = choices.get(0);
+            if (!(firstChoiceObj instanceof Map<?, ?> firstChoice)) {
+                return fallback;
+            }
+            Object messageObj = firstChoice.get("message");
+            if (!(messageObj instanceof Map<?, ?> message)) {
+                return fallback;
+            }
+            Object contentObj = message.get("content");
+            if (!(contentObj instanceof String content) || content.isBlank()) {
+                return fallback;
+            }
+            return sanitizeOneSentence(content, fallback);
+        } catch (Exception e) {
+            log.debug("OpenAI explanation rewrite failed, using fallback: {}", e.getMessage());
+            return fallback;
+        }
+    }
+
+    private String rewriteWithOllama(String prompt, String fallback) {
+        if (ollamaExplanationBaseUrl == null
+                || ollamaExplanationBaseUrl.isBlank()
+                || ollamaExplanationModel == null
+                || ollamaExplanationModel.isBlank()) {
+            return fallback;
+        }
+
+        try {
+            Map<String, Object> requestBody = Map.of(
+                    "model", ollamaExplanationModel,
+                    "prompt", prompt,
+                    "stream", false,
+                    "options", Map.of("temperature", 0.2, "num_predict", 60));
+            String requestJson = explanationObjectMapper.writeValueAsString(requestBody);
+
+            String endpoint = ollamaExplanationBaseUrl.endsWith("/")
+                    ? ollamaExplanationBaseUrl + "api/generate"
+                    : ollamaExplanationBaseUrl + "/api/generate";
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .timeout(Duration.ofMillis(Math.max(500, ollamaExplanationTimeoutMs)))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                    .build();
+
+            HttpResponse<String> response = explanationHttpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.debug("Ollama explanation call returned {}: {}", response.statusCode(), response.body());
+                return fallback;
+            }
+
+            Map<String, Object> payload = explanationObjectMapper.readValue(
+                    response.body(),
+                    new TypeReference<>() {});
+            Object responseText = payload.get("response");
+            if (!(responseText instanceof String text) || text.isBlank()) {
+                return fallback;
+            }
+            return sanitizeOneSentence(text, fallback);
+        } catch (Exception e) {
+            log.debug("Ollama explanation rewrite failed, using fallback: {}", e.getMessage());
+            return fallback;
+        }
+    }
+
+    private String sanitizeOneSentence(String raw, String fallback) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        String text = raw
+                .replace("\n", " ")
+                .replace("\r", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (text.startsWith("\"") && text.endsWith("\"") && text.length() > 1) {
+            text = text.substring(1, text.length() - 1).trim();
+        }
+        if (text.isBlank()) {
+            return fallback;
+        }
+
+        String[] sentences = text.split("(?<=[.!?])\\s+");
+        String first = sentences.length == 0 ? text : sentences[0].trim();
+        if (first.isBlank()) {
+            return fallback;
+        }
+        if (!first.endsWith(".") && !first.endsWith("!") && !first.endsWith("?")) {
+            first = first + ".";
+        }
+        if (first.length() > 240) {
+            return fallback;
+        }
+        return first;
+    }
+
+    private boolean canUseLlmForIndex(int index) {
+        if (!llmExplanationsEnabled) {
+            return false;
+        }
+        int limit = llmMaxRewritesPerRequest;
+        if (limit <= 0) {
+            return true;
+        }
+        return index < limit;
+    }
+
+    private String buildLlmReasonCacheKey(
+            String provider,
+            String mode,
+            String title,
+            List<String> reasonCodes,
+            List<String> matchedThemes,
+            List<String> overlapGenres,
+            List<String> animeGenres,
+            String cfContributor) {
+        List<String> sortedReasonCodes = new ArrayList<>(reasonCodes == null ? List.of() : reasonCodes);
+        Collections.sort(sortedReasonCodes);
+        return String.join("|",
+                provider == null ? "" : provider,
+                mode == null ? "" : mode,
+                title == null ? "" : title,
+                String.join(",", sortedReasonCodes),
+                String.join(",", matchedThemes == null ? List.of() : matchedThemes),
+                String.join(",", overlapGenres == null ? List.of() : overlapGenres),
+                String.join(",", animeGenres == null ? List.of() : animeGenres),
+                cfContributor == null ? "" : cfContributor);
+    }
+
+    private String buildEmergencyFallback(String mode, List<String> reasonCodes, String cfContributor) {
+        if (cfContributor != null && !cfContributor.isBlank()) {
+            return "Recommended because it is similar to " + cfContributor + ".";
+        }
+        if ("similar".equals(mode)) {
+            return "Recommended because it is close to the style of your selected seed shows.";
+        }
+        if (reasonCodes != null && reasonCodes.contains(RecommendationResponse.MATCHES_QUERY)) {
+            return "Recommended because it matches your search intent.";
+        }
+        if (reasonCodes != null && reasonCodes.contains(RecommendationResponse.MATCHES_TASTE_PROFILE)) {
+            return "Recommended because it aligns with your watch and rating history.";
+        }
+        if ("cf".equals(mode) || (reasonCodes != null && reasonCodes.contains(RecommendationResponse.CF_SIGNAL))) {
+            return "Recommended because users with similar taste patterns tend to enjoy it.";
+        }
+        return "Recommended because it is a strong match for your current preferences.";
     }
 
     private double distanceFromRow(Object[] row) {

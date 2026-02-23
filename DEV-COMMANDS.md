@@ -51,6 +51,16 @@ FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT=0.45
 # Optional one-sentence CF contributor hint (off by default)
 RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED=false
 
+# Optional hosted LLM rewrite for explanation sentences (OpenAI example)
+RECOMMENDATIONS_EXPLANATIONS_LLM_ENABLED=false
+RECOMMENDATIONS_EXPLANATIONS_PROVIDER=openai
+RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY=sk-...
+RECOMMENDATIONS_EXPLANATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
+RECOMMENDATIONS_EXPLANATIONS_OPENAI_MODEL=gpt-4o-mini
+RECOMMENDATIONS_EXPLANATIONS_OPENAI_TIMEOUT_MS=2500
+RECOMMENDATIONS_EXPLANATIONS_LLM_CACHE_SIZE=2000
+RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST=5
+
 # Restart backend after changing these values
 docker-compose restart backend
 ```
@@ -865,15 +875,8 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/custom-embeddin
 Run these after connecting with: `docker exec -it animetracker-db psql -U anime_user -d animetracker`
 
 ```sql
--- Check OpenAI and custom embedding coverage
-SELECT COUNT(*) AS openai_embeddings FROM anime_embeddings WHERE embedding IS NOT NULL;
+-- Check custom embedding coverage
 SELECT COUNT(*) AS custom_embeddings FROM anime_embeddings WHERE embedding_custom IS NOT NULL;
-
--- Check vector dimensions
-SELECT anilist_id, vector_dims(embedding) AS openai_dims
-FROM anime_embeddings
-WHERE embedding IS NOT NULL
-LIMIT 5;
 
 SELECT anilist_id, vector_dims(embedding_custom) AS custom_dims
 FROM anime_embeddings
@@ -892,9 +895,8 @@ FROM custom_embedding_import_state;
 ```powershell
 # Required environment variables in .env:
 # JWT_SECRET=<your-jwt-secret-at-least-32-chars>
-# OPENAI_API_KEY=sk-<your-openai-api-key>
 # ML_SIDECAR_ENABLED=true|false
-# RECOMMENDATIONS_USE_CUSTOM_VECTORS=true|false
+# RECOMMENDATIONS_USE_CUSTOM_VECTORS=true
 # CUSTOM_EMBEDDINGS_PATH=/app/models/anime_embeddings.jsonl
 # AUTO_SYNC_CUSTOM_EMBEDDINGS=true|false
 # FUSION_DYNAMIC_BLEND_ENABLED=true|false
@@ -903,6 +905,18 @@ FROM custom_embedding_import_state;
 # FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT=0.15
 # FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT=0.55
 # RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED=true|false
+# Optional LLM rewrite for explanations:
+# RECOMMENDATIONS_EXPLANATIONS_LLM_ENABLED=true|false
+# RECOMMENDATIONS_EXPLANATIONS_PROVIDER=openai|ollama|deterministic
+# RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY=sk-...
+# RECOMMENDATIONS_EXPLANATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
+# RECOMMENDATIONS_EXPLANATIONS_OPENAI_MODEL=gpt-4o-mini
+# RECOMMENDATIONS_EXPLANATIONS_OPENAI_TIMEOUT_MS=2500
+# RECOMMENDATIONS_EXPLANATIONS_OLLAMA_BASE_URL=http://host.docker.internal:11434
+# RECOMMENDATIONS_EXPLANATIONS_OLLAMA_MODEL=llama3.2:3b
+# RECOMMENDATIONS_EXPLANATIONS_OLLAMA_TIMEOUT_MS=2500
+# RECOMMENDATIONS_EXPLANATIONS_LLM_CACHE_SIZE=2000
+# RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST=5
 # SPRING_PROFILES_ACTIVE=dev   # optional: verbose SQL/logging in local development
 
 # Important: booleans must be true/false exactly (no leading dash).
