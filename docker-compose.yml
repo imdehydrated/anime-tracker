@@ -64,8 +64,6 @@ services:
     environment:
       # Server port
       SERVER_PORT: 8080
-      # OpenAI API key for semantic recommendations
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
 
       # JDBC URL: How to connect to the database
       # "db" is the service name above - Docker's DNS resolves it
