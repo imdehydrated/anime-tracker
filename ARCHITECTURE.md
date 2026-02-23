@@ -105,6 +105,9 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
    - `fusionScore`
    - `reasonCodes`
    - one-sentence `recommendationReason`
+6. Reason codes on fused items are contribution-aware:
+   - a source reason is included only when that source contributes enough score share
+   - this avoids misleading explanations when one source had negligible impact
 
 Performance note:
 - Candidate retrieval overfetches for ranking quality, but metadata hydration from AniList is deferred to final top results to reduce first-request latency spikes.
@@ -137,6 +140,7 @@ Fusion config:
 - `FUSION_CF_WEIGHT`
 - `FUSION_DIVERSITY_PENALTY`
 - `FUSION_CF_CANDIDATE_MULTIPLIER`
+- `FUSION_REASON_MIN_CONTRIBUTION_SHARE`
 - `FUSION_DYNAMIC_BLEND_ENABLED`
 - `FUSION_DYNAMIC_BLEND_MIN_RATED_ANIME`
 - `FUSION_DYNAMIC_BLEND_MAX_RATED_ANIME`

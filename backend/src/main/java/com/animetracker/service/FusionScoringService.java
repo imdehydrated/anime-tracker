@@ -37,9 +37,13 @@ public class FusionScoringService {
     @Value("${recommendations.fusion.cf-candidate-multiplier:2}")
     private int cfCandidateMultiplier;
 
+    @Value("${recommendations.fusion.reason-min-contribution-share:0.15}")
+    private double rawReasonMinContributionShare;
+
     private double semanticWeight;
     private double cfWeight;
     private double diversityPenalty;
+    private double reasonMinContributionShare;
 
     @PostConstruct
     void init() {
@@ -56,10 +60,11 @@ public class FusionScoringService {
         }
 
         diversityPenalty = clamp(rawDiversityPenalty, 0.0, 1.0);
+        reasonMinContributionShare = clamp(rawReasonMinContributionShare, 0.0, 1.0);
 
         log.info(
-                "Fusion config initialized: semanticWeight={}, cfWeight={}, diversityPenalty={}, cfCandidateMultiplier={} (unused until phase 2)",
-                semanticWeight, cfWeight, diversityPenalty, cfCandidateMultiplier);
+                "Fusion config initialized: semanticWeight={}, cfWeight={}, diversityPenalty={}, cfCandidateMultiplier={}, reasonMinContributionShare={}",
+                semanticWeight, cfWeight, diversityPenalty, cfCandidateMultiplier, reasonMinContributionShare);
     }
 
     /**
@@ -127,7 +132,7 @@ public class FusionScoringService {
                         anilistId,
                         sem.animeInfo(),
                         score,
-                        unionReasonCodes(sem.reasonCodes(), cf.reasonCodes())));
+                        reasonCodesForFusedCandidate(sem, cf, weights)));
             } else if (sem != null) {
                 fused.add(new FusedCandidate(
                         anilistId,
@@ -295,6 +300,59 @@ public class FusionScoringService {
         return List.copyOf(union);
     }
 
+    /**
+     * Keep reason codes aligned with actual score contribution for this fused item.
+     */
+    private List<String> reasonCodesForFusedCandidate(
+            ScoredCandidate semanticCandidate,
+            ScoredCandidate cfCandidate,
+            WeightPair weights) {
+        double semanticContribution = Math.max(0.0, weights.semantic() * semanticCandidate.score());
+        double cfContribution = Math.max(0.0, weights.cf() * cfCandidate.score());
+        double totalContribution = semanticContribution + cfContribution;
+        if (totalContribution <= 0.0) {
+            return unionReasonCodes(semanticCandidate.reasonCodes(), cfCandidate.reasonCodes());
+        }
+
+        double semanticShare = semanticContribution / totalContribution;
+        double cfShare = cfContribution / totalContribution;
+
+        LinkedHashSet<String> selected = new LinkedHashSet<>();
+        if (semanticShare >= reasonMinContributionShare) {
+            addReasonCodes(selected, semanticCandidate.reasonCodes());
+        }
+        if (cfShare >= reasonMinContributionShare) {
+            addReasonCodes(selected, cfCandidate.reasonCodes());
+        }
+
+        if (!selected.isEmpty()) {
+            return List.copyOf(selected);
+        }
+
+        // Fallback: keep at least the stronger source reason for deterministic explanations.
+        if (semanticContribution >= cfContribution) {
+            addReasonCodes(selected, semanticCandidate.reasonCodes());
+        } else {
+            addReasonCodes(selected, cfCandidate.reasonCodes());
+        }
+
+        if (!selected.isEmpty()) {
+            return List.copyOf(selected);
+        }
+        return unionReasonCodes(semanticCandidate.reasonCodes(), cfCandidate.reasonCodes());
+    }
+
+    private void addReasonCodes(Set<String> target, List<String> reasonCodes) {
+        if (target == null || reasonCodes == null || reasonCodes.isEmpty()) {
+            return;
+        }
+        for (String reason : reasonCodes) {
+            if (reason != null && !reason.isBlank()) {
+                target.add(reason);
+            }
+        }
+    }
+
     double getSemanticWeight() {
         return semanticWeight;
     }
@@ -309,6 +367,10 @@ public class FusionScoringService {
 
     int getCfCandidateMultiplier() {
         return cfCandidateMultiplier;
+    }
+
+    double getReasonMinContributionShare() {
+        return reasonMinContributionShare;
     }
 
     public record ScoredCandidate(

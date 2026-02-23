@@ -124,18 +124,20 @@ recommendations:
     score-calibration-temperature: ${RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE:1.00}
   fusion:
     # Source weights are clamped to >= 0 and renormalized to sum=1 at startup.
-    semantic-weight: ${FUSION_SEMANTIC_WEIGHT:0.6}
-    cf-weight: ${FUSION_CF_WEIGHT:0.4}
+    semantic-weight: ${FUSION_SEMANTIC_WEIGHT:0.7}
+    cf-weight: ${FUSION_CF_WEIGHT:0.3}
     # Diversity overlap penalty applied post-fusion in [0, 1].
     diversity-penalty: ${FUSION_DIVERSITY_PENALTY:0.10}
     # Placeholder for phase 2 overfetch strategy (currently read but not applied).
     cf-candidate-multiplier: ${FUSION_CF_CANDIDATE_MULTIPLIER:2}
+    # Minimum per-source score share required for that source's reason codes to appear.
+    reason-min-contribution-share: ${FUSION_REASON_MIN_CONTRIBUTION_SHARE:0.15}
     # Phase 8: dynamically adjust CF blend weight by user profile richness.
     dynamic-blend-enabled: ${FUSION_DYNAMIC_BLEND_ENABLED:true}
     dynamic-blend-min-rated-anime: ${FUSION_DYNAMIC_BLEND_MIN_RATED_ANIME:10}
     dynamic-blend-max-rated-anime: ${FUSION_DYNAMIC_BLEND_MAX_RATED_ANIME:80}
-    dynamic-blend-min-cf-weight: ${FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT:0.15}
-    dynamic-blend-max-cf-weight: ${FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT:0.55}
+    dynamic-blend-min-cf-weight: ${FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT:0.10}
+    dynamic-blend-max-cf-weight: ${FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT:0.45}
   explanations:
     # Phase 8: add optional CF contributor hint in the one-sentence reason.
     cf-contributors-enabled: ${RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED:false}

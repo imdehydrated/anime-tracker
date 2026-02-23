@@ -25,7 +25,6 @@ function NavBar() {
         {isLoggedIn ? (
           <>
             <Link to="/mylist" className={linkClass('/mylist')}>My List</Link>
-            <Link to="/recommendations" className={linkClass('/recommendations')}>For You</Link>
             <button onClick={logout}>Logout</button>
           </>
         ) : (

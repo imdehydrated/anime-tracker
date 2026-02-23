@@ -37,6 +37,7 @@ For deeper design details, see `ARCHITECTURE.md`.
 - CF ranking uses a mild popularity attenuation by default (tunable via env vars).
 - Fusion can dynamically shift semantic-vs-CF weight based on how rich a user profile is.
 - Fusion scoring combines available signals into a normalized rank score.
+- Recommendation reason codes are contribution-aware, so explanations reflect which signal actually drove ranking.
 - Frontend renders recommendation reason text from backend metadata.
 
 ## Run Locally

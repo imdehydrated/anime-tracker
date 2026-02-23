@@ -139,7 +139,7 @@ class FusionScoringServiceTest {
     }
 
     @Test
-    void fuseAndRank_sameAnimeInBothLists_blendsAndUnionsReasons() throws Exception {
+    void fuseAndRank_sameAnimeInBothLists_blendsAndKeepsDominantReasonCodes() throws Exception {
         FusionScoringService service = serviceWithWeights(0.6, 0.4, 0.1, 2);
 
         List<FusionScoringService.FusedCandidate> fused = service.fuseAndRank(
@@ -148,6 +148,18 @@ class FusionScoringServiceTest {
 
         assertEquals(1, fused.size());
         assertEquals(0.56, fused.get(0).fusionScore(), EPS);
+        assertEquals(List.of("MATCHES_QUERY"), fused.get(0).reasonCodes());
+    }
+
+    @Test
+    void fuseAndRank_sameAnimeWhenBothContribute_keepsBothReasonSources() throws Exception {
+        FusionScoringService service = serviceWithWeights(0.6, 0.4, 0.1, 2);
+
+        List<FusionScoringService.FusedCandidate> fused = service.fuseAndRank(
+                List.of(scored(10, 0.9, List.of("MATCHES_QUERY"))),
+                List.of(scored(10, 0.8, List.of("CF_SIGNAL"))));
+
+        assertEquals(1, fused.size());
         assertEquals(List.of("MATCHES_QUERY", "CF_SIGNAL"), fused.get(0).reasonCodes());
     }
 
@@ -278,6 +290,15 @@ class FusionScoringServiceTest {
     void init_cfCandidateMultiplier_exposedForPhase2() throws Exception {
         FusionScoringService service = serviceWithWeights(0.6, 0.4, 0.1, 5);
         assertEquals(5, service.getCfCandidateMultiplier());
+    }
+
+    @Test
+    void init_reasonMinContributionShare_clampedBounds() throws Exception {
+        FusionScoringService low = serviceWithWeights(0.6, 0.4, 0.1, 2, -1.0);
+        assertEquals(0.0, low.getReasonMinContributionShare(), EPS);
+
+        FusionScoringService high = serviceWithWeights(0.6, 0.4, 0.1, 2, 2.0);
+        assertEquals(1.0, high.getReasonMinContributionShare(), EPS);
     }
 
     @Test
@@ -431,11 +452,21 @@ class FusionScoringServiceTest {
     }
 
     private FusionScoringService serviceWithWeights(double sem, double cf, double diversity, int multiplier) throws Exception {
+        return serviceWithWeights(sem, cf, diversity, multiplier, 0.15);
+    }
+
+    private FusionScoringService serviceWithWeights(
+            double sem,
+            double cf,
+            double diversity,
+            int multiplier,
+            double reasonMinContributionShare) throws Exception {
         FusionScoringService service = new FusionScoringService();
         setField(service, "rawSemanticWeight", sem);
         setField(service, "rawCfWeight", cf);
         setField(service, "rawDiversityPenalty", diversity);
         setField(service, "cfCandidateMultiplier", multiplier);
+        setField(service, "rawReasonMinContributionShare", reasonMinContributionShare);
         service.init();
         return service;
     }
