@@ -281,9 +281,7 @@ public class SemanticRecommendationService {
         int limit = normalizeLimit(requestedLimit);
         Map<Integer, Float> userRatings = buildUserRatingMap(username);
         List<Integer> excludeIds = buildExcludeIds(username, List.of());
-        List<WatchedProfile> watchedProfiles = cfContributorExplanationsEnabled
-                ? buildWatchedProfiles(username)
-                : List.of();
+        List<WatchedProfile> watchedProfiles = buildWatchedProfiles(username);
 
         List<Map<String, Object>> predictions = mlSidecarService.getCfRecommendations(
                 userRatings, excludeIds, limit);
@@ -331,10 +329,10 @@ public class SemanticRecommendationService {
                 }
                 if (anime != null) {
                     List<String> reasonCodes = List.of(RecommendationResponse.CF_SIGNAL);
-                    String cfContributor = findTopContributorTitle(anime, watchedProfiles);
+                    List<String> contributorTitles = findTopContributorTitles(anime, watchedProfiles, 5);
                     String reasonSentence = buildCfReasonSentence(
                             anime,
-                            cfContributor,
+                            contributorTitles,
                             topTasteGenres,
                             canUseLlmForIndex(explanationRewriteIndex));
                     applyRecommendationMeta(
@@ -1194,18 +1192,20 @@ public class SemanticRecommendationService {
         List<RecommendationResponse> results = new ArrayList<>();
         int effectiveLimit = Math.min(limit, fusedCandidates.size());
         List<FusionScoringService.FusedCandidate> topCandidates = fusedCandidates.subList(0, effectiveLimit);
-        Map<Integer, String> cfContributorsByAnimeId = buildCfContributorHints(username, topCandidates);
+        Map<Integer, List<String>> contributorTitlesByAnimeId = buildContributorHints(username, topCandidates);
         int index = 0;
         for (FusionScoringService.FusedCandidate fused : topCandidates) {
             AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(fused.animeInfo());
             List<String> reasonCodes = fused.reasonCodes();
-            String cfContributor = anime == null ? null : cfContributorsByAnimeId.get(anime.getId());
+            List<String> contributorTitles = anime == null
+                    ? List.of()
+                    : contributorTitlesByAnimeId.getOrDefault(anime.getId(), List.of());
             boolean allowLlmRewrite = canUseLlmForIndex(index);
             String reason = buildReasonSentence(
                     mode,
                     anime,
                     reasonCodes,
-                    cfContributor,
+                    contributorTitles,
                     reasoningContext,
                     allowLlmRewrite);
             applyRecommendationMeta(anime, fused.fusionScore(), reasonCodes, reason);
@@ -1215,10 +1215,10 @@ public class SemanticRecommendationService {
         return results;
     }
 
-    private Map<Integer, String> buildCfContributorHints(
+    private Map<Integer, List<String>> buildContributorHints(
             String username,
             List<FusionScoringService.FusedCandidate> fusedCandidates) {
-        if (!cfContributorExplanationsEnabled || username == null || fusedCandidates == null || fusedCandidates.isEmpty()) {
+        if (username == null || fusedCandidates == null || fusedCandidates.isEmpty()) {
             return Map.of();
         }
 
@@ -1227,12 +1227,9 @@ public class SemanticRecommendationService {
             return Map.of();
         }
 
-        Map<Integer, String> contributorByAnimeId = new HashMap<>();
+        Map<Integer, List<String>> contributorByAnimeId = new HashMap<>();
         for (FusionScoringService.FusedCandidate fused : fusedCandidates) {
             if (fused == null || fused.animeInfo() == null || fused.reasonCodes() == null) {
-                continue;
-            }
-            if (!fused.reasonCodes().contains(RecommendationResponse.CF_SIGNAL)) {
                 continue;
             }
             Integer animeId = fused.animeInfo().getId();
@@ -1240,23 +1237,28 @@ public class SemanticRecommendationService {
                 continue;
             }
 
-            String topContributor = findTopContributorTitle(fused.animeInfo(), watchedProfiles);
-            if (topContributor != null && !topContributor.isBlank()) {
-                contributorByAnimeId.put(animeId, topContributor);
+            List<String> topContributors = findTopContributorTitles(fused.animeInfo(), watchedProfiles, 5);
+            if (!topContributors.isEmpty()) {
+                contributorByAnimeId.put(animeId, topContributors);
             }
         }
 
         return contributorByAnimeId;
     }
 
-    private String findTopContributorTitle(AniListResponse.AnimeInfo candidate, List<WatchedProfile> watchedProfiles) {
+    private List<String> findTopContributorTitles(
+            AniListResponse.AnimeInfo candidate,
+            List<WatchedProfile> watchedProfiles,
+            int maxTitles) {
         if (candidate == null || watchedProfiles == null || watchedProfiles.isEmpty()) {
-            return null;
+            return List.of();
+        }
+        if (maxTitles <= 0) {
+            return List.of();
         }
 
         Set<String> candidateGenres = parseGenreList(candidate.getGenres());
-        double bestScore = -1.0d;
-        String bestTitle = null;
+        List<ScoredContributor> scoredContributors = new ArrayList<>(watchedProfiles.size());
 
         for (WatchedProfile profile : watchedProfiles) {
             if (profile == null || profile.title() == null || profile.title().isBlank()) {
@@ -1266,13 +1268,29 @@ public class SemanticRecommendationService {
             double similarity = genreJaccard(candidateGenres, profile.genres());
             // Keep some score signal even for sparse/noisy genre metadata.
             double matchScore = (0.85d * similarity) + (0.15d * profile.scoreNorm());
-            if (matchScore > bestScore) {
-                bestScore = matchScore;
-                bestTitle = profile.title();
-            }
+            scoredContributors.add(new ScoredContributor(profile.title(), matchScore));
         }
 
-        return bestTitle;
+        if (scoredContributors.isEmpty()) {
+            return List.of();
+        }
+
+        scoredContributors.sort((a, b) -> {
+            int byScore = Double.compare(b.score(), a.score());
+            if (byScore != 0) {
+                return byScore;
+            }
+            return a.title().compareToIgnoreCase(b.title());
+        });
+
+        LinkedHashSet<String> orderedUniqueTitles = new LinkedHashSet<>();
+        for (ScoredContributor contributor : scoredContributors) {
+            orderedUniqueTitles.add(contributor.title());
+            if (orderedUniqueTitles.size() >= maxTitles) {
+                break;
+            }
+        }
+        return List.copyOf(orderedUniqueTitles);
     }
 
     private Set<String> parseGenreCsv(String genresCsv) {
@@ -1483,20 +1501,20 @@ public class SemanticRecommendationService {
             String mode,
             AniListResponse.AnimeInfo anime,
             List<String> reasonCodes,
-            String cfContributor,
+            List<String> contributorTitles,
             ReasoningContext context,
             boolean allowLlmRewrite) {
         Set<String> codes = new LinkedHashSet<>();
         if (reasonCodes != null) {
             codes.addAll(reasonCodes);
         }
-        String fallback = buildEmergencyFallback(mode, List.copyOf(codes), cfContributor);
+        String fallback = buildEmergencyFallback(mode, List.copyOf(codes), contributorTitles);
         return maybeRewriteReasonWithLlm(
                 fallback,
                 mode,
                 anime,
                 List.copyOf(codes),
-                cfContributor,
+                contributorTitles,
                 context,
                 allowLlmRewrite);
     }
@@ -1509,26 +1527,26 @@ public class SemanticRecommendationService {
                 mode,
                 null,
                 reasonCodes,
-                cfContributor,
+                cfContributor == null || cfContributor.isBlank() ? List.of() : List.of(cfContributor),
                 new ReasoningContext(List.of(), List.of()),
                 false);
     }
 
     private String buildCfReasonSentence(
             AniListResponse.AnimeInfo anime,
-            String cfContributor,
+            List<String> contributorTitles,
             List<String> topTasteGenres,
             boolean allowLlmRewrite) {
         String fallback = buildEmergencyFallback(
                 "cf",
                 List.of(RecommendationResponse.CF_SIGNAL),
-                cfContributor);
+                contributorTitles);
         return maybeRewriteReasonWithLlm(
                 fallback,
                 "cf",
                 anime,
                 List.of(RecommendationResponse.CF_SIGNAL),
-                cfContributor,
+                contributorTitles,
                 new ReasoningContext(List.of(), topTasteGenres),
                 allowLlmRewrite);
     }
@@ -1538,7 +1556,7 @@ public class SemanticRecommendationService {
             String mode,
             AniListResponse.AnimeInfo anime,
             List<String> reasonCodes,
-            String cfContributor,
+            List<String> contributorTitles,
             ReasoningContext context,
             boolean allowLlmRewrite) {
         if (!allowLlmRewrite
@@ -1574,7 +1592,7 @@ public class SemanticRecommendationService {
                     matchedThemes,
                     overlapGenres,
                     animeGenres,
-                    cfContributor);
+                    contributorTitles);
             String cached = llmReasonCache.get(cacheKey);
             if (cached != null && !cached.isBlank()) {
                 return cached;
@@ -1583,9 +1601,18 @@ public class SemanticRecommendationService {
             String prompt = """
                     You are writing a recommendation reason for an anime app.
                     Write exactly one natural sentence. Make it specific and user-facing.
+                    Sound like a normal person recommending a show to a friend.
+                    Use plain language and keep it conversational.
+                    Avoid hype, ad copy, exaggeration, and dramatic wording.
+                    Do not use exclamation points.
                     Do not mention models, algorithms, scores, confidence, or internal system details.
                     Keep the sentence under 28 words.
-                    Prefer concrete language like "similar to X", "shares themes like Y", or "matches your search for Z".
+                    Prefer concrete language like "similar to X", "shares themes with Y", or "matches your search for Z".
+                    Good style examples:
+                    - "You liked Steins;Gate and Erased, so this is another tight mystery with time-loop tension."
+                    - "Since you liked Haikyuu!! and Kuroko, this has the same competitive team-sports energy."
+                    Bad style example:
+                    - "If you enjoyed action-packed comedies, you'll love this thrilling masterpiece."
 
                     Candidate title: %s
                     Mode: %s
@@ -1593,7 +1620,7 @@ public class SemanticRecommendationService {
                     Query keyword matches: %s
                     User taste overlap genres: %s
                     Candidate genres: %s
-                    Closest liked show anchor: %s
+                    Closest liked show anchors: %s
                     If evidence is weak, still write a natural one-sentence reason without sounding generic.
                     """.formatted(
                     title == null ? "unknown" : title,
@@ -1602,7 +1629,7 @@ public class SemanticRecommendationService {
                     matchedThemes,
                     overlapGenres,
                     animeGenres,
-                    cfContributor == null ? "" : cfContributor);
+                    contributorTitles == null ? List.of() : contributorTitles);
             String rewritten = fallback;
             if ("openai".equals(provider)) {
                 rewritten = rewriteWithOpenAi(prompt, fallback);
@@ -1631,7 +1658,7 @@ public class SemanticRecommendationService {
             List<Map<String, String>> messages = List.of(
                     Map.of(
                             "role", "system",
-                            "content", "Write exactly one concise, natural recommendation sentence grounded in provided evidence."),
+                            "content", "Write one short, natural recommendation sentence in plain conversational tone. No marketing language, no hype, no exclamation marks."),
                     Map.of("role", "user", "content", prompt));
 
             Map<String, Object> requestBody = new LinkedHashMap<>();
@@ -1768,7 +1795,24 @@ public class SemanticRecommendationService {
         if (first.length() > 240) {
             return fallback;
         }
+        if (isSalesyReason(first)) {
+            return fallback;
+        }
         return first;
+    }
+
+    private boolean isSalesyReason(String text) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        String lowered = text.toLowerCase();
+        return lowered.contains("you'll love")
+                || lowered.contains("you will love")
+                || lowered.contains("must-watch")
+                || lowered.contains("masterpiece")
+                || lowered.contains("action-packed")
+                || lowered.contains("thrilling")
+                || lowered.contains("epic");
     }
 
     private boolean canUseLlmForIndex(int index) {
@@ -1790,7 +1834,7 @@ public class SemanticRecommendationService {
             List<String> matchedThemes,
             List<String> overlapGenres,
             List<String> animeGenres,
-            String cfContributor) {
+            List<String> contributorTitles) {
         List<String> sortedReasonCodes = new ArrayList<>(reasonCodes == null ? List.of() : reasonCodes);
         Collections.sort(sortedReasonCodes);
         return String.join("|",
@@ -1801,12 +1845,12 @@ public class SemanticRecommendationService {
                 String.join(",", matchedThemes == null ? List.of() : matchedThemes),
                 String.join(",", overlapGenres == null ? List.of() : overlapGenres),
                 String.join(",", animeGenres == null ? List.of() : animeGenres),
-                cfContributor == null ? "" : cfContributor);
+                String.join(",", contributorTitles == null ? List.of() : contributorTitles));
     }
 
-    private String buildEmergencyFallback(String mode, List<String> reasonCodes, String cfContributor) {
-        if (cfContributor != null && !cfContributor.isBlank()) {
-            return "Recommended because it is similar to " + cfContributor + ".";
+    private String buildEmergencyFallback(String mode, List<String> reasonCodes, List<String> contributorTitles) {
+        if (contributorTitles != null && !contributorTitles.isEmpty()) {
+            return "Recommended because you liked " + formatNaturalTitleList(contributorTitles) + ".";
         }
         if ("similar".equals(mode)) {
             return "Recommended because it is close to the style of your selected seed shows.";
@@ -1821,6 +1865,33 @@ public class SemanticRecommendationService {
             return "Recommended because users with similar taste patterns tend to enjoy it.";
         }
         return "Recommended because it is a strong match for your current preferences.";
+    }
+
+    private String formatNaturalTitleList(List<String> titles) {
+        if (titles == null || titles.isEmpty()) {
+            return "similar shows";
+        }
+        List<String> cleaned = new ArrayList<>(5);
+        for (String title : titles) {
+            if (title == null || title.isBlank()) {
+                continue;
+            }
+            cleaned.add(title.trim());
+            if (cleaned.size() >= 5) {
+                break;
+            }
+        }
+        if (cleaned.isEmpty()) {
+            return "similar shows";
+        }
+        if (cleaned.size() == 1) {
+            return cleaned.get(0);
+        }
+        if (cleaned.size() == 2) {
+            return cleaned.get(0) + " and " + cleaned.get(1);
+        }
+        String head = String.join(", ", cleaned.subList(0, cleaned.size() - 1));
+        return head + ", and " + cleaned.get(cleaned.size() - 1);
     }
 
     private double distanceFromRow(Object[] row) {
@@ -1932,6 +2003,11 @@ public class SemanticRecommendationService {
             String title,
             Set<String> genres,
             double scoreNorm) {
+    }
+
+    private record ScoredContributor(
+            String title,
+            double score) {
     }
 
     private record ReasoningContext(
