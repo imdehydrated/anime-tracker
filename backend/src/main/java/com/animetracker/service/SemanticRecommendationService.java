@@ -132,6 +132,7 @@ public class SemanticRecommendationService {
         boolean hasSemanticSeedInput = !normalizedSeeds.isEmpty();
         String normalizedQuery = preprocessSemanticQuery(query);
         boolean hasQuery = !normalizedQuery.isBlank();
+        List<String> queryKeywords = hasQuery ? extractQueryKeywords(normalizedQuery, 3) : List.of();
         boolean effectiveListOnly = useListOnly
                 || (username != null
                 && requestedListWeight != null
@@ -182,6 +183,9 @@ public class SemanticRecommendationService {
                         : blend(searchVector, listVector, listWeight);
             }
         }
+        List<String> topTasteGenres = (username != null && usedListProfile)
+                ? buildTopUserGenres(username, 3)
+                : List.of();
 
         if (searchVector == null) {
             return List.of();
@@ -217,7 +221,12 @@ public class SemanticRecommendationService {
 
         List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
                 semanticCandidates, username, excludeIds, limit, requestedListWeight, listWeight);
-        return finalizeCandidatesWithReasons(fused, "semantic", limit, username);
+        return finalizeCandidatesWithReasons(
+                fused,
+                "semantic",
+                limit,
+                username,
+                new ReasoningContext(queryKeywords, topTasteGenres));
     }
 
     /**
@@ -266,6 +275,7 @@ public class SemanticRecommendationService {
 
         // Build recommendation payload; use local metadata first, AniList as fallback only when missing locally.
         List<RecommendationResponse> results = new ArrayList<>();
+        List<String> topTasteGenres = buildTopUserGenres(username, 3);
         for (Map<String, Object> pred : predictions) {
             Object idValue = pred.get("anilist_id");
             if (!(idValue instanceof Number idNumber)) {
@@ -283,7 +293,12 @@ public class SemanticRecommendationService {
                 if (anime != null) {
                     List<String> reasonCodes = List.of(RecommendationResponse.CF_SIGNAL);
                     String cfContributor = findTopContributorTitle(anime, watchedProfiles);
-                    String reasonSentence = buildReasonSentence("cf", reasonCodes, cfContributor);
+                    String reasonSentence = buildCfReasonSentence(
+                            anime,
+                            cfContributor,
+                            predictedScore,
+                            watchConfidence,
+                            topTasteGenres);
                     applyRecommendationMeta(
                             anime,
                             normalizedScore,
@@ -410,7 +425,15 @@ public class SemanticRecommendationService {
 
         List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
                 semanticCandidates, username, excludeIds, limit, requestedListWeight, listWeight);
-        return finalizeCandidatesWithReasons(fused, "similar", limit, username);
+        List<String> topTasteGenres = (username != null && usedListProfile)
+                ? buildTopUserGenres(username, 3)
+                : List.of();
+        return finalizeCandidatesWithReasons(
+                fused,
+                "similar",
+                limit,
+                username,
+                new ReasoningContext(List.of(), topTasteGenres));
     }
 
     /**
@@ -1110,7 +1133,8 @@ public class SemanticRecommendationService {
             List<FusionScoringService.FusedCandidate> fusedCandidates,
             String mode,
             int limit,
-            String username) {
+            String username,
+            ReasoningContext reasoningContext) {
         if (fusedCandidates == null || fusedCandidates.isEmpty()) {
             return List.of();
         }
@@ -1123,7 +1147,7 @@ public class SemanticRecommendationService {
             AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(fused.animeInfo());
             List<String> reasonCodes = fused.reasonCodes();
             String cfContributor = anime == null ? null : cfContributorsByAnimeId.get(anime.getId());
-            String reason = buildReasonSentence(mode, reasonCodes, cfContributor);
+            String reason = buildReasonSentence(mode, anime, reasonCodes, cfContributor, reasoningContext);
             applyRecommendationMeta(anime, fused.fusionScore(), reasonCodes, reason);
             results.add(new RecommendationResponse(anime, fused.fusionScore(), reasonCodes));
         }
@@ -1226,6 +1250,156 @@ public class SemanticRecommendationService {
         return genres.isEmpty() ? Set.of() : Set.copyOf(genres);
     }
 
+    private List<String> buildTopUserGenres(String username, int limit) {
+        if (username == null || limit <= 0) {
+            return List.of();
+        }
+        List<AnimeListEntry> userList = animeListEntryService.getUserList(username);
+        if (userList == null || userList.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, Double> weightedGenres = new HashMap<>();
+        for (AnimeListEntry entry : userList) {
+            int score = entry.getScore() == null ? 6 : entry.getScore();
+            double weight = FusionScoringService.clamp(score / 10.0d, 0.2d, 1.0d);
+            for (String genre : parseGenreCsv(entry.getGenres())) {
+                weightedGenres.merge(genre, weight, Double::sum);
+            }
+        }
+
+        if (weightedGenres.isEmpty()) {
+            return List.of();
+        }
+
+        return weightedGenres.entrySet().stream()
+                .sorted((a, b) -> {
+                    int byWeight = Double.compare(b.getValue(), a.getValue());
+                    if (byWeight != 0) {
+                        return byWeight;
+                    }
+                    return a.getKey().compareTo(b.getKey());
+                })
+                .limit(limit)
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    private List<String> extractQueryKeywords(String normalizedQuery, int maxKeywords) {
+        if (normalizedQuery == null || normalizedQuery.isBlank() || maxKeywords <= 0) {
+            return List.of();
+        }
+        Set<String> keywords = new LinkedHashSet<>();
+        for (String token : normalizedQuery.split(" ")) {
+            if (token == null || token.isBlank()) {
+                continue;
+            }
+            if (token.length() < 4 || QUERY_STOP_WORDS.contains(token)) {
+                continue;
+            }
+            keywords.add(token);
+            if (keywords.size() >= maxKeywords) {
+                break;
+            }
+        }
+        return List.copyOf(keywords);
+    }
+
+    private List<String> findMatchedQueryThemes(
+            AniListResponse.AnimeInfo anime,
+            List<String> queryKeywords,
+            int maxMatches) {
+        if (anime == null || queryKeywords == null || queryKeywords.isEmpty() || maxMatches <= 0) {
+            return List.of();
+        }
+        StringBuilder text = new StringBuilder();
+        if (anime.getTitle() != null) {
+            if (anime.getTitle().getRomaji() != null) {
+                text.append(anime.getTitle().getRomaji()).append(' ');
+            }
+            if (anime.getTitle().getEnglish() != null) {
+                text.append(anime.getTitle().getEnglish()).append(' ');
+            }
+        }
+        if (anime.getGenres() != null) {
+            for (String genre : anime.getGenres()) {
+                if (genre != null) {
+                    text.append(genre).append(' ');
+                }
+            }
+        }
+        if (anime.getDescription() != null) {
+            text.append(anime.getDescription());
+        }
+        String normalizedText = text.toString().toLowerCase();
+
+        List<String> matches = new ArrayList<>();
+        for (String keyword : queryKeywords) {
+            if (normalizedText.contains(keyword.toLowerCase())) {
+                matches.add(keyword);
+                if (matches.size() >= maxMatches) {
+                    break;
+                }
+            }
+        }
+        return matches;
+    }
+
+    private List<String> findGenreOverlap(
+            AniListResponse.AnimeInfo anime,
+            List<String> topTasteGenres,
+            int maxGenres) {
+        if (anime == null || topTasteGenres == null || topTasteGenres.isEmpty() || maxGenres <= 0) {
+            return List.of();
+        }
+        Set<String> animeGenres = parseGenreList(anime.getGenres());
+        if (animeGenres.isEmpty()) {
+            return List.of();
+        }
+        List<String> overlap = new ArrayList<>();
+        for (String genre : topTasteGenres) {
+            if (animeGenres.contains(genre.toLowerCase())) {
+                overlap.add(genre);
+                if (overlap.size() >= maxGenres) {
+                    break;
+                }
+            }
+        }
+        return overlap;
+    }
+
+    private String prettyList(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return "";
+        }
+        if (items.size() == 1) {
+            return items.get(0);
+        }
+        if (items.size() == 2) {
+            return items.get(0) + " and " + items.get(1);
+        }
+        return String.join(", ", items.subList(0, items.size() - 1))
+                + ", and "
+                + items.get(items.size() - 1);
+    }
+
+    private List<String> topAnimeGenres(AniListResponse.AnimeInfo anime, int maxGenres) {
+        if (anime == null || anime.getGenres() == null || anime.getGenres().isEmpty() || maxGenres <= 0) {
+            return List.of();
+        }
+        List<String> picked = new ArrayList<>(maxGenres);
+        for (String genre : anime.getGenres()) {
+            if (genre == null || genre.isBlank()) {
+                continue;
+            }
+            picked.add(genre);
+            if (picked.size() >= maxGenres) {
+                break;
+            }
+        }
+        return picked;
+    }
+
     private double genreJaccard(Set<String> left, Set<String> right) {
         if (left == null || left.isEmpty() || right == null || right.isEmpty()) {
             return 0.0d;
@@ -1259,27 +1433,56 @@ public class SemanticRecommendationService {
         anime.setRecommendationReason(reasonSentence);
     }
 
-    private String buildReasonSentence(String mode, List<String> reasonCodes, String cfContributor) {
+    private String buildReasonSentence(
+            String mode,
+            AniListResponse.AnimeInfo anime,
+            List<String> reasonCodes,
+            String cfContributor,
+            ReasoningContext context) {
         Set<String> codes = new LinkedHashSet<>();
         if (reasonCodes != null) {
             codes.addAll(reasonCodes);
         }
+        List<String> queryKeywords = context == null ? List.of() : context.queryKeywords();
+        List<String> tasteGenres = context == null ? List.of() : context.topTasteGenres();
 
         List<String> clauses = new ArrayList<>(4);
         if (codes.contains(RecommendationResponse.SIMILAR_TO_SEED)) {
-            clauses.add("it is similar to your selected seed anime");
+            List<String> genreHints = topAnimeGenres(anime, 2);
+            if (!genreHints.isEmpty()) {
+                clauses.add("its " + prettyList(genreHints) + " focus is close to your selected seed shows");
+            } else {
+                clauses.add("its themes are close to your selected seed shows");
+            }
         }
         if (codes.contains(RecommendationResponse.MATCHES_QUERY)) {
-            clauses.add("it matches your search description");
+            List<String> matchedThemes = findMatchedQueryThemes(anime, queryKeywords, 2);
+            if (!matchedThemes.isEmpty()) {
+                clauses.add("it directly matches your query on " + prettyList(matchedThemes));
+            } else {
+                List<String> genreHints = topAnimeGenres(anime, 2);
+                if (!genreHints.isEmpty()) {
+                    clauses.add("its " + prettyList(genreHints) + " themes align with your search intent");
+                } else {
+                    clauses.add("its content aligns with your search intent");
+                }
+            }
         }
         if (codes.contains(RecommendationResponse.MATCHES_TASTE_PROFILE)) {
-            clauses.add("it aligns with your rating history");
+            List<String> overlapGenres = findGenreOverlap(anime, tasteGenres, 2);
+            if (!overlapGenres.isEmpty()) {
+                clauses.add("it overlaps with your top genres: " + prettyList(overlapGenres));
+            } else if (!tasteGenres.isEmpty()) {
+                clauses.add("it fits your rating profile around " + prettyList(tasteGenres.subList(0, Math.min(2, tasteGenres.size()))));
+            } else {
+                clauses.add("it aligns with your rating history");
+            }
         }
         if (codes.contains(RecommendationResponse.CF_SIGNAL)) {
             if (cfContributor != null && !cfContributor.isBlank()) {
-                clauses.add("users with similar rating patterns and your interest in " + cfContributor + " both point to it");
+                clauses.add("users with similar rating patterns and your strong interest in " + cfContributor + " both support it");
             } else {
-                clauses.add("users with similar rating patterns also favor it");
+                clauses.add("users with similar rating patterns consistently score it highly");
             }
         }
 
@@ -1291,6 +1494,40 @@ public class SemanticRecommendationService {
                 return "Recommended because it is close to your selected seed anime.";
             }
             return "Recommended because it matches your current recommendation signals.";
+        }
+
+        return "Recommended because " + joinClauses(clauses) + ".";
+    }
+
+    /**
+     * Backward-compatible helper used by unit tests.
+     */
+    private String buildReasonSentence(String mode, List<String> reasonCodes, String cfContributor) {
+        return buildReasonSentence(mode, null, reasonCodes, cfContributor, new ReasoningContext(List.of(), List.of()));
+    }
+
+    private String buildCfReasonSentence(
+            AniListResponse.AnimeInfo anime,
+            String cfContributor,
+            double predictedScore,
+            double watchConfidence,
+            List<String> topTasteGenres) {
+        List<String> clauses = new ArrayList<>(3);
+        if (cfContributor != null && !cfContributor.isBlank()) {
+            clauses.add("users with similar patterns and your interest in " + cfContributor + " both support this pick");
+        } else {
+            clauses.add("users with similar rating patterns consistently score this highly");
+        }
+
+        if (Double.isFinite(predictedScore) && Double.isFinite(watchConfidence)) {
+            int confidencePct = (int) Math.round(FusionScoringService.clamp(watchConfidence, 0.0d, 1.0d) * 100.0d);
+            double clampedPred = FusionScoringService.clamp(predictedScore, 1.0d, 10.0d);
+            clauses.add("the model estimates about " + String.format("%.1f", clampedPred) + "/10 with " + confidencePct + "% watch confidence");
+        }
+
+        List<String> overlapGenres = findGenreOverlap(anime, topTasteGenres, 2);
+        if (!overlapGenres.isEmpty()) {
+            clauses.add("it also matches your preferred genres (" + prettyList(overlapGenres) + ")");
         }
 
         return "Recommended because " + joinClauses(clauses) + ".";
@@ -1424,5 +1661,10 @@ public class SemanticRecommendationService {
             String title,
             Set<String> genres,
             double scoreNorm) {
+    }
+
+    private record ReasoningContext(
+            List<String> queryKeywords,
+            List<String> topTasteGenres) {
     }
 }

@@ -105,9 +105,23 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
    - `fusionScore`
    - `reasonCodes`
    - one-sentence `recommendationReason`
+   - sentence now uses concrete signals when available (matched query terms, genre overlap, CF contributor hints, and CF confidence)
 6. Reason codes on fused items are contribution-aware:
    - a source reason is included only when that source contributes enough score share
    - this avoids misleading explanations when one source had negligible impact
+
+Match % in UI:
+
+- Frontend shows `Match: X%` from `fusionScore`:
+  - `X = round(clamp(fusionScore, 0, 1) * 100)`
+  - source: `frontend/src/components/AnimeRecItem.js`
+- `fusionScore` is a normalized ranking score, not a calibrated probability of user liking.
+- Score path:
+  - semantic distance from pgvector: `normalizeSemanticDistance(d) = clamp(1 - d/2, 0, 1)`
+  - sidecar rerank score (if present): `normalizeRerankedScore(s) = clamp((s + 1)/2, 0, 1)`
+  - CF score: `normalizeCfScore(pred, conf) = clamp(((clamp(pred,1,10)-1)/9) * clamp(conf,0,1), 0, 1)`
+  - fusion blend for overlap candidates: `fusion = clamp(w_sem * sem + w_cf * cf, 0, 1)` (weights are normalized)
+  - optional diversity pass subtracts a small genre-overlap penalty, then clamps again to `[0,1]`
 
 Performance note:
 - Candidate retrieval overfetches for ranking quality, but metadata hydration from AniList is deferred to final top results to reduce first-request latency spikes.
