@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Promotion gate for Phase 6/7 model changes.
+"""Promotion gate for CF and semantic recommendation model updates.
 
 Purpose:
 - Compare CF eval snapshots (baseline vs candidate) using configurable thresholds.
-- Check semantic multi-positive experiment delta vs baseline.
+- Compare semantic query-benchmark snapshots (baseline vs candidate) using Hit@K + MRR@K.
 - Produce an explicit PASS/FAIL decision before promoting model changes.
 """
 
@@ -32,21 +32,25 @@ class CfGateResult:
 
 
 @dataclass(frozen=True)
-class SemanticGateResult:
+class SemanticQueryGateResult:
     passed: bool
+    baseline_path: str
     candidate_path: str
-    multipos_score: float
-    baseline_score: float | None
-    delta_vs_baseline: float | None
+    hit_at_k_delta: float
+    mrr_at_k_delta: float
+    baseline_hit_at_k: float
+    candidate_hit_at_k: float
+    baseline_mrr_at_k: float
+    candidate_mrr_at_k: float
     notes: list[str]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate Phase 6/7 promotion gates.")
+    parser = argparse.ArgumentParser(description="Evaluate recommendation promotion gates.")
     default_eval_dir = Path(__file__).resolve().parent / "eval"
     parser.add_argument("--eval-dir", type=Path, default=default_eval_dir)
 
-    # CF gate inputs/thresholds
+    # CF gate inputs/thresholds.
     parser.add_argument("--cf-baseline", type=Path, default=None)
     parser.add_argument("--cf-candidate", type=Path, default=None)
     parser.add_argument("--cf-min-recall-delta", type=float, default=0.0)
@@ -56,9 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cf-min-long-tail-delta", type=float, default=0.0)
     parser.add_argument("--cf-min-novelty-delta", type=float, default=0.0)
 
-    # Semantic gate inputs/thresholds
-    parser.add_argument("--semantic-candidate", type=Path, default=None)
-    parser.add_argument("--semantic-min-delta", type=float, default=0.0)
+    # Semantic query gate inputs/thresholds.
+    parser.add_argument("--semantic-baseline-benchmark", type=Path, default=None)
+    parser.add_argument("--semantic-candidate-benchmark", type=Path, default=None)
+    parser.add_argument("--semantic-min-hit-at-k-delta", type=float, default=0.0)
+    parser.add_argument("--semantic-min-mrr-at-k-delta", type=float, default=0.0)
+    parser.add_argument("--semantic-min-evaluated-cases", type=int, default=10)
 
     parser.add_argument("--write-report", type=Path, default=None)
     parser.add_argument("--fail-on-reject", action="store_true")
@@ -73,6 +80,15 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _latest(eval_dir: Path, pattern: str) -> Path | None:
     files = sorted(eval_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
     return files[0] if files else None
+
+
+def _latest_two(eval_dir: Path, pattern: str) -> tuple[Path | None, Path | None]:
+    files = sorted(eval_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not files:
+        return None, None
+    if len(files) == 1:
+        return files[0], None
+    return files[0], files[1]
 
 
 def _latest_cf_alpha_zero(eval_dir: Path) -> Path | None:
@@ -90,6 +106,14 @@ def _latest_cf_alpha_zero(eval_dir: Path) -> Path | None:
 
 def _metric(payload: dict[str, Any], section: str, key: str) -> float:
     value = payload.get(section, {}).get(key, 0.0)
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def _semantic_summary_metric(payload: dict[str, Any], key: str) -> float:
+    value = payload.get("summary", {}).get(key, 0.0)
     try:
         return float(value)
     except Exception:
@@ -169,47 +193,70 @@ def run_cf_gate(args: argparse.Namespace) -> CfGateResult | None:
     )
 
 
-def run_semantic_gate(args: argparse.Namespace) -> SemanticGateResult | None:
-    candidate_path = args.semantic_candidate or _latest(args.eval_dir, "semantic_multipos_experiment_*.json")
-    if candidate_path is None:
+def run_semantic_query_gate(args: argparse.Namespace) -> SemanticQueryGateResult | None:
+    latest_candidate, latest_baseline = _latest_two(args.eval_dir, "semantic_query_benchmark_*.json")
+    candidate_path = args.semantic_candidate_benchmark or latest_candidate
+    baseline_path = args.semantic_baseline_benchmark or latest_baseline
+    if candidate_path is None or baseline_path is None:
         return None
 
     candidate_path = candidate_path.resolve()
-    payload = _load_json(candidate_path)
+    baseline_path = baseline_path.resolve()
+    c = _load_json(candidate_path)
+    b = _load_json(baseline_path)
     notes: list[str] = []
 
-    multipos = float(payload.get("metrics", {}).get("multipos_triplet_eval_cosine_accuracy", 0.0))
-    baseline_raw = payload.get("metrics", {}).get("baseline_triplet_eval_cosine_accuracy")
-    delta_raw = payload.get("metrics", {}).get("delta_vs_baseline")
-
-    baseline_score: float | None = None
-    if baseline_raw is not None:
-        baseline_score = float(baseline_raw)
-
-    delta: float | None
-    if delta_raw is not None:
-        delta = float(delta_raw)
-    elif baseline_score is not None:
-        delta = float(multipos - baseline_score)
-    else:
-        delta = None
-
-    passed = True
-    if delta is None:
-        passed = False
-        notes.append("Fail: semantic delta_vs_baseline is missing.")
-    elif delta < float(args.semantic_min_delta):
-        passed = False
+    candidate_cases = int(c.get("input", {}).get("evaluated_cases", 0))
+    baseline_cases = int(b.get("input", {}).get("evaluated_cases", 0))
+    min_cases = int(args.semantic_min_evaluated_cases)
+    if candidate_cases < min_cases:
         notes.append(
-            f"Fail: semantic delta {delta:+.6f} < min {float(args.semantic_min_delta):+.6f}"
+            f"Fail: candidate evaluated_cases={candidate_cases} < min {min_cases}."
+        )
+    if baseline_cases < min_cases:
+        notes.append(
+            f"Fail: baseline evaluated_cases={baseline_cases} < min {min_cases}."
         )
 
-    return SemanticGateResult(
+    cand_test_set = c.get("input", {}).get("test_set_path")
+    base_test_set = b.get("input", {}).get("test_set_path")
+    if cand_test_set != base_test_set:
+        notes.append(
+            f"Warning: test_set_path mismatch (baseline={base_test_set}, candidate={cand_test_set})."
+        )
+
+    candidate_hit = _semantic_summary_metric(c, "hit_at_k")
+    baseline_hit = _semantic_summary_metric(b, "hit_at_k")
+    candidate_mrr = _semantic_summary_metric(c, "mrr_at_k")
+    baseline_mrr = _semantic_summary_metric(b, "mrr_at_k")
+
+    hit_delta = candidate_hit - baseline_hit
+    mrr_delta = candidate_mrr - baseline_mrr
+
+    passed = True
+    if candidate_cases < min_cases or baseline_cases < min_cases:
+        passed = False
+    if hit_delta < float(args.semantic_min_hit_at_k_delta):
+        passed = False
+        notes.append(
+            f"Fail: hit@k delta {hit_delta:+.6f} < min {float(args.semantic_min_hit_at_k_delta):+.6f}"
+        )
+    if mrr_delta < float(args.semantic_min_mrr_at_k_delta):
+        passed = False
+        notes.append(
+            f"Fail: mrr@k delta {mrr_delta:+.6f} < min {float(args.semantic_min_mrr_at_k_delta):+.6f}"
+        )
+
+    return SemanticQueryGateResult(
         passed=passed,
+        baseline_path=str(baseline_path),
         candidate_path=str(candidate_path),
-        multipos_score=multipos,
-        baseline_score=baseline_score,
-        delta_vs_baseline=delta,
+        hit_at_k_delta=hit_delta,
+        mrr_at_k_delta=mrr_delta,
+        baseline_hit_at_k=baseline_hit,
+        candidate_hit_at_k=candidate_hit,
+        baseline_mrr_at_k=baseline_mrr,
+        candidate_mrr_at_k=candidate_mrr,
         notes=notes,
     )
 
@@ -233,22 +280,20 @@ def _print_cf(result: CfGateResult | None) -> None:
         print(f"- {note}")
 
 
-def _print_semantic(result: SemanticGateResult | None) -> None:
+def _print_semantic(result: SemanticQueryGateResult | None) -> None:
     if result is None:
-        print("Semantic Gate: SKIPPED (no semantic experiment snapshot found)")
+        print("Semantic Query Gate: SKIPPED (need baseline + candidate benchmark snapshots)")
         return
-    print("\nSemantic Gate")
+    print("\nSemantic Query Gate")
     print("-" * 60)
+    print(f"Baseline : {result.baseline_path}")
     print(f"Candidate: {result.candidate_path}")
-    print(f"Multipos score: {result.multipos_score:.6f}")
-    if result.baseline_score is not None:
-        print(f"Baseline score: {result.baseline_score:.6f}")
-    else:
-        print("Baseline score: n/a")
-    if result.delta_vs_baseline is not None:
-        print(f"Delta vs baseline: {result.delta_vs_baseline:+.6f}")
-    else:
-        print("Delta vs baseline: n/a")
+    print(f"Baseline hit@k : {result.baseline_hit_at_k:.6f}")
+    print(f"Candidate hit@k: {result.candidate_hit_at_k:.6f}")
+    print(f"Delta hit@k    : {result.hit_at_k_delta:+.6f}")
+    print(f"Baseline mrr@k : {result.baseline_mrr_at_k:.6f}")
+    print(f"Candidate mrr@k: {result.candidate_mrr_at_k:.6f}")
+    print(f"Delta mrr@k    : {result.mrr_at_k_delta:+.6f}")
     print(f"Decision: {'PASS' if result.passed else 'FAIL'}")
     for note in result.notes:
         print(f"- {note}")
@@ -262,7 +307,7 @@ def main() -> None:
     args.eval_dir = eval_dir
 
     cf_result = run_cf_gate(args)
-    semantic_result = run_semantic_gate(args)
+    semantic_result = run_semantic_query_gate(args)
     _print_cf(cf_result)
     _print_semantic(semantic_result)
 
@@ -292,14 +337,18 @@ def main() -> None:
             },
             "notes": cf_result.notes,
         },
-        "semantic": None
+        "semantic_query": None
         if semantic_result is None
         else {
             "passed": semantic_result.passed,
+            "baseline_path": semantic_result.baseline_path,
             "candidate_path": semantic_result.candidate_path,
-            "multipos_score": semantic_result.multipos_score,
-            "baseline_score": semantic_result.baseline_score,
-            "delta_vs_baseline": semantic_result.delta_vs_baseline,
+            "baseline_hit_at_k": semantic_result.baseline_hit_at_k,
+            "candidate_hit_at_k": semantic_result.candidate_hit_at_k,
+            "delta_hit_at_k": semantic_result.hit_at_k_delta,
+            "baseline_mrr_at_k": semantic_result.baseline_mrr_at_k,
+            "candidate_mrr_at_k": semantic_result.candidate_mrr_at_k,
+            "delta_mrr_at_k": semantic_result.mrr_at_k_delta,
             "notes": semantic_result.notes,
         },
         "thresholds": {
@@ -309,7 +358,9 @@ def main() -> None:
             "cf_min_coverage_delta": args.cf_min_coverage_delta,
             "cf_min_long_tail_delta": args.cf_min_long_tail_delta,
             "cf_min_novelty_delta": args.cf_min_novelty_delta,
-            "semantic_min_delta": args.semantic_min_delta,
+            "semantic_min_hit_at_k_delta": args.semantic_min_hit_at_k_delta,
+            "semantic_min_mrr_at_k_delta": args.semantic_min_mrr_at_k_delta,
+            "semantic_min_evaluated_cases": args.semantic_min_evaluated_cases,
         },
     }
 
@@ -326,3 +377,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

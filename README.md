@@ -70,7 +70,6 @@ Use these docs for details:
 
 - `DEV-COMMANDS.md` for setup, notebook run order, eval commands, and troubleshooting
 - `ARCHITECTURE.md` for design and scoring behavior
-- `EXECUTION-PLAN.md` for phase progress and handoff workflow
 - Eval scripts auto-prune old snapshot JSONs by retention defaults (tunable flags in `DEV-COMMANDS.md`)
 - Eval A/B comparison tooling includes `notebooks/eval_leaderboard.py` for ranking snapshot runs
 - Promotion gating for model updates uses `notebooks/promotion_gate.py` (commands in `DEV-COMMANDS.md`)
@@ -88,6 +87,5 @@ animetracker/
 |-- ml-models/
 |-- ARCHITECTURE.md
 |-- DEV-COMMANDS.md
-|-- EXECUTION-PLAN.md
 `-- docker-compose.yml
 ```

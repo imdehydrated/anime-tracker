@@ -750,29 +750,36 @@ Get-ChildItem .\notebooks\eval\semantic_query_benchmark_*.json | Sort-Object Las
 # Rank CF snapshots by NDCG (default), showing tracked CF training metadata
 python notebooks\eval_leaderboard.py --mode cf --top-n 10
 
-# Compare against a chosen baseline and show deltas
-python notebooks\eval_leaderboard.py --mode cf --top-n 10 --baseline notebooks\eval\baseline_metrics_20260219T223054Z.json
+# Compare CF against a chosen baseline and show deltas
+python notebooks\eval_leaderboard.py --mode cf --top-n 10 --cf-baseline notebooks\eval\baseline_metrics_20260219T223054Z.json
 
-# Semantic leaderboard
+# Semantic query leaderboard (uses semantic_query_benchmark_*.json)
 python notebooks\eval_leaderboard.py --mode semantic --top-n 10
 
-# Save leaderboard report JSON
+# Compare semantic query benchmarks against a chosen baseline benchmark
+python notebooks\eval_leaderboard.py --mode semantic --top-n 10 --semantic-baseline notebooks\eval\semantic_query_benchmark_20260223T023106Z.json
+
+# Save combined leaderboard report JSON
 python notebooks\eval_leaderboard.py --mode both --top-n 20 --write-report notebooks\eval\leaderboard_latest.json
 ```
 
 ### Phase 6/7 Promotion Gate
 
 ```powershell
-# Compare latest CF + semantic experiment snapshots with promotion thresholds
+# Compare latest CF + semantic query benchmark snapshots with promotion thresholds
 notebooks\.venv311\Scripts\python notebooks\promotion_gate.py --eval-dir notebooks\eval
 
 # Explicitly compare a chosen baseline/candidate pair
 notebooks\.venv311\Scripts\python notebooks\promotion_gate.py `
   --cf-baseline notebooks\eval\baseline_metrics_20260219T223054Z.json `
-  --cf-candidate notebooks\eval\baseline_metrics_20260219T223221Z.json
+  --cf-candidate notebooks\eval\baseline_metrics_20260219T223221Z.json `
+  --semantic-baseline-benchmark notebooks\eval\semantic_query_benchmark_20260223T023106Z.json `
+  --semantic-candidate-benchmark notebooks\eval\semantic_query_benchmark_20260223T024101Z.json
 
-# Stricter semantic requirement (must beat baseline by at least +0.01)
-notebooks\.venv311\Scripts\python notebooks\promotion_gate.py --semantic-min-delta 0.01
+# Stricter semantic requirement (must beat baseline in both hit@k and mrr@k)
+notebooks\.venv311\Scripts\python notebooks\promotion_gate.py `
+  --semantic-min-hit-at-k-delta 0.01 `
+  --semantic-min-mrr-at-k-delta 0.01
 
 # Save machine-readable report and fail process on reject (useful in CI/automation)
 notebooks\.venv311\Scripts\python notebooks\promotion_gate.py `

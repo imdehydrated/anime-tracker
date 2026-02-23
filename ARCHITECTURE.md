@@ -105,7 +105,7 @@ Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies 
    - `fusionScore`
    - `reasonCodes`
    - one-sentence `recommendationReason`
-   - sentence now uses concrete signals when available (matched query terms, genre overlap, CF contributor hints, and CF confidence)
+   - sentence now uses concrete signals when available (matched query terms, genre overlap, CF contributor hints, and highly-rated genre context)
 6. Reason codes on fused items are contribution-aware:
    - a source reason is included only when that source contributes enough score share
    - this avoids misleading explanations when one source had negligible impact
@@ -183,13 +183,17 @@ Explanation config:
   - Measures direct search quality with `Hit@K` + `MRR@K` against multiple acceptable titles per query
 - Snapshot cleanup: auto-prunes old eval JSONs by retention policy (default keep 40 latest, prune files older than 30 days beyond that).
 - Eval snapshots can include optional experiment metadata (label + CF training hyperparameters) for A/B traceability.
-- Ranking helper: `notebooks/eval_leaderboard.py` to compare/rank snapshots and view deltas vs a selected baseline.
+- Ranking helper: `notebooks/eval_leaderboard.py` to compare/rank:
+  - CF snapshots from `baseline_metrics_*.json`
+  - semantic query snapshots from `semantic_query_benchmark_*.json`
 - Promotion gate script: `notebooks/promotion_gate.py`
   - compares baseline vs candidate CF snapshots with threshold checks
-  - checks semantic experiment delta vs baseline
+  - compares semantic query benchmark baseline vs candidate using `Hit@K` and `MRR@K` deltas
   - outputs explicit PASS/FAIL before model promotion
 
 What it measures:
+
+CF offline ranking metrics:
 
 - `Recall@10`
 - `HitRate@10`
@@ -197,6 +201,11 @@ What it measures:
 - `Coverage@10`
 - `Long-tail share`
 - `Novelty`
+
+Semantic query benchmark metrics:
+
+- `Hit@K`
+- `MRR@K`
 
 Simple meaning of each metric:
 
@@ -213,11 +222,17 @@ Simple meaning of each metric:
 - `Novelty`: How surprising/less-popular recommended items are on average.
   Higher means more novel picks, but very high can reduce mainstream relevance.
 
-How to read them together:
+How to read CF metrics together:
 
 - Strong quality usually means good `Recall@10` and `NDCG@10`.
 - Healthy diversity usually means non-trivial `Coverage@10`, `Long-tail share`, and `Novelty`.
 - No single metric is enough; track all of them before and after model changes.
+
+How to read semantic query metrics:
+
+- `Hit@K` answers: did any acceptable title appear in top K.
+- `MRR@K` answers: how early the first acceptable title appeared.
+- For semantic search promotion, prioritize improvements in both `Hit@K` and `MRR@K` on the same test set.
 
 Split behavior:
 

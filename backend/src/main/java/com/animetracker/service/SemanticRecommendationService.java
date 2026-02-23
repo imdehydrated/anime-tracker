@@ -296,8 +296,6 @@ public class SemanticRecommendationService {
                     String reasonSentence = buildCfReasonSentence(
                             anime,
                             cfContributor,
-                            predictedScore,
-                            watchConfidence,
                             topTasteGenres);
                     applyRecommendationMeta(
                             anime,
@@ -1480,9 +1478,19 @@ public class SemanticRecommendationService {
         }
         if (codes.contains(RecommendationResponse.CF_SIGNAL)) {
             if (cfContributor != null && !cfContributor.isBlank()) {
-                clauses.add("users with similar rating patterns and your strong interest in " + cfContributor + " both support it");
+                clauses.add("it is similar to " + cfContributor + " from your list");
             } else {
-                clauses.add("users with similar rating patterns consistently score it highly");
+                List<String> overlapGenres = findGenreOverlap(anime, tasteGenres, 2);
+                if (!overlapGenres.isEmpty()) {
+                    clauses.add("it has common themes with shows you enjoyed, especially " + prettyList(overlapGenres));
+                } else {
+                    List<String> genreHints = topAnimeGenres(anime, 2);
+                    if (!genreHints.isEmpty()) {
+                        clauses.add("it is a highly rated " + prettyList(genreHints) + " show");
+                    } else {
+                        clauses.add("users with similar tastes rate it highly");
+                    }
+                }
             }
         }
 
@@ -1509,25 +1517,22 @@ public class SemanticRecommendationService {
     private String buildCfReasonSentence(
             AniListResponse.AnimeInfo anime,
             String cfContributor,
-            double predictedScore,
-            double watchConfidence,
             List<String> topTasteGenres) {
-        List<String> clauses = new ArrayList<>(3);
+        List<String> clauses = new ArrayList<>(2);
         if (cfContributor != null && !cfContributor.isBlank()) {
-            clauses.add("users with similar patterns and your interest in " + cfContributor + " both support this pick");
-        } else {
-            clauses.add("users with similar rating patterns consistently score this highly");
-        }
-
-        if (Double.isFinite(predictedScore) && Double.isFinite(watchConfidence)) {
-            int confidencePct = (int) Math.round(FusionScoringService.clamp(watchConfidence, 0.0d, 1.0d) * 100.0d);
-            double clampedPred = FusionScoringService.clamp(predictedScore, 1.0d, 10.0d);
-            clauses.add("the model estimates about " + String.format("%.1f", clampedPred) + "/10 with " + confidencePct + "% watch confidence");
+            clauses.add("it is similar to " + cfContributor + " from your list");
         }
 
         List<String> overlapGenres = findGenreOverlap(anime, topTasteGenres, 2);
         if (!overlapGenres.isEmpty()) {
-            clauses.add("it also matches your preferred genres (" + prettyList(overlapGenres) + ")");
+            clauses.add("it has common themes with shows you enjoyed, especially " + prettyList(overlapGenres));
+        } else {
+            List<String> genreHints = topAnimeGenres(anime, 2);
+            if (!genreHints.isEmpty()) {
+                clauses.add("it is a highly rated " + prettyList(genreHints) + " show");
+            } else if (clauses.isEmpty()) {
+                clauses.add("users with similar tastes rate it highly");
+            }
         }
 
         return "Recommended because " + joinClauses(clauses) + ".";
