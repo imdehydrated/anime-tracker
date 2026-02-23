@@ -63,7 +63,10 @@ All modes use the same request DTO (`SemanticRequest`) with `mode`:
   Query text is normalized before embedding (lowercase, punctuation cleanup). Shorthand terms are preserved and expanded (for example `romcom -> romcom romance comedy`, `isekai -> isekai another world fantasy adventure`).
   Candidate generation is hybrid:
   - vector nearest-neighbor candidates from pgvector
-  - lexical fallback/boost candidates from title + genres + description text matching
+  - indexed lexical candidates from title + genres + description using PostgreSQL full-text ranking and trigram title similarity
+  - vector + lexical candidates are merged via reciprocal rank fusion (configurable weights + `rrf-k`)
+  - optional sidecar rerank pass can reorder semantic-mode candidates when custom vectors are enabled
+  - semantic dedupe pass can collapse near-duplicate franchise season/special variants before final response shaping
   - merged candidate scores are calibrated per query to reduce overconfident outliers
 - `similar`: seed-centric similarity (+ optional list profile blend).
 - `cf`: collaborative filtering only (requires logged-in user + sidecar).
@@ -146,6 +149,14 @@ Semantic retrieval config:
 - `RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT`
 - `RECOMMENDATIONS_SEMANTIC_LEXICAL_MAX_PATTERNS`
 - `RECOMMENDATIONS_SEMANTIC_LEXICAL_BOOST`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_RRF_K`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_VECTOR_WEIGHT`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_WEIGHT`
+- `RECOMMENDATIONS_SEMANTIC_RERANK_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_RERANK_TOP_K`
+- `RECOMMENDATIONS_SEMANTIC_DEDUPE_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_DEDUPE_MAX_PER_FRANCHISE`
+- `RECOMMENDATIONS_SEMANTIC_DEDUPE_SUPPRESS_SPECIALS`
 - `RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED`
 - `RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE`
 
@@ -180,6 +191,10 @@ Explanation config:
 ## Data and Infra Notes
 
 - Database uses pgvector index for nearest-neighbor retrieval.
+- Database also uses lexical indexes for semantic fallback/ranking:
+  - `pg_trgm` extension for title trigram similarity
+  - GIN trigram index on normalized title text
+  - GIN full-text index over title + genres + description
 - Backend can auto-sync custom embedding JSONL into DB at startup.
 - AniList calls include retry/pacing/cache safeguards.
 - Sidecar calls are forced to HTTP/1.1 for stable request handling.

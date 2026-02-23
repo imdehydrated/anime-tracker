@@ -327,6 +327,18 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored
 RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED=true
 RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT=30
 RECOMMENDATIONS_SEMANTIC_LEXICAL_MAX_PATTERNS=3
+# Reciprocal-rank-fusion controls for vector + lexical candidate merge
+RECOMMENDATIONS_SEMANTIC_LEXICAL_RRF_K=60
+RECOMMENDATIONS_SEMANTIC_LEXICAL_VECTOR_WEIGHT=1.00
+RECOMMENDATIONS_SEMANTIC_LEXICAL_WEIGHT=0.80
+# Semantic-mode sidecar rerank controls (custom vectors only)
+RECOMMENDATIONS_SEMANTIC_RERANK_ENABLED=true
+RECOMMENDATIONS_SEMANTIC_RERANK_TOP_K=60
+# Semantic result dedupe controls (Smart Search mode)
+RECOMMENDATIONS_SEMANTIC_DEDUPE_ENABLED=true
+RECOMMENDATIONS_SEMANTIC_DEDUPE_MAX_PER_FRANCHISE=1
+RECOMMENDATIONS_SEMANTIC_DEDUPE_SUPPRESS_SPECIALS=true
+# Residual lexical boost (applied after retrieval merge)
 RECOMMENDATIONS_SEMANTIC_LEXICAL_BOOST=0.08
 RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED=true
 RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE=1.00
@@ -537,8 +549,8 @@ curl.exe http://localhost:8080/api/users/recommendations/blacklist -H "Authoriza
 ## Recommendation Modes (AI-Powered)
 
 ```powershell
-# Smart Search (semantic): seeds + text query
-curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"mode":"semantic","seedIds":[1535,21],"query":"dark psychological thriller with antiheroes","limit":15}'
+# Smart Search (semantic): text query is primary (seedIds are ignored for compatibility)
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"mode":"semantic","query":"dark psychological thriller with antiheroes","limit":15}'
 
 # Note: Smart Search UI now auto-sends listWeight=0.20 for logged-in users.
 # You can still override via API by passing listWeight explicitly.

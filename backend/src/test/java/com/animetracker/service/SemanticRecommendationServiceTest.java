@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -16,6 +17,7 @@ import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.List;
@@ -151,6 +153,96 @@ class SemanticRecommendationServiceTest {
                 null,
                 "semantic"));
         verify(embeddingRepository).findLexicalMatches(anyString(), anyList(), anyInt());
+    }
+
+    @Test
+    void recommend_semanticMode_usesSidecarRerankWhenEnabled() throws Exception {
+        setField(service, "semanticLexicalEnabled", false);
+        setField(service, "semanticRerankEnabled", true);
+        setField(service, "semanticRerankTopK", 20);
+
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(List.of(
+                sampleSemanticRow(101, "First Distance", 0.30d),
+                sampleSemanticRow(202, "Second Distance", 0.10d)));
+        when(mlSidecarService.rerank(any(), anyList(), anyList(), anyInt())).thenReturn(List.of(
+                Map.of("anilist_id", 101, "score", 0.90d),
+                Map.of("anilist_id", 202, "score", 0.20d)));
+        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<FusionScoringService.ScoredCandidate> sem =
+                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
+            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
+            for (FusionScoringService.ScoredCandidate candidate : sem) {
+                fused.add(new FusionScoringService.FusedCandidate(
+                        candidate.anilistId(),
+                        candidate.animeInfo(),
+                        candidate.score(),
+                        candidate.reasonCodes()));
+            }
+            return fused;
+        });
+
+        @SuppressWarnings("unchecked")
+        List<com.animetracker.dto.RecommendationResponse> results =
+                (List<com.animetracker.dto.RecommendationResponse>) (List<?>) service.recommend(
+                        null,
+                        List.of(),
+                        "dark thriller",
+                        10,
+                        false,
+                        null,
+                        "semantic");
+
+        verify(mlSidecarService).rerank(any(), anyList(), anyList(), anyInt());
+        assertEquals(2, results.size());
+        assertEquals(101, results.get(0).getAnime().getId());
+    }
+
+    @Test
+    void recommend_semanticMode_dedupesFranchiseSpecials() throws Exception {
+        setField(service, "semanticLexicalEnabled", false);
+        setField(service, "semanticRerankEnabled", false);
+        setField(service, "semanticDedupeEnabled", true);
+        setField(service, "semanticDedupeMaxPerFranchise", 1);
+        setField(service, "semanticDedupeSuppressSpecials", true);
+
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(List.of(
+                sampleSemanticRow(101, "Attack on Titan OVA", 0.05d),
+                sampleSemanticRow(102, "Attack on Titan Season 1", 0.06d),
+                sampleSemanticRow(201, "Vinland Saga", 0.07d)));
+        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<FusionScoringService.ScoredCandidate> sem =
+                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
+            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
+            for (FusionScoringService.ScoredCandidate candidate : sem) {
+                fused.add(new FusionScoringService.FusedCandidate(
+                        candidate.anilistId(),
+                        candidate.animeInfo(),
+                        candidate.score(),
+                        candidate.reasonCodes()));
+            }
+            return fused;
+        });
+
+        @SuppressWarnings("unchecked")
+        List<com.animetracker.dto.RecommendationResponse> results =
+                (List<com.animetracker.dto.RecommendationResponse>) (List<?>) service.recommend(
+                        null,
+                        List.of(),
+                        "dark action",
+                        2,
+                        false,
+                        null,
+                        "semantic");
+
+        assertEquals(2, results.size());
+        assertEquals(102, results.get(0).getAnime().getId());
+        assertEquals(201, results.get(1).getAnime().getId());
     }
 
     @Test

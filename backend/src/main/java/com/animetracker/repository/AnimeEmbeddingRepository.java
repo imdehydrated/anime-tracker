@@ -51,33 +51,52 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("limit") int limit);
 
 	/**
-	 * Lightweight lexical fallback/boost retrieval used by semantic mode.
-	 * Matches title/genres/description with LIKE pattern and returns a synthetic
-	 * distance so rows can be merged with vector candidates.
+	 * Indexed lexical retrieval for semantic mode.
+	 * Combines full-text ranking (title/genres/description) and trigram title
+	 * similarity into one lexical score, then emits a synthetic distance for
+	 * downstream compatibility with vector result mapping.
 	 */
 	@Query(value = """
+			WITH ranked AS (
+				SELECT id, anilist_id, title_romaji, title_english, cover_image,
+				       genres, description, average_score, status, episodes,
+				       embedding_text, created_at, updated_at,
+				       ts_rank_cd(
+				         to_tsvector(
+				           'simple',
+				           LOWER(
+				             COALESCE(title_romaji, '') || ' ' ||
+				             COALESCE(title_english, '') || ' ' ||
+				             COALESCE(genres, '') || ' ' ||
+				             COALESCE(description, '')
+				           )
+				         ),
+				         plainto_tsquery('simple', :queryText)
+				       ) AS ts_rank,
+				       GREATEST(
+				         similarity(LOWER(COALESCE(title_romaji, '')), :queryText),
+				         similarity(LOWER(COALESCE(title_english, '')), :queryText)
+				       ) AS trigram_score
+				FROM anime_embeddings
+				WHERE anilist_id NOT IN (:excludeIds)
+			)
 			SELECT id, anilist_id, title_romaji, title_english, cover_image,
 			       genres, description, average_score, status, episodes,
 			       embedding_text, created_at, updated_at,
-			       CASE
-			         WHEN LOWER(COALESCE(title_romaji, '')) LIKE :pattern
-			           OR LOWER(COALESCE(title_english, '')) LIKE :pattern THEN 0.15
-			         WHEN LOWER(COALESCE(genres, '')) LIKE :pattern THEN 0.30
-			         ELSE 0.40
-			       END AS distance
-			FROM anime_embeddings
-			WHERE anilist_id NOT IN (:excludeIds)
-			  AND (
-			       LOWER(COALESCE(title_romaji, '')) LIKE :pattern
-			    OR LOWER(COALESCE(title_english, '')) LIKE :pattern
-			    OR LOWER(COALESCE(genres, '')) LIKE :pattern
-			    OR LOWER(COALESCE(description, '')) LIKE :pattern
-			  )
-			ORDER BY distance ASC, anilist_id ASC
+			       (
+			         1.0 - LEAST(
+			           1.0,
+			           (0.70 * ts_rank) + (0.30 * trigram_score)
+			         )
+			       ) AS distance
+			FROM ranked
+			WHERE ts_rank > 0
+			   OR trigram_score > 0.10
+			ORDER BY ((0.70 * ts_rank) + (0.30 * trigram_score)) DESC, anilist_id ASC
 			LIMIT :limit
 			""", nativeQuery = true)
 	List<Object[]> findLexicalMatches(
-			@Param("pattern") String pattern,
+			@Param("queryText") String queryText,
 			@Param("excludeIds") List<Integer> excludeIds,
 			@Param("limit") int limit);
 

@@ -31,7 +31,10 @@ For deeper design details, see `ARCHITECTURE.md`.
 - Smart Search query text is normalized (cleanup + shorthand expansion) before semantic embedding.
 - Smart Search now uses hybrid semantic retrieval:
   - vector candidates from pgvector
-  - lexical/title-genre-description fallback candidates
+  - indexed lexical candidates (full-text + trigram over title/genres/description)
+  - vector + lexical candidates merged with reciprocal-rank-fusion policy
+  - optional sidecar reranking on semantic mode when custom vectors are enabled
+  - semantic dedupe pass reduces same-franchise season/special clutter in top results
   - per-query score calibration to reduce overconfident outliers
 - CF mode predicts unwatched anime using a trained autoencoder.
 - CF ranking uses a mild popularity attenuation by default (tunable via env vars).

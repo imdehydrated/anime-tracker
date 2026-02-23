@@ -114,8 +114,21 @@ recommendations:
     # Hybrid candidate generation for Smart Search: vector retrieval + lexical matches.
     lexical-enabled: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED:true}
     lexical-candidate-limit: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT:30}
+    # Max query tokens retained for lexical query text construction.
     lexical-max-patterns: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_MAX_PATTERNS:3}
+    # Residual lexical boost retained for compatibility after retrieval fusion.
     lexical-boost: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_BOOST:0.08}
+    # Reciprocal rank fusion controls for vector + lexical candidate merging.
+    lexical-rrf-k: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_RRF_K:60}
+    lexical-vector-weight: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_VECTOR_WEIGHT:1.00}
+    lexical-weight: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_WEIGHT:0.80}
+    # Optional sidecar reranking for semantic mode (custom vectors only).
+    rerank-enabled: ${RECOMMENDATIONS_SEMANTIC_RERANK_ENABLED:true}
+    rerank-top-k: ${RECOMMENDATIONS_SEMANTIC_RERANK_TOP_K:60}
+    # Semantic top-result quality controls to reduce same-franchise specials/recaps.
+    dedupe-enabled: ${RECOMMENDATIONS_SEMANTIC_DEDUPE_ENABLED:true}
+    dedupe-max-per-franchise: ${RECOMMENDATIONS_SEMANTIC_DEDUPE_MAX_PER_FRANCHISE:1}
+    dedupe-suppress-specials: ${RECOMMENDATIONS_SEMANTIC_DEDUPE_SUPPRESS_SPECIALS:true}
     # Per-query calibration to reduce overconfident semantic scores.
     score-calibration-enabled: ${RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED:true}
     score-calibration-temperature: ${RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE:1.00}

@@ -48,6 +48,8 @@ public class SemanticRecommendationService {
     private static final Map<String, String> QUERY_SYNONYMS = buildQuerySynonyms();
     private static final Set<String> QUERY_STOP_WORDS = Set.of(
             "anime", "show", "shows", "with", "about", "that", "this", "and", "the", "for", "from");
+    private static final Set<String> DEDUPE_SPECIAL_MARKERS = Set.of(
+            "special", "ova", "ona", "movie", "film", "recap", "summary", "compilation", "digest");
 
     private final AnimeEmbeddingRepository embeddingRepository;
     private final AnimeListEntryService animeListEntryService;
@@ -76,6 +78,22 @@ public class SemanticRecommendationService {
     private int semanticLexicalMaxPatterns;
     @Value("${recommendations.semantic.lexical-boost:0.08}")
     private float semanticLexicalBoost;
+    @Value("${recommendations.semantic.lexical-rrf-k:60}")
+    private int semanticLexicalRrfK;
+    @Value("${recommendations.semantic.lexical-vector-weight:1.00}")
+    private float semanticLexicalVectorWeight;
+    @Value("${recommendations.semantic.lexical-weight:0.80}")
+    private float semanticLexicalWeight;
+    @Value("${recommendations.semantic.rerank-enabled:true}")
+    private boolean semanticRerankEnabled;
+    @Value("${recommendations.semantic.rerank-top-k:60}")
+    private int semanticRerankTopK;
+    @Value("${recommendations.semantic.dedupe-enabled:true}")
+    private boolean semanticDedupeEnabled;
+    @Value("${recommendations.semantic.dedupe-max-per-franchise:1}")
+    private int semanticDedupeMaxPerFranchise;
+    @Value("${recommendations.semantic.dedupe-suppress-specials:true}")
+    private boolean semanticDedupeSuppressSpecials;
     @Value("${recommendations.semantic.score-calibration-enabled:true}")
     private boolean semanticScoreCalibrationEnabled;
     @Value("${recommendations.semantic.score-calibration-temperature:1.00}")
@@ -238,23 +256,13 @@ public class SemanticRecommendationService {
                 candidateLimit,
                 normalizedQuery);
         List<String> baseReasonCodes = buildBaseReasonCodes(false, hasQuery, usedListProfile);
-        List<FusionScoringService.ScoredCandidate> semanticCandidates = new ArrayList<>();
-        for (Object[] row : rowSelection.rows()) {
-            AniListResponse.AnimeInfo anime = mapRowToAnimeInfo(row);
-            double distance = distanceFromRow(row);
-            double normalizedScore = FusionScoringService.normalizeSemanticDistance(distance);
-            if (anime.getId() != null && rowSelection.lexicalBoostIds().contains(anime.getId())) {
-                normalizedScore = FusionScoringService.clamp(
-                        normalizedScore + semanticLexicalBoost,
-                        0.0,
-                        1.0);
-            }
-            semanticCandidates.add(new FusionScoringService.ScoredCandidate(
-                    anime.getId(),
-                    anime,
-                    normalizedScore,
-                    baseReasonCodes));
-        }
+        List<FusionScoringService.ScoredCandidate> semanticCandidates = buildSemanticCandidatesFromRows(
+                rowSelection.rows(),
+                searchVector,
+                baseReasonCodes,
+                rowSelection.lexicalBoostIds(),
+                semanticRerankEnabled,
+                semanticRerankTopK);
         semanticCandidates = applyQueryScoreCalibration(semanticCandidates, hasQuery);
 
         List<FusionScoringService.FusedCandidate> fused = blendSemanticWithCfIfAvailable(
@@ -550,48 +558,31 @@ public class SemanticRecommendationService {
             return new SemanticRowSelection(vectorRows, Set.of());
         }
 
-        List<String> lexicalPatterns = buildLexicalPatterns(normalizedQuery);
-        if (lexicalPatterns.isEmpty()) {
+        String lexicalQueryText = buildLexicalQueryText(normalizedQuery);
+        if (lexicalQueryText.isBlank()) {
+            return new SemanticRowSelection(vectorRows, Set.of());
+        }
+
+        List<Object[]> lexicalRows = embeddingRepository.findLexicalMatches(
+                lexicalQueryText,
+                excludeIds,
+                Math.max(5, semanticLexicalCandidateLimit));
+        if (lexicalRows == null || lexicalRows.isEmpty()) {
             return new SemanticRowSelection(vectorRows, Set.of());
         }
 
         Map<Integer, Object[]> rowsById = new LinkedHashMap<>();
+        Map<Integer, Integer> vectorRankById = new HashMap<>();
+        Map<Integer, Integer> lexicalRankById = new HashMap<>();
         Set<Integer> lexicalBoostIds = new LinkedHashSet<>();
-        for (Object[] row : vectorRows) {
-            if (row != null && row.length > 1 && row[1] instanceof Integer id) {
-                rowsById.put(id, row);
-            }
-        }
+        registerSourceRows(vectorRows, rowsById, vectorRankById, null);
+        registerSourceRows(lexicalRows, rowsById, lexicalRankById, lexicalBoostIds);
 
-        int perPatternLimit = Math.max(5, semanticLexicalCandidateLimit / lexicalPatterns.size());
-        for (String pattern : lexicalPatterns) {
-            List<Object[]> lexicalRows = embeddingRepository.findLexicalMatches(
-                    pattern,
-                    excludeIds,
-                    perPatternLimit);
-            if (lexicalRows == null || lexicalRows.isEmpty()) {
-                continue;
-            }
-            for (Object[] row : lexicalRows) {
-                if (row == null || row.length <= 1 || !(row[1] instanceof Integer id)) {
-                    continue;
-                }
-                lexicalBoostIds.add(id);
-                Object[] existing = rowsById.get(id);
-                if (existing == null || distanceFromRow(row) < distanceFromRow(existing)) {
-                    rowsById.put(id, row);
-                }
-            }
-        }
-
-        List<Object[]> mergedRows = new ArrayList<>(rowsById.values());
-        mergedRows.sort(Comparator
-                .comparingDouble(this::distanceFromRow)
-                .thenComparingInt(row -> (Integer) row[1]));
-
-        if (mergedRows.size() > candidateLimit) {
-            mergedRows = mergedRows.subList(0, candidateLimit);
-        }
+        List<Object[]> mergedRows = rankRowsByReciprocalRankFusion(
+                rowsById,
+                vectorRankById,
+                lexicalRankById,
+                candidateLimit);
 
         Set<Integer> keptIds = new LinkedHashSet<>();
         for (Object[] row : mergedRows) {
@@ -602,38 +593,289 @@ public class SemanticRecommendationService {
         return new SemanticRowSelection(mergedRows, Set.copyOf(lexicalBoostIds));
     }
 
-    private List<String> buildLexicalPatterns(String normalizedQuery) {
-        if (normalizedQuery == null || normalizedQuery.isBlank()) {
+    private List<FusionScoringService.ScoredCandidate> buildSemanticCandidatesFromRows(
+            List<Object[]> rows,
+            float[] searchVector,
+            List<String> baseReasonCodes,
+            Set<Integer> lexicalBoostIds,
+            boolean rerankEnabled,
+            int rerankTopK) {
+        if (rows == null || rows.isEmpty()) {
             return List.of();
         }
 
-        List<String> patterns = new ArrayList<>();
-        String wildcardPhrase = "%" + normalizedQuery.replace(" ", "%") + "%";
-        patterns.add(wildcardPhrase);
-
-        int tokenPatternBudget = Math.max(0, semanticLexicalMaxPatterns - 1);
-        if (tokenPatternBudget == 0) {
-            return patterns;
+        Set<Integer> safeLexicalBoostIds = lexicalBoostIds == null ? Set.of() : lexicalBoostIds;
+        if (rerankEnabled && useCustomVectors && mlSidecarService.isEnabled()) {
+            List<FusionScoringService.ScoredCandidate> reranked = tryBuildRerankedSemanticCandidates(
+                    rows,
+                    searchVector,
+                    baseReasonCodes,
+                    safeLexicalBoostIds,
+                    rerankTopK);
+            if (reranked != null && !reranked.isEmpty()) {
+                return reranked;
+            }
         }
 
+        List<FusionScoringService.ScoredCandidate> semanticCandidates = new ArrayList<>(rows.size());
+        for (Object[] row : rows) {
+            FusionScoringService.ScoredCandidate candidate = toSemanticCandidate(
+                    row,
+                    Double.NaN,
+                    baseReasonCodes,
+                    safeLexicalBoostIds);
+            if (candidate != null) {
+                semanticCandidates.add(candidate);
+            }
+        }
+        return semanticCandidates;
+    }
+
+    private List<FusionScoringService.ScoredCandidate> tryBuildRerankedSemanticCandidates(
+            List<Object[]> rows,
+            float[] searchVector,
+            List<String> baseReasonCodes,
+            Set<Integer> lexicalBoostIds,
+            int rerankTopK) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+
+        List<Integer> candidateIds = new ArrayList<>(rows.size());
+        List<Double> candidateDistances = new ArrayList<>(rows.size());
+        Map<Integer, Object[]> rowById = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            if (row == null || row.length <= 13 || !(row[1] instanceof Integer anilistId)) {
+                continue;
+            }
+            candidateIds.add(anilistId);
+            candidateDistances.add(distanceFromRow(row));
+            rowById.putIfAbsent(anilistId, row);
+        }
+        if (candidateIds.isEmpty()) {
+            return List.of();
+        }
+
+        int topK = Math.max(1, Math.min(candidateIds.size(), rerankTopK <= 0 ? candidateIds.size() : rerankTopK));
+        List<Map<String, Object>> reranked = mlSidecarService.rerank(
+                searchVector,
+                candidateIds,
+                candidateDistances,
+                topK);
+        if (reranked == null || reranked.isEmpty()) {
+            return List.of();
+        }
+
+        List<FusionScoringService.ScoredCandidate> semanticCandidates = new ArrayList<>(rowById.size());
+        Set<Integer> appendedIds = new LinkedHashSet<>();
+        for (Map<String, Object> item : reranked) {
+            if (item == null) {
+                continue;
+            }
+            Object idValue = item.get("anilist_id");
+            if (!(idValue instanceof Number idNumber)) {
+                continue;
+            }
+            int anilistId = idNumber.intValue();
+            Object[] row = rowById.get(anilistId);
+            if (row == null) {
+                continue;
+            }
+            double rerankedScore = numberValue(item.get("score"), Double.NaN);
+            FusionScoringService.ScoredCandidate candidate = toSemanticCandidate(
+                    row,
+                    rerankedScore,
+                    baseReasonCodes,
+                    lexicalBoostIds);
+            if (candidate != null) {
+                semanticCandidates.add(candidate);
+                appendedIds.add(anilistId);
+            }
+        }
+
+        // Keep unreturned rows so downstream fusion still has overfetch headroom.
+        for (Object[] row : rows) {
+            if (row == null || row.length <= 1 || !(row[1] instanceof Integer anilistId)) {
+                continue;
+            }
+            if (appendedIds.contains(anilistId)) {
+                continue;
+            }
+            FusionScoringService.ScoredCandidate candidate = toSemanticCandidate(
+                    row,
+                    Double.NaN,
+                    baseReasonCodes,
+                    lexicalBoostIds);
+            if (candidate != null) {
+                semanticCandidates.add(candidate);
+            }
+        }
+
+        return semanticCandidates;
+    }
+
+    private FusionScoringService.ScoredCandidate toSemanticCandidate(
+            Object[] row,
+            double rerankedScore,
+            List<String> baseReasonCodes,
+            Set<Integer> lexicalBoostIds) {
+        if (row == null) {
+            return null;
+        }
+
+        AniListResponse.AnimeInfo anime = mapRowToAnimeInfo(row);
+        if (anime == null || anime.getId() == null) {
+            return null;
+        }
+
+        double normalizedScore = Double.isNaN(rerankedScore)
+                ? FusionScoringService.normalizeSemanticDistance(distanceFromRow(row))
+                : FusionScoringService.normalizeRerankedScore(rerankedScore);
+        if (lexicalBoostIds != null && lexicalBoostIds.contains(anime.getId())) {
+            normalizedScore = FusionScoringService.clamp(
+                    normalizedScore + semanticLexicalBoost,
+                    0.0,
+                    1.0);
+        }
+
+        return new FusionScoringService.ScoredCandidate(
+                anime.getId(),
+                anime,
+                normalizedScore,
+                baseReasonCodes);
+    }
+
+    private String buildLexicalQueryText(String normalizedQuery) {
+        if (normalizedQuery == null || normalizedQuery.isBlank()) {
+            return "";
+        }
+
+        int tokenBudget = Math.max(1, semanticLexicalMaxPatterns);
         Set<String> seenTokens = new LinkedHashSet<>();
         for (String token : normalizedQuery.split(" ")) {
             if (token == null || token.isBlank()) {
                 continue;
             }
-            if (token.length() < 4 || QUERY_STOP_WORDS.contains(token)) {
+            boolean isKeywordCandidate = token.length() >= 4 && !QUERY_STOP_WORDS.contains(token);
+            if (!isKeywordCandidate) {
                 continue;
             }
             if (!seenTokens.add(token)) {
                 continue;
             }
-            patterns.add("%" + token + "%");
-            if (patterns.size() >= semanticLexicalMaxPatterns) {
+            if (seenTokens.size() >= tokenBudget) {
                 break;
             }
         }
 
-        return patterns;
+        if (seenTokens.isEmpty()) {
+            return normalizedQuery;
+        }
+        return String.join(" ", seenTokens);
+    }
+
+    private void registerSourceRows(
+            List<Object[]> sourceRows,
+            Map<Integer, Object[]> rowsById,
+            Map<Integer, Integer> rankById,
+            Set<Integer> optionalSeenIds) {
+        if (sourceRows == null || sourceRows.isEmpty()) {
+            return;
+        }
+
+        int rank = 1;
+        for (Object[] row : sourceRows) {
+            if (row == null || row.length <= 1 || !(row[1] instanceof Integer id)) {
+                continue;
+            }
+            rankById.putIfAbsent(id, rank);
+            if (optionalSeenIds != null) {
+                optionalSeenIds.add(id);
+            }
+
+            Object[] existing = rowsById.get(id);
+            if (existing == null || distanceFromRow(row) < distanceFromRow(existing)) {
+                rowsById.put(id, row);
+            }
+            rank++;
+        }
+    }
+
+    private List<Object[]> rankRowsByReciprocalRankFusion(
+            Map<Integer, Object[]> rowsById,
+            Map<Integer, Integer> vectorRankById,
+            Map<Integer, Integer> lexicalRankById,
+            int candidateLimit) {
+        if (rowsById == null || rowsById.isEmpty()) {
+            return List.of();
+        }
+
+        double vectorWeight = Math.max(0.0d, semanticLexicalVectorWeight);
+        double lexicalWeight = Math.max(0.0d, semanticLexicalWeight);
+        if (vectorWeight <= 0.0d && lexicalWeight <= 0.0d) {
+            vectorWeight = 1.0d;
+            lexicalWeight = 1.0d;
+        }
+        final int rrfK = Math.max(1, semanticLexicalRrfK);
+        final double effectiveVectorWeight = vectorWeight;
+        final double effectiveLexicalWeight = lexicalWeight;
+
+        List<Map.Entry<Integer, Object[]>> rankedEntries = new ArrayList<>(rowsById.entrySet());
+        rankedEntries.sort((left, right) -> {
+            Integer leftId = left.getKey();
+            Integer rightId = right.getKey();
+            double leftScore = reciprocalRankFusionScore(
+                    leftId,
+                    vectorRankById,
+                    lexicalRankById,
+                    rrfK,
+                    effectiveVectorWeight,
+                    effectiveLexicalWeight);
+            double rightScore = reciprocalRankFusionScore(
+                    rightId,
+                    vectorRankById,
+                    lexicalRankById,
+                    rrfK,
+                    effectiveVectorWeight,
+                    effectiveLexicalWeight);
+            int byScore = Double.compare(rightScore, leftScore);
+            if (byScore != 0) {
+                return byScore;
+            }
+            return Integer.compare(leftId, rightId);
+        });
+
+        List<Object[]> rows = new ArrayList<>(Math.min(candidateLimit, rankedEntries.size()));
+        int limit = Math.min(Math.max(1, candidateLimit), rankedEntries.size());
+        for (int i = 0; i < limit; i++) {
+            rows.add(rankedEntries.get(i).getValue());
+        }
+        return rows;
+    }
+
+    private double reciprocalRankFusionScore(
+            Integer anilistId,
+            Map<Integer, Integer> vectorRankById,
+            Map<Integer, Integer> lexicalRankById,
+            int rrfK,
+            double vectorWeight,
+            double lexicalWeight) {
+        if (anilistId == null) {
+            return 0.0d;
+        }
+
+        double score = 0.0d;
+        Integer vectorRank = vectorRankById.get(anilistId);
+        if (vectorRank != null) {
+            score += vectorWeight * (1.0d / (rrfK + vectorRank));
+        }
+
+        Integer lexicalRank = lexicalRankById.get(anilistId);
+        if (lexicalRank != null) {
+            score += lexicalWeight * (1.0d / (rrfK + lexicalRank));
+        }
+
+        return score;
     }
 
     private List<FusionScoringService.ScoredCandidate> applyQueryScoreCalibration(
@@ -1189,9 +1431,12 @@ public class SemanticRecommendationService {
             return List.of();
         }
 
+        List<FusionScoringService.FusedCandidate> processedCandidates = applySemanticDedupe(
+                fusedCandidates,
+                mode);
         List<RecommendationResponse> results = new ArrayList<>();
-        int effectiveLimit = Math.min(limit, fusedCandidates.size());
-        List<FusionScoringService.FusedCandidate> topCandidates = fusedCandidates.subList(0, effectiveLimit);
+        int effectiveLimit = Math.min(limit, processedCandidates.size());
+        List<FusionScoringService.FusedCandidate> topCandidates = processedCandidates.subList(0, effectiveLimit);
         Map<Integer, List<String>> contributorTitlesByAnimeId = buildContributorHints(username, topCandidates);
         int index = 0;
         for (FusionScoringService.FusedCandidate fused : topCandidates) {
@@ -1213,6 +1458,108 @@ public class SemanticRecommendationService {
             index++;
         }
         return results;
+    }
+
+    private List<FusionScoringService.FusedCandidate> applySemanticDedupe(
+            List<FusionScoringService.FusedCandidate> fusedCandidates,
+            String mode) {
+        if (!"semantic".equals(mode)
+                || !semanticDedupeEnabled
+                || fusedCandidates == null
+                || fusedCandidates.isEmpty()) {
+            return fusedCandidates;
+        }
+
+        int maxPerFranchise = Math.max(1, semanticDedupeMaxPerFranchise);
+        Map<String, Integer> keptCountByKey = new HashMap<>();
+        Map<String, Integer> firstIndexByKey = new HashMap<>();
+        List<Boolean> keptIsSpecial = new ArrayList<>(fusedCandidates.size());
+        List<FusionScoringService.FusedCandidate> deduped = new ArrayList<>(fusedCandidates.size());
+
+        for (FusionScoringService.FusedCandidate candidate : fusedCandidates) {
+            if (candidate == null || candidate.animeInfo() == null || candidate.animeInfo().getId() == null) {
+                continue;
+            }
+
+            AniListResponse.AnimeInfo anime = candidate.animeInfo();
+            String franchiseKey = buildSemanticFranchiseKey(anime);
+            if (franchiseKey.isBlank()) {
+                franchiseKey = "id:" + anime.getId();
+            }
+            boolean specialLike = isSpecialLikeEntry(anime);
+
+            int keptForFranchise = keptCountByKey.getOrDefault(franchiseKey, 0);
+            if (keptForFranchise < maxPerFranchise) {
+                keptCountByKey.put(franchiseKey, keptForFranchise + 1);
+                deduped.add(candidate);
+                keptIsSpecial.add(specialLike);
+                if (keptForFranchise == 0) {
+                    firstIndexByKey.put(franchiseKey, deduped.size() - 1);
+                }
+                continue;
+            }
+
+            if (!semanticDedupeSuppressSpecials) {
+                continue;
+            }
+
+            Integer firstIndex = firstIndexByKey.get(franchiseKey);
+            if (firstIndex == null || firstIndex < 0 || firstIndex >= deduped.size()) {
+                continue;
+            }
+            boolean firstIsSpecial = keptIsSpecial.get(firstIndex);
+            if (firstIsSpecial && !specialLike) {
+                deduped.set(firstIndex, candidate);
+                keptIsSpecial.set(firstIndex, false);
+            }
+        }
+
+        return deduped;
+    }
+
+    private String buildSemanticFranchiseKey(AniListResponse.AnimeInfo anime) {
+        String title = pickTitleForDedupe(anime);
+        if (title.isBlank()) {
+            return "";
+        }
+
+        String normalized = title.toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\b\\d{1,2}(st|nd|rd|th)\\s+season\\b", " ")
+                .replaceAll("\\bseason\\s+\\d+\\b", " ")
+                .replaceAll("\\bpart\\s+\\d+\\b", " ")
+                .replaceAll("\\bcour\\s+\\d+\\b", " ")
+                .replaceAll("\\b(final|last|second|third|fourth|fifth)\\s+season\\b", " ")
+                .replaceAll("\\b(ova|ona|special|movie|film|recap|summary|compilation|digest)\\b", " ")
+                .replaceAll("\\b\\d+\\b", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return normalized;
+    }
+
+    private boolean isSpecialLikeEntry(AniListResponse.AnimeInfo anime) {
+        String title = pickTitleForDedupe(anime).toLowerCase();
+        if (title.isBlank()) {
+            return false;
+        }
+        for (String marker : DEDUPE_SPECIAL_MARKERS) {
+            if (title.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String pickTitleForDedupe(AniListResponse.AnimeInfo anime) {
+        if (anime == null || anime.getTitle() == null) {
+            return "";
+        }
+        String english = anime.getTitle().getEnglish();
+        if (english != null && !english.isBlank()) {
+            return english.trim();
+        }
+        String romaji = anime.getTitle().getRomaji();
+        return romaji == null ? "" : romaji.trim();
     }
 
     private Map<Integer, List<String>> buildContributorHints(
