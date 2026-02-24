@@ -118,6 +118,74 @@ class SemanticRecommendationServiceTest {
     }
 
     @Test
+    void recommend_semanticMode_loggedOutIgnoresListWeight() {
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(java.util.Collections.singletonList(
+                sampleSemanticRow(301, "Query Match", 0.12d)));
+        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<FusionScoringService.ScoredCandidate> sem =
+                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
+            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
+            for (FusionScoringService.ScoredCandidate candidate : sem) {
+                fused.add(new FusionScoringService.FusedCandidate(
+                        candidate.anilistId(),
+                        candidate.animeInfo(),
+                        candidate.score(),
+                        candidate.reasonCodes()));
+            }
+            return fused;
+        });
+
+        List<?> results = service.recommend(
+                null,
+                List.of(),
+                "action",
+                10,
+                false,
+                1.0f,
+                "semantic");
+
+        assertEquals(1, results.size());
+        verify(animeListEntryService, never()).getUserList(anyString());
+    }
+
+    @Test
+    void recommend_similarModeWithSeeds_loggedOutWorks() {
+        when(embeddingRepository.findCustomEmbeddingsByAnilistIds(anyList()))
+                .thenReturn(java.util.Collections.singletonList(new Object[] { 101, "[0.1,0.2,0.3]" }));
+        when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt()))
+                .thenReturn(java.util.Collections.singletonList(sampleSemanticRow(202, "Seed Similar", 0.10d)));
+        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<FusionScoringService.ScoredCandidate> sem =
+                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
+            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
+            for (FusionScoringService.ScoredCandidate candidate : sem) {
+                fused.add(new FusionScoringService.FusedCandidate(
+                        candidate.anilistId(),
+                        candidate.animeInfo(),
+                        candidate.score(),
+                        candidate.reasonCodes()));
+            }
+            return fused;
+        });
+
+        List<?> results = service.recommend(
+                null,
+                List.of(101),
+                null,
+                10,
+                false,
+                0.75f,
+                "similar");
+
+        assertEquals(1, results.size());
+        verify(animeListEntryService, never()).getUserList(anyString());
+    }
+
+    @Test
     void recommend_semanticMode_preprocessesQueryBeforeEmbedding() {
         when(mlSidecarService.isEnabled()).thenReturn(true);
         when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });

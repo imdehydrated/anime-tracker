@@ -76,6 +76,10 @@ public class AniListResponse {
         private String recommendationReason;
         private List<String> reasonCodes;
         private Double fusionScore;
+        private Double queryRelevanceScore;
+        private Double userTasteScore;
+        private Double popularityPriorScore;
+        private Boolean guardrailApplied;
 
         public Integer getId() {
             return id;
@@ -248,6 +252,46 @@ public class AniListResponse {
 
         public void setFusionScore(Double fusionScore) {
             this.fusionScore = fusionScore;
+        }
+
+        @JsonProperty("query_relevance_score")
+        public Double getQueryRelevanceScore() {
+            return queryRelevanceScore;
+        }
+
+        @JsonProperty("query_relevance_score")
+        public void setQueryRelevanceScore(Double queryRelevanceScore) {
+            this.queryRelevanceScore = queryRelevanceScore;
+        }
+
+        @JsonProperty("user_taste_score")
+        public Double getUserTasteScore() {
+            return userTasteScore;
+        }
+
+        @JsonProperty("user_taste_score")
+        public void setUserTasteScore(Double userTasteScore) {
+            this.userTasteScore = userTasteScore;
+        }
+
+        @JsonProperty("popularity_prior_score")
+        public Double getPopularityPriorScore() {
+            return popularityPriorScore;
+        }
+
+        @JsonProperty("popularity_prior_score")
+        public void setPopularityPriorScore(Double popularityPriorScore) {
+            this.popularityPriorScore = popularityPriorScore;
+        }
+
+        @JsonProperty("guardrail_applied")
+        public Boolean getGuardrailApplied() {
+            return guardrailApplied;
+        }
+
+        @JsonProperty("guardrail_applied")
+        public void setGuardrailApplied(Boolean guardrailApplied) {
+            this.guardrailApplied = guardrailApplied;
         }
     }
 

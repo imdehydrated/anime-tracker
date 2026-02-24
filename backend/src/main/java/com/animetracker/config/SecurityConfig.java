@@ -42,6 +42,7 @@ public class SecurityConfig {
                 // Public routes - no token needed
                 .requestMatchers(HttpMethod.POST, "/api/users/register", "/api/users/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/users/recommendations/semantic").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/semantic/scored").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/anime/**").permitAll()
                 // Everything else requires authentication

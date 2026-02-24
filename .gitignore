@@ -33,6 +33,9 @@ STUDY-GUIDE.md
 MILESTONES.md
 EXECUTION-PLAN.md
 
+# Scripts for development
+scripts/
+
 # Python / Notebook local artifacts
 __pycache__/
 *.py[cod]

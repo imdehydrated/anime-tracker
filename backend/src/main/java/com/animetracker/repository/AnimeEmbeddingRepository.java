@@ -263,4 +263,53 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			WHERE anilist_id IN (:anilistIds)
 			""", nativeQuery = true)
 	List<Object[]> findMetadataByAnilistIds(@Param("anilistIds") List<Integer> anilistIds);
+
+	/**
+	 * Local text search over embedded catalog metadata.
+	 * Used as a rate-limit-safe first pass before AniList API search.
+	 */
+	@Query(value = """
+			SELECT anilist_id, title_romaji, title_english, cover_image,
+			       genres, description, average_score, status, episodes
+			FROM anime_embeddings
+			WHERE
+			    ts_rank_cd(
+			      to_tsvector(
+			        'simple',
+			        LOWER(
+			          COALESCE(title_romaji, '') || ' ' ||
+			          COALESCE(title_english, '') || ' ' ||
+			          COALESCE(genres, '') || ' ' ||
+			          COALESCE(description, '')
+			        )
+			      ),
+			      plainto_tsquery('simple', :queryText)
+			    ) > 0
+			    OR similarity(LOWER(COALESCE(title_romaji, '')), :queryText) > 0.18
+			    OR similarity(LOWER(COALESCE(title_english, '')), :queryText) > 0.18
+			ORDER BY
+			    (
+			      0.70 * ts_rank_cd(
+			        to_tsvector(
+			          'simple',
+			          LOWER(
+			            COALESCE(title_romaji, '') || ' ' ||
+			            COALESCE(title_english, '') || ' ' ||
+			            COALESCE(genres, '') || ' ' ||
+			            COALESCE(description, '')
+			          )
+			        ),
+			        plainto_tsquery('simple', :queryText)
+			      )
+			      + 0.30 * GREATEST(
+			          similarity(LOWER(COALESCE(title_romaji, '')), :queryText),
+			          similarity(LOWER(COALESCE(title_english, '')), :queryText)
+			        )
+			    ) DESC,
+			    anilist_id ASC
+			LIMIT :limit
+			""", nativeQuery = true)
+	List<Object[]> searchLocalMetadata(
+			@Param("queryText") String queryText,
+			@Param("limit") int limit);
 }

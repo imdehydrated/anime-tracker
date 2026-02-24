@@ -90,9 +90,6 @@ curl.exe http://localhost:5000/health
 Expected sidecar fields include:
 - `semantic_model`
 - `cf_model`
-- `graph_enabled`
-- `graph_nodes_loaded`
-- `graph_edges_loaded`
 
 ## 6) Auth Workflow (Register/Login)
 
@@ -247,6 +244,7 @@ Coverage tracking:
 - use response stats:
   - `discovered`
   - `embedded`
+  - `activeCatalogCoverage`
 - compute:
   - `active_catalog_coverage = embedded / discovered`
 
@@ -287,8 +285,7 @@ Python syntax check:
 ```powershell
 python -m py_compile `
   .\ml-sidecar\app\main.py `
-  .\ml-sidecar\app\semantic_model.py `
-  .\ml-sidecar\app\semantic_graph.py
+  .\ml-sidecar\app\semantic_model.py
 ```
 
 Direct sidecar semantic rerank smoke test:
@@ -322,39 +319,8 @@ python .\notebooks\semantic_multipos_experiment.py `
   --epochs 4
 ```
 
-Enrich embedding JSONL with metadata (for graph features):
-```powershell
-python .\notebooks\enrich_embeddings_metadata.py `
-  --embeddings-path .\ml-models\anime_embeddings.jsonl `
-  --metadata-path .\notebooks\data\anilist_anime.jsonl `
-  --output-path .\ml-models\anime_embeddings_enriched.jsonl `
-  --min-tag-rank 60
-```
-
-Backfill AniList metadata fields required for relation/studio/year edges:
-```powershell
-python .\notebooks\backfill_anilist_graph_metadata.py `
-  --input-path .\notebooks\data\anilist_anime.jsonl `
-  --output-path .\notebooks\data\anilist_anime.jsonl `
-  --chunk-size 50 `
-  --sleep-seconds 0.75 `
-  --min-tag-rank 60
-```
-
-Build semantic graph artifact:
-```powershell
-python .\notebooks\build_semantic_graph.py `
-  --embeddings-path .\ml-models\anime_embeddings.jsonl `
-  --metadata-path .\notebooks\data\anilist_anime.jsonl `
-  --output-path .\ml-models\semantic_graph.npz `
-  --alpha 0.85 `
-  --epsilon 1e-6 `
-  --max-iter 100
-```
-
 Note:
-- `build_semantic_graph.py` backfills missing graph metadata from `--metadata-path` when fields are absent in embeddings JSONL.
-- embedding consumers remain compatible as long as each row keeps `anilist_id` + `embedding`; extra metadata keys are safe.
+- keep `ml-models/anime_embeddings.jsonl` as the canonical runtime artifact for semantic retrieval/import.
 
 ## 16) Evaluation and Promotion Commands
 
@@ -370,7 +336,7 @@ python .\notebooks\semantic_query_tests.py `
 Production-path semantic benchmark:
 ```powershell
 python .\notebooks\semantic_query_api_tests.py `
-  --endpoint http://localhost:8080/api/users/recommendations/semantic/scored `
+  --endpoint http://localhost:8080/api/users/recommendations/semantic `
   --test-set-path .\notebooks\eval\semantic_query_testset.json `
   --embeddings-path .\ml-models\anime_embeddings.jsonl `
   --top-k 10 `
@@ -430,6 +396,16 @@ Core runtime:
 Semantic/fusion behavior:
 - `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT`
 - `RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT`
+- `RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT_LOGGED_IN`
+- `RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT_LOGGED_OUT`
+- `RECOMMENDATIONS_SEMANTIC_POPULARITY_GUARDRAIL_THRESHOLD`
+- `RECOMMENDATIONS_SEMANTIC_POPULARITY_GUARDRAIL_MAX_WEIGHT`
+- `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_CONTEXT_SIZE`
+- `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_MAX_ADDED_TOKENS`
+- `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_TRIGGER_MAX_QUERY_TOKENS`
+- `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_SKIP_TOP_RELEVANCE_THRESHOLD`
 - `FUSION_SEMANTIC_WEIGHT`
 - `FUSION_CF_WEIGHT`
 - `FUSION_DIVERSITY_PENALTY`

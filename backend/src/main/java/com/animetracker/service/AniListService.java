@@ -12,12 +12,14 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.repository.AnimeEmbeddingRepository;
 
 /**
  * Thin adapter around AniList GraphQL.
@@ -33,16 +35,21 @@ public class AniListService {
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long RETRY_BASE_DELAY_MS = 750L;
     private static final long RETRY_MAX_DELAY_MS = 60_000L;
-    private static final long REQUEST_SPACING_MS = 350L; // ~2.8 requests/sec max from this app instance
+    private static final int SEARCH_RESULT_LIMIT = 10;
+    private static final int LOCAL_SEARCH_SUFFICIENT_RESULTS = 5;
 
     private final WebClient webClient;
+    private final AnimeEmbeddingRepository embeddingRepository;
     private final Map<Integer, CachedAnimeInfo> animeByIdCache = new ConcurrentHashMap<>();
     private final Map<Integer, Object> animeByIdLocks = new ConcurrentHashMap<>();
     private final Map<String, CachedSearchResults> searchCache = new ConcurrentHashMap<>();
     private final Map<String, Object> searchLocks = new ConcurrentHashMap<>();
     private final AtomicLong nextRequestAtMs = new AtomicLong(0L);
+    @Value("${anilist.request-spacing-ms:700}")
+    private long requestSpacingMs;
 
-    public AniListService() {
+    public AniListService(AnimeEmbeddingRepository embeddingRepository) {
+        this.embeddingRepository = embeddingRepository;
         this.webClient = WebClient.builder()
                 .baseUrl("https://graphql.anilist.co")
                 .defaultHeader("User-Agent", "animetracker/1.0")
@@ -223,12 +230,24 @@ public class AniListService {
                 return copyAnimeList(cached.results());
             }
 
+            List<AniListResponse.AnimeInfo> localResults = searchLocalCatalog(normalizedQuery, SEARCH_RESULT_LIMIT);
+            if (localResults.size() >= LOCAL_SEARCH_SUFFICIENT_RESULTS) {
+                searchCache.put(
+                        normalizedQuery,
+                        new CachedSearchResults(copyAnimeList(localResults), now.plus(SEARCH_CACHE_TTL)));
+                return localResults;
+            }
+
             List<AniListResponse.AnimeInfo> fetched = fetchSearchUncached(query);
             if (!fetched.isEmpty()) {
                 searchCache.put(
                         normalizedQuery,
                         new CachedSearchResults(copyAnimeList(fetched), now.plus(SEARCH_CACHE_TTL)));
                 return fetched;
+            }
+
+            if (!localResults.isEmpty()) {
+                return localResults;
             }
 
             if (cached != null) {
@@ -270,6 +289,14 @@ public class AniListService {
             cached = animeByIdCache.get(id);
             if (cached != null && cached.isFresh(now)) {
                 return copyAnimeInfo(cached.anime());
+            }
+
+            AniListResponse.AnimeInfo local = findLocalAnimeById(id);
+            if (local != null) {
+                animeByIdCache.put(
+                        id,
+                        new CachedAnimeInfo(copyAnimeInfo(local), now.plus(ANIME_BY_ID_CACHE_TTL)));
+                return local;
             }
 
             Map<String, Object> requestBody = Map.of(
@@ -380,11 +407,12 @@ public class AniListService {
     }
 
     private void throttleRequestRate() {
+        long spacingMs = Math.max(100L, requestSpacingMs);
         while (true) {
             long now = System.currentTimeMillis();
             long scheduled = nextRequestAtMs.get();
             long startAt = Math.max(now, scheduled);
-            long nextSlot = startAt + REQUEST_SPACING_MS;
+            long nextSlot = startAt + spacingMs;
             if (nextRequestAtMs.compareAndSet(scheduled, nextSlot)) {
                 long sleepMs = startAt - now;
                 if (sleepMs > 0) {
@@ -432,6 +460,77 @@ public class AniListService {
             log.warn("AniList retry interrupted");
             return false;
         }
+    }
+
+    private List<AniListResponse.AnimeInfo> searchLocalCatalog(String normalizedQuery, int limit) {
+        try {
+            List<Object[]> rows = embeddingRepository.searchLocalMetadata(normalizedQuery, Math.max(1, limit));
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<AniListResponse.AnimeInfo> results = new ArrayList<>(rows.size());
+            for (Object[] row : rows) {
+                AniListResponse.AnimeInfo anime = mapMetadataRowToAnimeInfo(row);
+                if (anime != null) {
+                    results.add(anime);
+                }
+            }
+            return results;
+        } catch (Exception ex) {
+            log.debug("Local metadata search failed for '{}': {}", normalizedQuery, ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private AniListResponse.AnimeInfo findLocalAnimeById(Integer anilistId) {
+        try {
+            List<Object[]> rows = embeddingRepository.findMetadataByAnilistIds(List.of(anilistId));
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return mapMetadataRowToAnimeInfo(rows.get(0));
+        } catch (Exception ex) {
+            log.debug("Local metadata lookup failed for id={}: {}", anilistId, ex.getMessage());
+            return null;
+        }
+    }
+
+    private AniListResponse.AnimeInfo mapMetadataRowToAnimeInfo(Object[] row) {
+        if (row == null || row.length < 9 || !(row[0] instanceof Number idValue)) {
+            return null;
+        }
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setId(idValue.intValue());
+
+        AniListResponse.AnimeTitle title = new AniListResponse.AnimeTitle();
+        title.setRomaji((String) row[1]);
+        title.setEnglish((String) row[2]);
+        anime.setTitle(title);
+
+        AniListResponse.AnimeCoverImage coverImage = new AniListResponse.AnimeCoverImage();
+        coverImage.setLarge((String) row[3]);
+        anime.setCoverImage(coverImage);
+
+        anime.setGenres(parseGenres((String) row[4]));
+        anime.setDescription((String) row[5]);
+        anime.setAverageScore((Integer) row[6]);
+        anime.setStatus((String) row[7]);
+        anime.setEpisodes((Integer) row[8]);
+        return anime;
+    }
+
+    private List<String> parseGenres(String genresCsv) {
+        if (genresCsv == null || genresCsv.isBlank()) {
+            return null;
+        }
+        String[] parts = genresCsv.split(",\\s*");
+        List<String> genres = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            if (part != null && !part.isBlank()) {
+                genres.add(part);
+            }
+        }
+        return genres.isEmpty() ? null : genres;
     }
 
     private AniListResponse.AnimeInfo copyAnimeInfo(AniListResponse.AnimeInfo source) {

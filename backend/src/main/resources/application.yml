@@ -97,6 +97,10 @@ ml-sidecar:
   enabled: ${ML_SIDECAR_ENABLED:false}
   timeout-ms: 30000
 
+# AniList API pacing to avoid upstream rate limits during interactive usage.
+anilist:
+  request-spacing-ms: ${ANILIST_REQUEST_SPACING_MS:700}
+
 # Recommendation vector retrieval configuration
 recommendations:
   # OpenAI embedding fallback is removed; custom vectors should remain enabled.
@@ -136,7 +140,16 @@ recommendations:
     score-calibration-temperature: ${RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE:1.00}
     # Lightweight popularity prior for semantic ranking (AniList average score).
     popularity-prior-enabled: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_ENABLED:true}
-    popularity-prior-weight: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT:0.10}
+    popularity-prior-weight-logged-in: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT_LOGGED_IN:${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT:0.10}}
+    popularity-prior-weight-logged-out: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT_LOGGED_OUT:0.15}
+    popularity-prior-guardrail-threshold: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_GUARDRAIL_THRESHOLD:0.45}
+    popularity-prior-guardrail-max-weight: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_GUARDRAIL_MAX_WEIGHT:0.05}
+    # Deterministic second-pass lexical query expansion for broad/ambiguous prompts.
+    second-pass-enabled: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_ENABLED:true}
+    second-pass-context-size: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_CONTEXT_SIZE:25}
+    second-pass-max-added-tokens: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_MAX_ADDED_TOKENS:8}
+    second-pass-trigger-max-query-tokens: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_TRIGGER_MAX_QUERY_TOKENS:5}
+    second-pass-skip-top-relevance-threshold: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_SKIP_TOP_RELEVANCE_THRESHOLD:0.80}
   fusion:
     # Source weights are clamped to >= 0 and renormalized to sum=1 at startup.
     semantic-weight: ${FUSION_SEMANTIC_WEIGHT:0.7}

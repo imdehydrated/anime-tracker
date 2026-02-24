@@ -142,6 +142,7 @@ Health:
 
 Contract choice:
 - both legacy and scored recommendation endpoints are kept to avoid breaking existing frontend/backward callers during iterative ranking upgrades.
+- recommendation payloads may include optional scoring diagnostics (for example query relevance, taste overlap score, popularity prior, and guardrail flag) without breaking existing clients.
 
 ## Recommendation Modes and Behavior
 
@@ -156,10 +157,12 @@ Query-first semantic retrieval pipeline:
 4. Retrieve lexical candidates from full-text + trigram indexes.
 5. Merge candidates with reciprocal-rank-fusion.
 6. Optionally rerank top candidates in sidecar.
-7. Optionally blend with CF overlap (policy-dependent).
-8. Apply score calibration.
-9. Apply franchise/special dedupe.
-10. Build explanation metadata.
+7. Optionally run deterministic second-pass lexical expansion for broad/ambiguous queries.
+8. Apply popularity prior with relevance guardrail.
+9. Optionally blend with CF overlap (policy-dependent).
+10. Apply score calibration.
+11. Apply franchise/special dedupe.
+12. Build explanation metadata.
 
 Design reason:
 - hybrid lexical + vector retrieval handles both intent semantics and exact entity mentions.
@@ -183,36 +186,17 @@ Collaborative filtering only:
 Design reason:
 - pure behavior mode simplifies debugging CF quality independent of semantic retrieval.
 
-## RSS Hybrid Graph Rerank (Sidecar)
+## Hybrid Scoring and Guardrails
 
-Runtime files:
-- `ml-sidecar/app/semantic_model.py`
-- `ml-sidecar/app/semantic_graph.py`
-- artifact: `ml-models/semantic_graph.npz`
-
-Embedding JSONL compatibility:
-- required keys for runtime consumers: `anilist_id`, `embedding`
-- preferred title keys for display/alias tooling: `title`, `title_english`, `title_romaji`, `title_native`
-- additional metadata keys are additive and ignored by consumers that do not use them
-
-When graph artifact exists:
-1. Base semantic score is computed from custom similarity + pgvector similarity.
-2. Global node importance (`pagerank`) is read from graph artifact.
-3. Query relevance is derived from embedding similarity.
-4. Initial activation is formed:
-   - `a0 = 0.45 * global + 0.55 * relevance`
-5. Constrained spreading activation runs:
-   - max hops `2`
-   - decay `0.30`
-   - threshold `0.05`
-6. Final score blend:
-   - `0.55 * base + 0.45 * activation`
-
-Fallback behavior:
-- if graph artifact is missing or candidate overlap is too sparse, base semantic rerank is used unchanged.
+Semantic scoring uses a lightweight hybrid blend rather than graph/PageRank:
+1. Query relevance from semantic retrieval/rerank remains the primary signal.
+2. User taste signal is blended when an authenticated profile has usable ratings/history.
+3. Popularity prior is blended conservatively (AniList score/popularity now, MAL-compatible later).
+4. Guardrails reduce or suppress taste/popularity boosts when query relevance is low.
+5. Query expansion stage is deterministic and bounded (token caps + confidence gate), not LLM-dependent.
 
 Design reason:
-- graph signal improves relational relevance while fallback prevents hard dependency on graph completeness.
+- this keeps ranking transparent and tunable while avoiding heavy graph artifact dependencies.
 
 ## Sidecar Design (`ml-sidecar/`)
 
@@ -220,16 +204,13 @@ Files:
 - `main.py`: app startup and health
 - `routes.py`: API contracts
 - `semantic_model.py`: embedding + semantic rerank logic
-- `semantic_graph.py`: graph loading/activation logic
 - `cf_model.py`: CF prediction logic
 
 Health endpoint includes:
 - model load state
-- graph enabled state
-- graph node/edge counts
 
 Design reason:
-- operational visibility on loaded artifacts is required for safe rollout/promotion.
+- operational visibility on model readiness is required for safe rollout/promotion.
 
 ## Data Layer and Indexing
 
@@ -271,9 +252,6 @@ Supporting scripts:
 - `semantic_multipos_experiment.py`: multi-positive semantic experiment runner
 - `semantic_query_tests.py`: model-only semantic query benchmark
 - `semantic_query_api_tests.py`: production-path semantic benchmark via backend endpoint
-- `build_semantic_graph.py`: offline graph + PageRank artifact builder with metadata backfill support
-- `enrich_embeddings_metadata.py`: merges notebook AniList metadata into embeddings JSONL for graph features
-- `backfill_anilist_graph_metadata.py`: refreshes AniList metadata rows with studios/relations/season_year for graph edges
 - `evaluate_models.py`: CF offline metrics
 - `promotion_gate.py`: baseline-vs-candidate promotion decision
 
@@ -314,7 +292,7 @@ Key decisions:
 - sidecar communication forced to HTTP/1.1 for stability.
 - metadata hydration deferred to final list where possible.
 - semantic dedupe to reduce low-value near-duplicate franchise results.
-- graph rerank is optional and fallback-safe.
+- popularity prior is guardrailed so query intent remains primary.
 
 ## How to Extend Safely
 
