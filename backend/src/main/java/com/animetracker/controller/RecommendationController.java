@@ -120,6 +120,21 @@ public class RecommendationController {
                 "totalCustomEmbeddings", stats.totalCustomEmbeddings()));
     }
 
+    /**
+     * Manual population endpoint for active-catalog embeddings.
+     * Requires authentication and calls AniList full-catalog paging with active format filters.
+     */
+    @PostMapping("/custom-embeddings/populate-active-catalog")
+    public ResponseEntity<Map<String, Object>> populateActiveCatalogEmbeddings(
+            @RequestParam(defaultValue = "200") int maxPages,
+            @RequestParam(defaultValue = "50") int perPage) {
+        getCurrentUsernameRequired();
+        Map<String, Object> stats = semanticService.populateActiveCatalogEmbeddings(maxPages, perPage);
+        return ResponseEntity.ok(Map.of(
+                "message", "Active catalog embedding population completed",
+                "stats", stats));
+    }
+
     private String getCurrentUsernameOrNull() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getName())) {

@@ -311,19 +311,10 @@ Prepare canonical dataset:
 python .\notebooks\prepare_dataset.py --source .\data\raw-kaggle --output .\data\kaggle
 ```
 
-Build query-intent pairs:
-```powershell
-python .\notebooks\build_query_intent_pairs.py `
-  --test-set-path .\notebooks\eval\semantic_query_testset.json `
-  --benchmark-path .\notebooks\eval\semantic_query_benchmark_20260223T223911Z.json `
-  --output-path .\notebooks\data\query_intent_pairs.jsonl
-```
-
-Run multipos semantic experiment with query-intent stage:
+Run multipos semantic experiment:
 ```powershell
 python .\notebooks\semantic_multipos_experiment.py `
   --data-dir .\notebooks\data `
-  --query-intent-pairs-file .\notebooks\data\query_intent_pairs.jsonl `
   --hard-neighbor-refresh-epochs 1 `
   --triplet-margin 0.30 `
   --labels-per-batch 10 `
@@ -331,15 +322,39 @@ python .\notebooks\semantic_multipos_experiment.py `
   --epochs 4
 ```
 
+Enrich embedding JSONL with metadata (for graph features):
+```powershell
+python .\notebooks\enrich_embeddings_metadata.py `
+  --embeddings-path .\ml-models\anime_embeddings.jsonl `
+  --metadata-path .\notebooks\data\anilist_anime.jsonl `
+  --output-path .\ml-models\anime_embeddings_enriched.jsonl `
+  --min-tag-rank 60
+```
+
+Backfill AniList metadata fields required for relation/studio/year edges:
+```powershell
+python .\notebooks\backfill_anilist_graph_metadata.py `
+  --input-path .\notebooks\data\anilist_anime.jsonl `
+  --output-path .\notebooks\data\anilist_anime.jsonl `
+  --chunk-size 50 `
+  --sleep-seconds 0.75 `
+  --min-tag-rank 60
+```
+
 Build semantic graph artifact:
 ```powershell
 python .\notebooks\build_semantic_graph.py `
   --embeddings-path .\ml-models\anime_embeddings.jsonl `
+  --metadata-path .\notebooks\data\anilist_anime.jsonl `
   --output-path .\ml-models\semantic_graph.npz `
   --alpha 0.85 `
   --epsilon 1e-6 `
   --max-iter 100
 ```
+
+Note:
+- `build_semantic_graph.py` backfills missing graph metadata from `--metadata-path` when fields are absent in embeddings JSONL.
+- embedding consumers remain compatible as long as each row keeps `anilist_id` + `embedding`; extra metadata keys are safe.
 
 ## 16) Evaluation and Promotion Commands
 

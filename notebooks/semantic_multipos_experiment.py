@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -108,19 +109,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hard-neighbor-refresh-epochs",
         type=int,
-        default=0,
+        default=1,
         help=(
             "Refresh hard-neighbor mining every N epochs (0 disables refresh and keeps "
             "single-pass behavior)."
         ),
     )
-    parser.add_argument("--labels-per-batch", type=int, default=8)
+    parser.add_argument("--labels-per-batch", type=int, default=10)
     parser.add_argument("--examples-per-label", type=int, default=4)
     parser.add_argument("--steps-per-epoch", type=int, default=400)
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
-    parser.add_argument("--triplet-margin", type=float, default=0.35)
+    parser.add_argument("--triplet-margin", type=float, default=0.30)
     parser.add_argument("--max-seq-length", type=int, default=256)
     return parser.parse_args()
 
@@ -312,6 +313,12 @@ def prune_eval_snapshots(
     return deleted
 
 
+def replace_dir(src: Path, dst: Path) -> None:
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
 def main() -> None:
     args = parse_args()
     np.random.seed(args.seed)
@@ -378,6 +385,9 @@ def main() -> None:
 
     hard_neighbor_refresh_points: list[int] = []
     hard_neighbors: dict[int, list[int]] | None = None
+    best_epoch_path = args.output_path.parent / f"{args.output_path.name}__epoch_best_tmp"
+    best_epoch_score: float | None = None
+    best_epoch_number: int | None = None
 
     # Preserve prior behavior by default (single fit call) unless refresh is enabled.
     if refresh_interval == 0:
@@ -410,6 +420,8 @@ def main() -> None:
             show_progress_bar=True,
         )
     else:
+        if best_epoch_path.exists():
+            shutil.rmtree(best_epoch_path)
         for epoch_idx in range(int(args.epochs)):
             epoch_num = epoch_idx + 1
             should_refresh = hard_neighbors is None or (epoch_idx % refresh_interval == 0)
@@ -441,11 +453,23 @@ def main() -> None:
                 warmup_steps=warmup_steps_per_epoch,
                 optimizer_params={"lr": float(args.lr)},
                 weight_decay=0.01,
-                output_path=str(args.output_path),
+                output_path=str(best_epoch_path),
                 evaluation_steps=max(100, int(args.steps_per_epoch) // 2),
                 save_best_model=True,
                 show_progress_bar=True,
             )
+            epoch_score = evaluate_triplet_accuracy(best_epoch_path, evaluator, device=device)
+            print(f"Epoch {epoch_num} triplet eval cosine accuracy: {epoch_score:.6f}")
+            if best_epoch_score is None or epoch_score > best_epoch_score:
+                best_epoch_score = epoch_score
+                best_epoch_number = epoch_num
+                replace_dir(best_epoch_path, args.output_path)
+                print(
+                    f"New best epoch model: epoch={epoch_num}, score={epoch_score:.6f}"
+                )
+
+        if best_epoch_path.exists():
+            shutil.rmtree(best_epoch_path)
 
     multipos_score = evaluate_triplet_accuracy(args.output_path, evaluator, device=device)
     baseline_score = None
@@ -492,6 +516,8 @@ def main() -> None:
             "multipos_triplet_eval_cosine_accuracy": multipos_score,
             "baseline_triplet_eval_cosine_accuracy": baseline_score,
             "delta_vs_baseline": (multipos_score - baseline_score) if baseline_score is not None else None,
+            "best_epoch_score": best_epoch_score,
+            "best_epoch_number": best_epoch_number,
         },
     }
     with result_path.open("w", encoding="utf-8") as f:

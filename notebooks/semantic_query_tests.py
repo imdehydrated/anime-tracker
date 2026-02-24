@@ -20,43 +20,25 @@ from sentence_transformers import SentenceTransformer
 
 
 TITLE_KEYS = ("title", "title_romaji", "title_english", "title_native")
-TITLE_ALIASES = {
-    "neon genesis evangelion": [
-        "shin seiki evangelion",
-    ],
-    "yahari ore no seishun love comedy wa machigatteiru": [
-        "yahari ore no seishun love come wa machigatteiru",
-    ],
-    "koukaku kidoutai": [
-        "ghost in the shell koukaku kidoutai",
-        "koukaku kidoutai stand alone complex",
-    ],
-    "zombieland saga": [
-        "zombie land saga",
-    ],
-    "outlaw star": [
-        "seihou bukyou outlaw star",
-    ],
-    "honey and clover": [
-        "hachimitsu to clover",
-    ],
-}
 
 
 @dataclass(frozen=True)
 class CaseResult:
     query: str
+    cluster: str
     expected_ids: list[int]
+    expected_in_index: list[int]
     unresolved_titles: list[str]
     best_rank: int | None
     reciprocal_rank: float
     hit_at_k: bool
+    miss_reason: str | None
     top_results: list[dict[str, Any]]
 
 
 def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description="Run query-intent semantic benchmark tests.")
+    parser = argparse.ArgumentParser(description="Run semantic query benchmark tests.")
     parser.add_argument(
         "--test-set-path",
         type=Path,
@@ -118,6 +100,23 @@ def normalize_text(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     return value
+
+
+def infer_query_cluster(query: str) -> str:
+    q = normalize_text(query)
+    if any(token in q for token in ("romance", "romantic", "tsundere")):
+        return "romance"
+    if any(token in q for token in ("mecha", "robot", "cyberpunk", "space")):
+        return "sci_fi"
+    if any(token in q for token in ("slice of life", "wholesome", "healing", "camping")):
+        return "slice_of_life"
+    if any(token in q for token in ("thriller", "mystery", "psychological", "mind games")):
+        return "thriller"
+    if any(token in q for token in ("sports", "basketball", "volleyball")):
+        return "sports"
+    if any(token in q for token in ("isekai", "fantasy", "magic")):
+        return "fantasy"
+    return "mixed"
 
 
 def iter_aliases(row: dict[str, Any]) -> list[str]:
@@ -215,13 +214,6 @@ def resolve_expected_ids(
         if not key:
             continue
         ids = title_to_ids.get(key)
-        if not ids:
-            aliases = TITLE_ALIASES.get(key, [])
-            for alias in aliases:
-                alias_key = normalize_text(alias)
-                ids = title_to_ids.get(alias_key)
-                if ids:
-                    break
         if ids:
             expected.update(ids)
         else:
@@ -285,12 +277,17 @@ def prune_eval_snapshots(
 
 def print_case(case_idx: int, case: CaseResult, show_top_n: int) -> None:
     print(f"\nQ{case_idx}: {case.query}")
+    print(f"  cluster: {case.cluster}")
     if case.expected_ids:
         print(f"  expected_ids: {len(case.expected_ids)} candidates")
+    if case.expected_in_index:
+        print(f"  expected_in_index: {len(case.expected_in_index)} candidates")
     if case.unresolved_titles:
         print(f"  unresolved_titles: {case.unresolved_titles}")
     if case.best_rank is None:
         print("  result: MISS")
+        if case.miss_reason:
+            print(f"  miss_reason: {case.miss_reason}")
     else:
         print(
             f"  result: HIT (best_rank={case.best_rank}, "
@@ -335,6 +332,7 @@ def main() -> None:
     reciprocal_ranks: list[float] = []
     evaluated_count = 0
     skipped_count = 0
+    index_ids = set(int(aid) for aid in anime_ids.tolist())
 
     for case, query_vec in zip(cases, query_vectors):
         expected_ids, unresolved_titles = resolve_expected_ids(case, title_to_ids)
@@ -343,11 +341,14 @@ def main() -> None:
             per_case.append(
                 CaseResult(
                     query=str(case["query"]),
+                    cluster=infer_query_cluster(str(case["query"])),
                     expected_ids=[],
+                    expected_in_index=[],
                     unresolved_titles=unresolved_titles,
                     best_rank=None,
                     reciprocal_rank=0.0,
                     hit_at_k=False,
+                    miss_reason="alias_miss" if unresolved_titles else "catalog_miss",
                     top_results=[],
                 )
             )
@@ -373,15 +374,27 @@ def main() -> None:
             hits += 1
         reciprocal_ranks.append(rr)
         evaluated_count += 1
+        expected_in_index = sorted([aid for aid in expected_ids if aid in index_ids])
+        miss_reason: str | None = None
+        if not hit:
+            if unresolved_titles:
+                miss_reason = "alias_miss"
+            elif not expected_in_index:
+                miss_reason = "catalog_miss"
+            else:
+                miss_reason = "model_miss"
 
         per_case.append(
             CaseResult(
                 query=str(case["query"]),
+                cluster=infer_query_cluster(str(case["query"])),
                 expected_ids=sorted(expected_ids),
+                expected_in_index=expected_in_index,
                 unresolved_titles=unresolved_titles,
                 best_rank=best_rank,
                 reciprocal_rank=rr,
                 hit_at_k=hit,
+                miss_reason=miss_reason,
                 top_results=ranked_rows,
             )
         )
@@ -391,6 +404,15 @@ def main() -> None:
 
     hit_at_k = (float(hits) / float(evaluated_count)) if evaluated_count > 0 else 0.0
     mrr_at_k = float(np.mean(reciprocal_ranks)) if reciprocal_ranks else 0.0
+    miss_reason_counts: dict[str, int] = {}
+    miss_cluster_counts: dict[str, int] = {}
+    unresolved_cases = 0
+    for case in per_case:
+        if case.unresolved_titles:
+            unresolved_cases += 1
+        if case.miss_reason:
+            miss_reason_counts[case.miss_reason] = miss_reason_counts.get(case.miss_reason, 0) + 1
+            miss_cluster_counts[case.cluster] = miss_cluster_counts.get(case.cluster, 0) + 1
 
     print("\nSemantic Query Benchmark Summary")
     print("=" * 72)
@@ -399,6 +421,9 @@ def main() -> None:
     print(f"top_k:           {int(args.top_k)}")
     print(f"hit_at_k:        {hit_at_k:.4f}")
     print(f"mrr_at_k:        {mrr_at_k:.4f}")
+    print(f"unresolved_cases:{unresolved_cases}")
+    print(f"miss_reasons:    {miss_reason_counts}")
+    print(f"miss_clusters:   {miss_cluster_counts}")
 
     now = datetime.now(timezone.utc)
     ts = now.strftime("%Y%m%dT%H%M%SZ")
@@ -419,15 +444,21 @@ def main() -> None:
         "summary": {
             "hit_at_k": round(hit_at_k, 6),
             "mrr_at_k": round(mrr_at_k, 6),
+            "unresolved_cases": unresolved_cases,
+            "miss_reason_counts": miss_reason_counts,
+            "miss_cluster_counts": miss_cluster_counts,
         },
         "cases": [
             {
                 "query": x.query,
+                "cluster": x.cluster,
                 "expected_ids": x.expected_ids,
+                "expected_in_index": x.expected_in_index,
                 "unresolved_titles": x.unresolved_titles,
                 "best_rank": x.best_rank,
                 "reciprocal_rank": x.reciprocal_rank,
                 "hit_at_k": x.hit_at_k,
+                "miss_reason": x.miss_reason,
                 "top_results": x.top_results,
             }
             for x in per_case

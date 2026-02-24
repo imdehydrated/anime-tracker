@@ -190,6 +190,11 @@ Runtime files:
 - `ml-sidecar/app/semantic_graph.py`
 - artifact: `ml-models/semantic_graph.npz`
 
+Embedding JSONL compatibility:
+- required keys for runtime consumers: `anilist_id`, `embedding`
+- preferred title keys for display/alias tooling: `title`, `title_english`, `title_romaji`, `title_native`
+- additional metadata keys are additive and ignored by consumers that do not use them
+
 When graph artifact exists:
 1. Base semantic score is computed from custom similarity + pgvector similarity.
 2. Global node importance (`pagerank`) is read from graph artifact.
@@ -264,10 +269,11 @@ Core notebook pipeline:
 
 Supporting scripts:
 - `semantic_multipos_experiment.py`: multi-positive semantic experiment runner
-- `build_query_intent_pairs.py`: builds query-intent supervision from benchmark + misses
 - `semantic_query_tests.py`: model-only semantic query benchmark
 - `semantic_query_api_tests.py`: production-path semantic benchmark via backend endpoint
-- `build_semantic_graph.py`: offline graph + PageRank artifact builder
+- `build_semantic_graph.py`: offline graph + PageRank artifact builder with metadata backfill support
+- `enrich_embeddings_metadata.py`: merges notebook AniList metadata into embeddings JSONL for graph features
+- `backfill_anilist_graph_metadata.py`: refreshes AniList metadata rows with studios/relations/season_year for graph edges
 - `evaluate_models.py`: CF offline metrics
 - `promotion_gate.py`: baseline-vs-candidate promotion decision
 

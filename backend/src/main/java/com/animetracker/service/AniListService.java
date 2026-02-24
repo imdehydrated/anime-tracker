@@ -57,13 +57,18 @@ public class AniListService {
                   title {
                     romaji
                     english
+                    native
                   }
+                  synonyms
                   episodes
                   averageScore
                   coverImage {
                     large
                   }
                   genres
+                  format
+                  season
+                  seasonYear
                   description
                   status
                 }
@@ -79,13 +84,18 @@ public class AniListService {
                   title {
                     romaji
                     english
+                    native
                   }
+                  synonyms
                   episodes
                   averageScore
                   coverImage {
                     large
                   }
                   genres
+                  format
+                  season
+                  seasonYear
                   description
                   status
                 }
@@ -101,7 +111,9 @@ public class AniListService {
                   title {
                     romaji
                     english
+                    native
                   }
+                  synonyms
                   episodes
                   averageScore
                   coverImage {
@@ -114,6 +126,78 @@ public class AniListService {
                   }
                   description
                   status
+                  format
+                  season
+                  seasonYear
+                  studios(isMain: true) {
+                    nodes {
+                      name
+                      isAnimationStudio
+                    }
+                  }
+                  relations {
+                    edges {
+                      relationType
+                      node {
+                        id
+                        title {
+                          romaji
+                          english
+                          native
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String CATALOG_QUERY = """
+            query ($page: Int, $perPage: Int, $formats: [MediaFormat]) {
+              Page(page: $page, perPage: $perPage) {
+                media(type: ANIME, sort: ID, format_in: $formats) {
+                  id
+                  title {
+                    romaji
+                    english
+                    native
+                  }
+                  synonyms
+                  episodes
+                  averageScore
+                  coverImage {
+                    large
+                  }
+                  genres
+                  tags {
+                    name
+                    rank
+                  }
+                  description
+                  status
+                  format
+                  season
+                  seasonYear
+                  studios(isMain: true) {
+                    nodes {
+                      name
+                      isAnimationStudio
+                    }
+                  }
+                  relations {
+                    edges {
+                      relationType
+                      node {
+                        id
+                        title {
+                          romaji
+                          english
+                          native
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -216,6 +300,26 @@ public class AniListService {
         Map<String, Object> requestBody = Map.of(
                 "query", POPULATE_QUERY,
                 "variables", Map.of("page", page, "perPage", perPage));
+
+        AniListResponse response = executeGraphql(requestBody);
+        if (response == null || response.getData() == null
+                || response.getData().getPage() == null
+                || response.getData().getPage().getMedia() == null) {
+            return Collections.emptyList();
+        }
+        return response.getData().getPage().getMedia();
+    }
+
+    public List<AniListResponse.AnimeInfo> fetchActiveCatalogPage(
+            int page,
+            int perPage,
+            List<String> formats) {
+        Map<String, Object> requestBody = Map.of(
+                "query", CATALOG_QUERY,
+                "variables", Map.of(
+                        "page", page,
+                        "perPage", perPage,
+                        "formats", formats == null ? List.of() : formats));
 
         AniListResponse response = executeGraphql(requestBody);
         if (response == null || response.getData() == null
@@ -344,10 +448,16 @@ public class AniListService {
         copy.setTitle(copyTitle(source.getTitle()));
         copy.setCoverImage(copyCoverImage(source.getCoverImage()));
         copy.setGenres(source.getGenres() == null ? null : new ArrayList<>(source.getGenres()));
+        copy.setSynonyms(source.getSynonyms() == null ? null : new ArrayList<>(source.getSynonyms()));
         copy.setTags(copyTags(source.getTags()));
         copy.setRecommendationReason(source.getRecommendationReason());
         copy.setReasonCodes(source.getReasonCodes() == null ? null : new ArrayList<>(source.getReasonCodes()));
         copy.setFusionScore(source.getFusionScore());
+        copy.setFormat(source.getFormat());
+        copy.setSeason(source.getSeason());
+        copy.setSeasonYear(source.getSeasonYear());
+        copy.setStudios(copyStudios(source.getStudios()));
+        copy.setRelations(copyRelations(source.getRelations()));
         return copy;
     }
 
@@ -371,6 +481,7 @@ public class AniListService {
         AniListResponse.AnimeTitle copy = new AniListResponse.AnimeTitle();
         copy.setRomaji(source.getRomaji());
         copy.setEnglish(source.getEnglish());
+        copy.setNativeTitle(source.getNativeTitle());
         return copy;
     }
 
@@ -395,6 +506,41 @@ public class AniListService {
             AniListResponse.AnimeTag copy = new AniListResponse.AnimeTag();
             copy.setName(tag.getName());
             copy.setRank(tag.getRank());
+            copies.add(copy);
+        }
+        return copies;
+    }
+
+    private List<AniListResponse.AnimeStudio> copyStudios(List<AniListResponse.AnimeStudio> studios) {
+        if (studios == null) {
+            return null;
+        }
+        List<AniListResponse.AnimeStudio> copies = new ArrayList<>(studios.size());
+        for (AniListResponse.AnimeStudio studio : studios) {
+            if (studio == null) {
+                continue;
+            }
+            AniListResponse.AnimeStudio copy = new AniListResponse.AnimeStudio();
+            copy.setName(studio.getName());
+            copy.setIsAnimationStudio(studio.getIsAnimationStudio());
+            copies.add(copy);
+        }
+        return copies;
+    }
+
+    private List<AniListResponse.AnimeRelation> copyRelations(List<AniListResponse.AnimeRelation> relations) {
+        if (relations == null) {
+            return null;
+        }
+        List<AniListResponse.AnimeRelation> copies = new ArrayList<>(relations.size());
+        for (AniListResponse.AnimeRelation relation : relations) {
+            if (relation == null) {
+                continue;
+            }
+            AniListResponse.AnimeRelation copy = new AniListResponse.AnimeRelation();
+            copy.setId(relation.getId());
+            copy.setRelationType(relation.getRelationType());
+            copy.setTitle(copyTitle(relation.getTitle()));
             copies.add(copy);
         }
         return copies;

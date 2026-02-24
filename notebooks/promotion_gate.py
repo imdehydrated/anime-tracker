@@ -42,6 +42,9 @@ class SemanticQueryGateResult:
     candidate_hit_at_k: float
     baseline_mrr_at_k: float
     candidate_mrr_at_k: float
+    target_hit_at_k_delta: float
+    target_mrr_at_k_delta: float
+    target_passed: bool
     notes: list[str]
 
 
@@ -65,6 +68,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--semantic-candidate-benchmark", type=Path, default=None)
     parser.add_argument("--semantic-min-hit-at-k-delta", type=float, default=0.0)
     parser.add_argument("--semantic-min-mrr-at-k-delta", type=float, default=0.0)
+    parser.add_argument("--semantic-target-hit-at-k-delta", type=float, default=0.02)
+    parser.add_argument("--semantic-target-mrr-at-k-delta", type=float, default=0.02)
     parser.add_argument("--semantic-min-evaluated-cases", type=int, default=10)
 
     parser.add_argument("--write-report", type=Path, default=None)
@@ -232,6 +237,9 @@ def run_semantic_query_gate(args: argparse.Namespace) -> SemanticQueryGateResult
 
     hit_delta = candidate_hit - baseline_hit
     mrr_delta = candidate_mrr - baseline_mrr
+    target_hit = float(args.semantic_target_hit_at_k_delta)
+    target_mrr = float(args.semantic_target_mrr_at_k_delta)
+    target_passed = hit_delta >= target_hit and mrr_delta >= target_mrr
 
     passed = True
     if candidate_cases < min_cases or baseline_cases < min_cases:
@@ -246,6 +254,12 @@ def run_semantic_query_gate(args: argparse.Namespace) -> SemanticQueryGateResult
         notes.append(
             f"Fail: mrr@k delta {mrr_delta:+.6f} < min {float(args.semantic_min_mrr_at_k_delta):+.6f}"
         )
+    if not target_passed:
+        notes.append(
+            "Target not met: "
+            f"hit@k delta {hit_delta:+.6f} (target {target_hit:+.6f}), "
+            f"mrr@k delta {mrr_delta:+.6f} (target {target_mrr:+.6f})"
+        )
 
     return SemanticQueryGateResult(
         passed=passed,
@@ -257,6 +271,9 @@ def run_semantic_query_gate(args: argparse.Namespace) -> SemanticQueryGateResult
         candidate_hit_at_k=candidate_hit,
         baseline_mrr_at_k=baseline_mrr,
         candidate_mrr_at_k=candidate_mrr,
+        target_hit_at_k_delta=target_hit,
+        target_mrr_at_k_delta=target_mrr,
+        target_passed=target_passed,
         notes=notes,
     )
 
@@ -295,6 +312,12 @@ def _print_semantic(result: SemanticQueryGateResult | None) -> None:
     print(f"Candidate mrr@k: {result.candidate_mrr_at_k:.6f}")
     print(f"Delta mrr@k    : {result.mrr_at_k_delta:+.6f}")
     print(f"Decision: {'PASS' if result.passed else 'FAIL'}")
+    print(
+        "Operational target: "
+        f"{'MET' if result.target_passed else 'NOT MET'} "
+        f"(hit@k>={result.target_hit_at_k_delta:+.6f}, "
+        f"mrr@k>={result.target_mrr_at_k_delta:+.6f})"
+    )
     for note in result.notes:
         print(f"- {note}")
 
@@ -349,6 +372,9 @@ def main() -> None:
             "baseline_mrr_at_k": semantic_result.baseline_mrr_at_k,
             "candidate_mrr_at_k": semantic_result.candidate_mrr_at_k,
             "delta_mrr_at_k": semantic_result.mrr_at_k_delta,
+            "target_hit_at_k_delta": semantic_result.target_hit_at_k_delta,
+            "target_mrr_at_k_delta": semantic_result.target_mrr_at_k_delta,
+            "target_passed": semantic_result.target_passed,
             "notes": semantic_result.notes,
         },
         "thresholds": {
@@ -360,6 +386,8 @@ def main() -> None:
             "cf_min_novelty_delta": args.cf_min_novelty_delta,
             "semantic_min_hit_at_k_delta": args.semantic_min_hit_at_k_delta,
             "semantic_min_mrr_at_k_delta": args.semantic_min_mrr_at_k_delta,
+            "semantic_target_hit_at_k_delta": args.semantic_target_hit_at_k_delta,
+            "semantic_target_mrr_at_k_delta": args.semantic_target_mrr_at_k_delta,
             "semantic_min_evaluated_cases": args.semantic_min_evaluated_cases,
         },
     }
@@ -377,4 +405,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

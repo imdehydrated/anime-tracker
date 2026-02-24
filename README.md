@@ -34,6 +34,7 @@ For deeper design details, see `ARCHITECTURE.md`.
   - indexed lexical candidates (full-text + trigram over title/genres/description)
   - vector + lexical candidates merged with reciprocal-rank-fusion policy
   - optional sidecar reranking on semantic mode when custom vectors are enabled
+  - optional RSS-style graph reranking in sidecar when `ml-models/semantic_graph.npz` is available
   - semantic dedupe pass reduces same-franchise season/special clutter in top results
   - per-query score calibration to reduce overconfident outliers
 - CF mode predicts unwatched anime using a trained autoencoder.
@@ -82,8 +83,12 @@ Use these docs for details:
 - Eval scripts auto-prune old snapshot JSONs by retention defaults (tunable flags in `DEV-COMMANDS.md`)
 - Eval A/B comparison tooling includes `notebooks/eval_leaderboard.py` for ranking snapshot runs
 - Promotion gating for model updates uses `notebooks/promotion_gate.py` (commands in `DEV-COMMANDS.md`)
-- Direct query-intent semantic testing uses `notebooks/semantic_query_tests.py` with a curated benchmark set
+- Direct semantic query testing uses `notebooks/semantic_query_tests.py` with a curated benchmark set
   - benchmark title resolution includes alias mapping for common English/romanized title variants
+- Production-path semantic query benchmarking is available via `notebooks/semantic_query_api_tests.py`
+- Offline graph artifact generation is available via `notebooks/build_semantic_graph.py`
+- Embedding metadata backfill utility is available via `notebooks/enrich_embeddings_metadata.py`
+- AniList graph-metadata refresh utility is available via `notebooks/backfill_anilist_graph_metadata.py`
 - Semantic experiment runs support optional hard-neighbor refresh across epochs (documented in `DEV-COMMANDS.md`)
 
 ## Project Structure

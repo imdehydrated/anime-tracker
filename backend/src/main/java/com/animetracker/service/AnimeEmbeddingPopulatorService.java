@@ -1,40 +1,36 @@
 package com.animetracker.service;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import com.animetracker.dto.AniListResponse;
+import com.animetracker.repository.AnimeEmbeddingRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.animetracker.dto.AniListResponse;
-import com.animetracker.repository.AnimeEmbeddingRepository;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
-/**
- * Bulk populator that scrapes anime from AniList (by popularity) and stores
- * their local custom embeddings in the anime_embeddings table.
- *
- * Pipeline per page:
- * 1. Fetch 50 anime from AniList (sorted by POPULARITY_DESC)
- * 2. For each anime, build an embedding text from its metadata
- * 3. Call ML sidecar to embed the text into a 384-dim vector
- * 4. Upsert the anime + custom embedding into the database
- * 5. Wait 700ms before the next AniList page (rate limit: 90 req/min)
- *
- * Triggered manually by a maintenance script/job.
- * Target: ~5,000-15,000 anime, embedded through the local sidecar model.
- */
 @Service
 public class AnimeEmbeddingPopulatorService {
 
     private static final Logger log = LoggerFactory.getLogger(AnimeEmbeddingPopulatorService.class);
+    private static final List<String> ACTIVE_FORMATS = List.of(
+            "TV",
+            "TV_SHORT",
+            "MOVIE",
+            "OVA",
+            "ONA",
+            "SPECIAL");
 
     private final AniListService aniListService;
     private final MlSidecarService mlSidecarService;
     private final AnimeEmbeddingRepository embeddingRepository;
 
-    public AnimeEmbeddingPopulatorService(AniListService aniListService,
+    public AnimeEmbeddingPopulatorService(
+            AniListService aniListService,
             MlSidecarService mlSidecarService,
             AnimeEmbeddingRepository embeddingRepository) {
         this.aniListService = aniListService;
@@ -42,157 +38,264 @@ public class AnimeEmbeddingPopulatorService {
         this.embeddingRepository = embeddingRepository;
     }
 
-	/**
-	 * Populate the anime_embeddings table with the top anime by popularity.
-	 * @param totalPages Number of AniList pages to fetch (50 anime per page).
-	 *                   e.g., 100 pages = 5,000 anime, 300 pages = 15,000 anime.
-	 * @return Number of anime successfully embedded.
-	 */
-	@Transactional
+    /**
+     * Populate from popular anime pages. Existing behavior kept for compatibility.
+     */
+    @Transactional
     public int populate(int totalPages) {
+        PopulationStats stats = populatePages(
+                totalPages,
+                50,
+                (page, perPage) -> aniListService.fetchPopularAnimePage(page, perPage),
+                "popular");
+        return stats.embedded();
+    }
+
+    /**
+     * Populate from active catalog pages (broader than popularity sorted subset).
+     */
+    @Transactional
+    public PopulationStats populateActiveCatalog(int maxPages, int perPage) {
+        int effectivePerPage = Math.max(1, Math.min(50, perPage));
+        return populatePages(
+                maxPages,
+                effectivePerPage,
+                (page, pageSize) -> aniListService.fetchActiveCatalogPage(page, pageSize, ACTIVE_FORMATS),
+                "active_catalog");
+    }
+
+    private PopulationStats populatePages(
+            int totalPages,
+            int perPage,
+            BiFunction<Integer, Integer, List<AniListResponse.AnimeInfo>> fetchPage,
+            String source) {
         if (!mlSidecarService.isEnabled()) {
             throw new IllegalStateException("ML sidecar must be enabled for embedding population");
         }
 
         int embedded = 0;
         int skipped = 0;
+        int failed = 0;
+        int discovered = 0;
+        int pagesVisited = 0;
 
-		for (int page = 1; page <= totalPages; page++) {
-			log.info("Fetching AniList page {}/{}", page, totalPages);
+        for (int page = 1; page <= Math.max(1, totalPages); page++) {
+            pagesVisited++;
+            log.info("Fetching AniList {} page {}/{}", source, page, totalPages);
 
-			List<AniListResponse.AnimeInfo> animeList;
-			try {
-				animeList = aniListService.fetchPopularAnimePage(page, 50);
-			} catch (Exception e) {
-				log.error("Failed to fetch AniList page {}: {}", page, e.getMessage());
-				break;
-			}
+            List<AniListResponse.AnimeInfo> animeList;
+            try {
+                animeList = fetchPage.apply(page, perPage);
+            } catch (Exception e) {
+                log.error("Failed to fetch AniList {} page {}: {}", source, page, e.getMessage());
+                break;
+            }
 
-			if (animeList.isEmpty()) {
-				log.info("No more anime returned from AniList at page {}, stopping", page);
-				break;
-			}
+            if (animeList == null || animeList.isEmpty()) {
+                log.info("No more anime returned from AniList {} at page {}, stopping", source, page);
+                break;
+            }
 
-			for (AniListResponse.AnimeInfo anime : animeList) {
-				try {
-					// Skip if already embedded (avoid re-embedding on re-runs)
-					if (embeddingRepository.existsByAnilistId(anime.getId())) {
-						skipped++;
-						continue;
-					}
-
-					// Build the text that captures this anime's semantic identity
-					String embeddingText = buildEmbeddingText(anime);
-
-                    // Call sidecar to embed the text
-                    float[] vector = mlSidecarService.embedText(embeddingText);
-                    if (vector == null || vector.length == 0) {
-                        log.warn("Skipping anime {} because sidecar embedding failed", anime.getId());
+            discovered += animeList.size();
+            for (AniListResponse.AnimeInfo anime : animeList) {
+                if (anime == null || anime.getId() == null || anime.getId() <= 0) {
+                    failed++;
+                    continue;
+                }
+                try {
+                    if (embeddingRepository.existsByAnilistId(anime.getId())) {
+                        skipped++;
                         continue;
                     }
-                    String vectorStr = EmbeddingService.toVectorString(vector);
+                    if (upsertEmbeddedAnime(anime)) {
+                        embedded++;
+                        if (embedded % 50 == 0) {
+                            log.info(
+                                    "Population progress ({}): embedded={}, skipped={}, failed={}",
+                                    source,
+                                    embedded,
+                                    skipped,
+                                    failed);
+                        }
+                    } else {
+                        failed++;
+                    }
+                } catch (Exception e) {
+                    failed++;
+                    log.error(
+                            "Failed to embed anime {} ({}) from {}: {}",
+                            anime.getId(),
+                            anime.getTitle() != null ? anime.getTitle().getRomaji() : "unknown",
+                            source,
+                            e.getMessage());
+                }
+            }
+        }
 
-					// Extract metadata for storage
-					String titleRomaji = anime.getTitle() != null ? anime.getTitle().getRomaji() : null;
-					String titleEnglish = anime.getTitle() != null ? anime.getTitle().getEnglish() : null;
-					String coverImage = anime.getCoverImage() != null ? anime.getCoverImage().getLarge() : null;
-					String genres = anime.getGenres() != null ? String.join(", ", anime.getGenres()) : null;
-					String description = stripHtml(anime.getDescription());
+        long totalCustomEmbeddings = embeddingRepository.countCustomEmbeddings();
+        log.info(
+                "Population complete ({}) pages={} discovered={} embedded={} skipped={} failed={} total_custom={}",
+                source,
+                pagesVisited,
+                discovered,
+                embedded,
+                skipped,
+                failed,
+                totalCustomEmbeddings);
+        return new PopulationStats(
+                source,
+                pagesVisited,
+                discovered,
+                embedded,
+                skipped,
+                failed,
+                totalCustomEmbeddings);
+    }
 
-                    // Upsert into database (insert or update if anilist_id exists)
-                    embeddingRepository.upsertCustomEmbedding(
-                            anime.getId(), titleRomaji, titleEnglish, coverImage,
-                            genres, description, anime.getAverageScore(),
-                            anime.getStatus(), anime.getEpisodes(),
-                            vectorStr);
+    private boolean upsertEmbeddedAnime(AniListResponse.AnimeInfo anime) {
+        String embeddingText = buildEmbeddingText(anime);
+        float[] vector = mlSidecarService.embedText(embeddingText);
+        if (vector == null || vector.length == 0) {
+            log.warn("Skipping anime {} because sidecar embedding failed", anime.getId());
+            return false;
+        }
 
-					embedded++;
+        String vectorStr = EmbeddingService.toVectorString(vector);
+        String titleRomaji = anime.getTitle() != null ? anime.getTitle().getRomaji() : null;
+        String titleEnglish = anime.getTitle() != null ? anime.getTitle().getEnglish() : null;
+        String coverImage = anime.getCoverImage() != null ? anime.getCoverImage().getLarge() : null;
+        String genres = anime.getGenres() != null ? String.join(", ", anime.getGenres()) : null;
+        String description = stripHtml(anime.getDescription());
 
-					if (embedded % 50 == 0) {
-						log.info("Progress: {} embedded, {} skipped", embedded, skipped);
-					}
-				} catch (Exception e) {
-					log.error("Failed to embed anime {} ({}): {}",
-							anime.getId(),
-							anime.getTitle() != null ? anime.getTitle().getRomaji() : "unknown",
-							e.getMessage());
-				}
-			}
+        embeddingRepository.upsertCustomEmbedding(
+                anime.getId(),
+                titleRomaji,
+                titleEnglish,
+                coverImage,
+                genres,
+                description,
+                anime.getAverageScore(),
+                anime.getStatus(),
+                anime.getEpisodes(),
+                vectorStr);
+        return true;
+    }
 
-			// Respect AniList rate limits: 90 requests/min → ~700ms between requests
-			if (page < totalPages) {
-				try {
-					Thread.sleep(700);
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-					log.warn("Populator interrupted at page {}", page);
-					break;
-				}
-			}
-		}
+    /**
+     * Build embedding text that captures title + topical metadata.
+     */
+    String buildEmbeddingText(AniListResponse.AnimeInfo anime) {
+        StringBuilder sb = new StringBuilder();
 
-		log.info("Population complete: {} embedded, {} skipped (already existed)", embedded, skipped);
-		return embedded;
-	}
+        if (anime.getTitle() != null) {
+            String title = anime.getTitle().getEnglish() != null
+                    ? anime.getTitle().getEnglish()
+                    : anime.getTitle().getRomaji();
+            if (title != null && !title.isBlank()) {
+                sb.append("Title: ").append(title).append("\n");
+            }
+            if (anime.getTitle().getNativeTitle() != null && !anime.getTitle().getNativeTitle().isBlank()) {
+                sb.append("Title Native: ").append(anime.getTitle().getNativeTitle()).append("\n");
+            }
+        }
 
-	/**
-     * Build the text string that will be embedded by the local model.
-	 * Combines title, genres, tags, and description into a single string
-	 * that captures the anime's semantic identity.
-	 *
-	 * Tags are particularly valuable — they include descriptors like
-	 * "Time Travel", "Anti-Hero", "Mind Games" with relevance ranks.
-	 * We include tags ranked 60+ to focus on the most relevant ones.
-	 */
-	String buildEmbeddingText(AniListResponse.AnimeInfo anime) {
-		StringBuilder sb = new StringBuilder();
+        if (anime.getSynonyms() != null && !anime.getSynonyms().isEmpty()) {
+            List<String> cleaned = anime.getSynonyms().stream()
+                    .filter(x -> x != null && !x.isBlank())
+                    .limit(6)
+                    .toList();
+            if (!cleaned.isEmpty()) {
+                sb.append("Synonyms: ").append(String.join(", ", cleaned)).append("\n");
+            }
+        }
 
-		// Title
-		if (anime.getTitle() != null) {
-			String title = anime.getTitle().getEnglish() != null
-					? anime.getTitle().getEnglish()
-					: anime.getTitle().getRomaji();
-			if (title != null) {
-				sb.append("Title: ").append(title).append("\n");
-			}
-		}
+        if (anime.getFormat() != null && !anime.getFormat().isBlank()) {
+            sb.append("Format: ").append(anime.getFormat()).append("\n");
+        }
+        if (anime.getSeason() != null && !anime.getSeason().isBlank()) {
+            sb.append("Season: ").append(anime.getSeason());
+            if (anime.getSeasonYear() != null) {
+                sb.append(" ").append(anime.getSeasonYear());
+            }
+            sb.append("\n");
+        }
 
-		// Genres
-		if (anime.getGenres() != null && !anime.getGenres().isEmpty()) {
-			sb.append("Genres: ").append(String.join(", ", anime.getGenres())).append("\n");
-		}
+        if (anime.getGenres() != null && !anime.getGenres().isEmpty()) {
+            sb.append("Genres: ").append(String.join(", ", anime.getGenres())).append("\n");
+        }
 
-		// Tags (ranked 60+, sorted by rank descending)
-		if (anime.getTags() != null && !anime.getTags().isEmpty()) {
-			String tagStr = anime.getTags().stream()
-					.filter(t -> t.getRank() != null && t.getRank() >= 60)
-					.sorted((a, b) -> b.getRank() - a.getRank())
-					.map(t -> t.getName() + " (" + t.getRank() + "%)")
-					.collect(Collectors.joining(", "));
-			if (!tagStr.isEmpty()) {
-				sb.append("Tags: ").append(tagStr).append("\n");
-			}
-		}
+        if (anime.getTags() != null && !anime.getTags().isEmpty()) {
+            String tagStr = anime.getTags().stream()
+                    .filter(t -> t.getRank() != null && t.getRank() >= 60)
+                    .sorted((a, b) -> b.getRank() - a.getRank())
+                    .map(t -> t.getName() + " (" + t.getRank() + "%)")
+                    .collect(Collectors.joining(", "));
+            if (!tagStr.isEmpty()) {
+                sb.append("Tags: ").append(tagStr).append("\n");
+            }
+        }
 
-		// Description (strip HTML tags that AniList includes)
-		if (anime.getDescription() != null && !anime.getDescription().isBlank()) {
-			String cleanDesc = stripHtml(anime.getDescription());
-			// Truncate long descriptions to avoid wasting tokens
-			if (cleanDesc.length() > 500) {
-				cleanDesc = cleanDesc.substring(0, 500) + "...";
-			}
-			sb.append("Description: ").append(cleanDesc);
-		}
+        if (anime.getStudios() != null && !anime.getStudios().isEmpty()) {
+            List<String> studios = new ArrayList<>();
+            for (AniListResponse.AnimeStudio studio : anime.getStudios()) {
+                if (studio == null || studio.getName() == null || studio.getName().isBlank()) {
+                    continue;
+                }
+                studios.add(studio.getName());
+            }
+            if (!studios.isEmpty()) {
+                sb.append("Studios: ").append(String.join(", ", studios)).append("\n");
+            }
+        }
 
-		return sb.toString().trim();
-	}
+        if (anime.getRelations() != null && !anime.getRelations().isEmpty()) {
+            List<String> relationTitles = new ArrayList<>();
+            for (AniListResponse.AnimeRelation relation : anime.getRelations()) {
+                if (relation == null || relation.getTitle() == null) {
+                    continue;
+                }
+                String title = relation.getTitle().getEnglish() != null
+                        ? relation.getTitle().getEnglish()
+                        : relation.getTitle().getRomaji();
+                if (title != null && !title.isBlank()) {
+                    relationTitles.add(title);
+                }
+                if (relationTitles.size() >= 5) {
+                    break;
+                }
+            }
+            if (!relationTitles.isEmpty()) {
+                sb.append("Related: ").append(String.join(", ", relationTitles)).append("\n");
+            }
+        }
 
-	/**
-	 * Remove HTML tags from AniList descriptions.
-	 * AniList returns descriptions with <br>, <i>, etc.
-	 */
-	private static String stripHtml(String html) {
-		if (html == null) return null;
-		return html.replaceAll("<[^>]*>", "").trim();
-	}
+        if (anime.getDescription() != null && !anime.getDescription().isBlank()) {
+            String cleanDesc = stripHtml(anime.getDescription());
+            if (cleanDesc != null && cleanDesc.length() > 500) {
+                cleanDesc = cleanDesc.substring(0, 500) + "...";
+            }
+            if (cleanDesc != null && !cleanDesc.isBlank()) {
+                sb.append("Description: ").append(cleanDesc);
+            }
+        }
+
+        return sb.toString().trim();
+    }
+
+    private static String stripHtml(String html) {
+        if (html == null) {
+            return null;
+        }
+        return html.replaceAll("<[^>]*>", "").trim();
+    }
+
+    public record PopulationStats(
+            String source,
+            int pagesVisited,
+            int discovered,
+            int embedded,
+            int skipped,
+            int failed,
+            long totalCustomEmbeddings) {
+    }
 }

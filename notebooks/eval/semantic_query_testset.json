@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Curated semantic query benchmark with multiple acceptable matches per query.",
+  "description": "Curated semantic query benchmark with expanded coverage and ID-backed acceptable matches per query.",
   "cases": [
     {
       "query": "cute girls doing cute things in high school",
@@ -9,6 +9,16 @@
         "Yuru Yuri",
         "Gochuumon wa Usagi Desu ka?",
         "Nichijou"
+      ],
+      "acceptable_anilist_ids": [
+        5680,
+        7791,
+        10165,
+        10495,
+        12403,
+        20517,
+        21034,
+        102090
       ]
     },
     {
@@ -18,6 +28,12 @@
         "MONSTER",
         "PSYCHO-PASS",
         "serial experiments lain"
+      ],
+      "acceptable_anilist_ids": [
+        19,
+        339,
+        1535,
+        13601
       ]
     },
     {
@@ -27,6 +43,11 @@
         "Top wo Nerae! GunBuster",
         "Tengen Toppa Gurren Lagann",
         "Neon Genesis Evangelion"
+      ],
+      "acceptable_anilist_ids": [
+        80,
+        949,
+        2001
       ]
     },
     {
@@ -36,6 +57,11 @@
         "Zero no Tsukaima",
         "Shakugan no Shana",
         "Yahari Ore no Seishun Love Comedy wa Machigatteiru."
+      ],
+      "acceptable_anilist_ids": [
+        355,
+        1195,
+        4224
       ]
     },
     {
@@ -45,6 +71,12 @@
         "Kono Subarashii Sekai ni Shukufuku wo!",
         "Mushoku Tensei: Isekai Ittara Honki Dasu",
         "Tensei Shitara Slime Datta Ken"
+      ],
+      "acceptable_anilist_ids": [
+        21202,
+        21355,
+        101280,
+        108465
       ]
     },
     {
@@ -54,6 +86,12 @@
         "SLAM DUNK",
         "Ahiru no Sora",
         "Ro-Kyu-Bu!"
+      ],
+      "acceptable_anilist_ids": [
+        170,
+        10572,
+        11771,
+        101239
       ]
     },
     {
@@ -62,6 +100,11 @@
         "Steins;Gate",
         "Boku dake ga Inai Machi",
         "Tokyo Revengers"
+      ],
+      "acceptable_anilist_ids": [
+        9253,
+        21234,
+        120120
       ]
     },
     {
@@ -71,6 +114,12 @@
         "Barakamon",
         "Yuru Camp",
         "Aria The Animation"
+      ],
+      "acceptable_anilist_ids": [
+        477,
+        17549,
+        20722,
+        98444
       ]
     },
     {
@@ -79,6 +128,10 @@
         "PSYCHO-PASS",
         "Koukaku Kidoutai",
         "Akudama Drive"
+      ],
+      "acceptable_anilist_ids": [
+        13601,
+        116566
       ]
     },
     {
@@ -87,6 +140,11 @@
         "Rurouni Kenshin: Meiji Kenkaku Romantan",
         "Samurai Champloo",
         "Dororo"
+      ],
+      "acceptable_anilist_ids": [
+        45,
+        205,
+        101347
       ]
     },
     {
@@ -95,6 +153,10 @@
         "Love Live! School Idol Project",
         "THE iDOLM@STER",
         "Zombieland Saga"
+      ],
+      "acceptable_anilist_ids": [
+        10278,
+        15051
       ]
     },
     {
@@ -102,12 +164,19 @@
       "acceptable_titles": [
         "Haikyuu!!",
         "2.43: Seiin Koukou Danshi Volley-bu"
+      ],
+      "acceptable_anilist_ids": [
+        20464,
+        113231
       ]
     },
     {
       "query": "pirate adventure searching for treasure",
       "acceptable_titles": [
         "ONE PIECE"
+      ],
+      "acceptable_anilist_ids": [
+        21
       ]
     },
     {
@@ -116,6 +185,10 @@
         "Cowboy Bebop",
         "Trigun",
         "Outlaw Star"
+      ],
+      "acceptable_anilist_ids": [
+        1,
+        6
       ]
     },
     {
@@ -124,6 +197,11 @@
         "Shingeki no Kyojin",
         "Koutetsujou no Kabaneri",
         "Owari no Seraph"
+      ],
+      "acceptable_anilist_ids": [
+        16498,
+        20829,
+        21196
       ]
     },
     {
@@ -132,6 +210,11 @@
         "Mahouka Koukou no Rettousei",
         "Rakudai Kishi no Cavalry",
         "Toaru Majutsu no Index"
+      ],
+      "acceptable_anilist_ids": [
+        4654,
+        20458,
+        21092
       ]
     },
     {
@@ -140,6 +223,11 @@
         "Yuru Camp",
         "Sora yori mo Tooi Basho",
         "Aria The Animation"
+      ],
+      "acceptable_anilist_ids": [
+        477,
+        98444,
+        99426
       ]
     },
     {
@@ -148,6 +236,11 @@
         "Meitantei Conan",
         "Hyouka",
         "Death Note"
+      ],
+      "acceptable_anilist_ids": [
+        235,
+        1535,
+        12189
       ]
     },
     {
@@ -156,6 +249,10 @@
         "Golden Time",
         "Honey and Clover",
         "Nodame Cantabile"
+      ],
+      "acceptable_anilist_ids": [
+        1698,
+        17895
       ]
     },
     {
@@ -164,6 +261,268 @@
         "Neon Genesis Evangelion",
         "RahXephon",
         "Bokurano"
+      ],
+      "acceptable_anilist_ids": [
+        165,
+        1690
+      ]
+    },
+    {
+      "query": "classic space bounty hunter adventure",
+      "acceptable_anilist_ids": [
+        1,
+        6,
+        400
+      ],
+      "acceptable_titles": [
+        "Cowboy Bebop",
+        "TRIGUN",
+        "Seihou Bukyou Outlaw Star"
+      ]
+    },
+    {
+      "query": "high school volleyball underdog team",
+      "acceptable_anilist_ids": [
+        20464,
+        20992,
+        21698
+      ],
+      "acceptable_titles": [
+        "Haikyuu!!",
+        "Haikyuu!! 2nd Season",
+        "Haikyuu!!: Karasuno Koukou VS Shiratorizawa Gakuen Koukou"
+      ]
+    },
+    {
+      "query": "intense basketball rivalry sports anime",
+      "acceptable_anilist_ids": [
+        11771,
+        20725,
+        170
+      ],
+      "acceptable_titles": [
+        "Kuroko no Basket",
+        "Kuroko no Basket 3rd SEASON",
+        "SLAM DUNK"
+      ]
+    },
+    {
+      "query": "boxing underdog training and championship matches",
+      "acceptable_anilist_ids": [
+        263,
+        5258,
+        19647
+      ],
+      "acceptable_titles": [
+        "Hajime no Ippo: THE FIGHTING!",
+        "Hajime no Ippo: New Challenger",
+        "Hajime no Ippo: Rising"
+      ]
+    },
+    {
+      "query": "street racing and downhill drift battles",
+      "acceptable_anilist_ids": [
+        185,
+        186,
+        18
+      ],
+      "acceptable_titles": [
+        "Initial D",
+        "Initial D SECOND STAGE",
+        "Initial D FOURTH STAGE"
+      ]
+    },
+    {
+      "query": "war strategy rebellion with mecha",
+      "acceptable_anilist_ids": [
+        1575,
+        2904,
+        2001
+      ],
+      "acceptable_titles": [
+        "Code Geass: Hangyaku no Lelouch",
+        "Code Geass: Hangyaku no Lelouch R2",
+        "Tengen Toppa Gurren Lagann"
+      ]
+    },
+    {
+      "query": "time travel sci fi with a small lab group",
+      "acceptable_anilist_ids": [
+        9253,
+        21127,
+        21234
+      ],
+      "acceptable_titles": [
+        "Steins;Gate",
+        "Steins;Gate 0",
+        "Boku dake ga Inai Machi"
+      ]
+    },
+    {
+      "query": "psychological detective cat and mouse",
+      "acceptable_anilist_ids": [
+        1535,
+        19,
+        13601
+      ],
+      "acceptable_titles": [
+        "DEATH NOTE",
+        "MONSTER",
+        "PSYCHO-PASS"
+      ]
+    },
+    {
+      "query": "relaxing camping slice of life girls",
+      "acceptable_anilist_ids": [
+        98444,
+        104459,
+        155908
+      ],
+      "acceptable_titles": [
+        "Yuru Camp△",
+        "Yuru Camp△ SEASON 2",
+        "Yuru Camp△ SEASON 3"
+      ]
+    },
+    {
+      "query": "healing rural countryside daily life",
+      "acceptable_anilist_ids": [
+        17549,
+        20722,
+        477
+      ],
+      "acceptable_titles": [
+        "Non Non Biyori",
+        "Barakamon",
+        "ARIA The ANIMATION"
+      ]
+    },
+    {
+      "query": "romcom with mind games between top students",
+      "acceptable_anilist_ids": [
+        101921,
+        112641,
+        125367
+      ],
+      "acceptable_titles": [
+        "Kaguya-sama wa Kokurasetai: Tensaitachi no Renai Zunousen",
+        "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen",
+        "Kaguya-sama wa Kokurasetai: Ultra Romantic"
+      ]
+    },
+    {
+      "query": "awkward teen romance and school drama",
+      "acceptable_anilist_ids": [
+        14813,
+        20698,
+        124080
+      ],
+      "acceptable_titles": [
+        "Yahari Ore no Seishun Love Come wa Machigatteiru.",
+        "Yahari Ore no Seishun Love Come wa Machigatteiru. Zoku",
+        "Horimiya"
+      ]
+    },
+    {
+      "query": "fantasy isekai comedy party adventure",
+      "acceptable_anilist_ids": [
+        21202,
+        21699,
+        102976
+      ],
+      "acceptable_titles": [
+        "Kono Subarashii Sekai ni Shukufuku wo!",
+        "Kono Subarashii Sekai ni Shukufuku wo! 2",
+        "Kono Subarashii Sekai ni Shukufuku wo! Kurenai Densetsu"
+      ]
+    },
+    {
+      "query": "serious isekai reincarnation growth story",
+      "acceptable_anilist_ids": [
+        108465,
+        127720,
+        146065
+      ],
+      "acceptable_titles": [
+        "Mushoku Tensei: Isekai Ittara Honki Dasu",
+        "Mushoku Tensei: Isekai Ittara Honki Dasu Part 2",
+        "Mushoku Tensei II: Isekai Ittara Honki Dasu"
+      ]
+    },
+    {
+      "query": "grim dark war against giant monsters",
+      "acceptable_anilist_ids": [
+        16498,
+        20958,
+        99147
+      ],
+      "acceptable_titles": [
+        "Shingeki no Kyojin",
+        "Shingeki no Kyojin Season 2",
+        "Shingeki no Kyojin Season 3"
+      ]
+    },
+    {
+      "query": "demon hunting sword action",
+      "acceptable_anilist_ids": [
+        101922,
+        112151,
+        142329
+      ],
+      "acceptable_titles": [
+        "Kimetsu no Yaiba",
+        "Kimetsu no Yaiba: Mugen Ressha-hen",
+        "Kimetsu no Yaiba: Yuukaku-hen"
+      ]
+    },
+    {
+      "query": "superhero academy battles and powers",
+      "acceptable_anilist_ids": [
+        21459,
+        21856,
+        100166
+      ],
+      "acceptable_titles": [
+        "Boku no Hero Academia",
+        "Boku no Hero Academia 2",
+        "Boku no Hero Academia 3"
+      ]
+    },
+    {
+      "query": "psychic powers and coming of age",
+      "acceptable_anilist_ids": [
+        21507,
+        101338,
+        140439
+      ],
+      "acceptable_titles": [
+        "Mob Psycho 100",
+        "Mob Psycho 100 II",
+        "Mob Psycho 100 III"
+      ]
+    },
+    {
+      "query": "viking revenge and historical warfare",
+      "acceptable_anilist_ids": [
+        101348,
+        136430
+      ],
+      "acceptable_titles": [
+        "VINLAND SAGA",
+        "VINLAND SAGA SEASON 2"
+      ]
+    },
+    {
+      "query": "surreal psychological classic anime",
+      "acceptable_anilist_ids": [
+        339,
+        9756,
+        19
+      ],
+      "acceptable_titles": [
+        "serial experiments lain",
+        "Mahou Shoujo Madoka☆Magica",
+        "MONSTER"
       ]
     }
   ]

@@ -134,6 +134,9 @@ recommendations:
     # Per-query calibration to reduce overconfident semantic scores.
     score-calibration-enabled: ${RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED:true}
     score-calibration-temperature: ${RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE:1.00}
+    # Lightweight popularity prior for semantic ranking (AniList average score).
+    popularity-prior-enabled: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_ENABLED:true}
+    popularity-prior-weight: ${RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT:0.10}
   fusion:
     # Source weights are clamped to >= 0 and renormalized to sum=1 at startup.
     semantic-weight: ${FUSION_SEMANTIC_WEIGHT:0.7}

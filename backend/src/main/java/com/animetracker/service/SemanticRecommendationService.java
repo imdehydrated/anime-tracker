@@ -98,6 +98,10 @@ public class SemanticRecommendationService {
     private boolean semanticScoreCalibrationEnabled;
     @Value("${recommendations.semantic.score-calibration-temperature:1.00}")
     private float semanticScoreCalibrationTemperature;
+    @Value("${recommendations.semantic.popularity-prior-enabled:true}")
+    private boolean semanticPopularityPriorEnabled;
+    @Value("${recommendations.semantic.popularity-prior-weight:0.10}")
+    private float semanticPopularityPriorWeight;
     @Value("${recommendations.fusion.dynamic-blend-enabled:true}")
     private boolean dynamicBlendEnabled;
     @Value("${recommendations.fusion.dynamic-blend-min-rated-anime:10}")
@@ -749,12 +753,27 @@ public class SemanticRecommendationService {
                     0.0,
                     1.0);
         }
+        normalizedScore = applySemanticPopularityPrior(normalizedScore, anime);
 
         return new FusionScoringService.ScoredCandidate(
                 anime.getId(),
                 anime,
                 normalizedScore,
                 baseReasonCodes);
+    }
+
+    private double applySemanticPopularityPrior(double baseScore, AniListResponse.AnimeInfo anime) {
+        if (!semanticPopularityPriorEnabled || anime == null || anime.getAverageScore() == null) {
+            return baseScore;
+        }
+
+        double popularityNorm = FusionScoringService.clamp(anime.getAverageScore() / 100.0d, 0.0d, 1.0d);
+        double w = FusionScoringService.clamp(semanticPopularityPriorWeight, 0.0d, 0.35d);
+        if (w <= 0.0d) {
+            return baseScore;
+        }
+
+        return FusionScoringService.clamp(((1.0d - w) * baseScore) + (w * popularityNorm), 0.0d, 1.0d);
     }
 
     private String buildLexicalQueryText(String normalizedQuery) {
@@ -977,6 +996,23 @@ public class SemanticRecommendationService {
         }
 
         return profiles;
+    }
+
+    public Map<String, Object> populateActiveCatalogEmbeddings(int maxPages, int perPage) {
+        int safePages = Math.max(1, maxPages);
+        int safePerPage = Math.max(1, Math.min(50, perPage));
+        AnimeEmbeddingPopulatorService.PopulationStats stats = populatorService.populateActiveCatalog(
+                safePages,
+                safePerPage);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("source", stats.source());
+        out.put("pagesVisited", stats.pagesVisited());
+        out.put("discovered", stats.discovered());
+        out.put("embedded", stats.embedded());
+        out.put("skipped", stats.skipped());
+        out.put("failed", stats.failed());
+        out.put("totalCustomEmbeddings", stats.totalCustomEmbeddings());
+        return out;
     }
 
     public void blacklistAnime(String username, Integer anilistId, String title, String coverImage) {

@@ -104,7 +104,7 @@ public class CustomEmbeddingImportService {
                 try {
                     JsonNode node = objectMapper.readTree(line);
                     int anilistId = node.path("anilist_id").asInt(0);
-                    String title = node.path("title").asText(null);
+                    String title = readString(node, "title", "title_romaji", "titleRomaji", "title_english", "titleEnglish");
                     JsonNode embeddingNode = node.path("embedding");
 
                     if (anilistId <= 0) {
@@ -123,8 +123,14 @@ public class CustomEmbeddingImportService {
                         vector[i] = (float) embeddingNode.get(i).asDouble();
                     }
 
-                    String titleRomaji = title;
+                    String titleRomaji = readString(node, "title_romaji", "titleRomaji");
+                    if (titleRomaji == null || titleRomaji.isBlank()) {
+                        titleRomaji = title;
+                    }
                     String titleEnglish = readString(node, "title_english", "titleEnglish");
+                    if ((titleEnglish == null || titleEnglish.isBlank()) && title != null && !title.isBlank()) {
+                        titleEnglish = title;
+                    }
                     String coverImage = readString(node, "cover_image", "coverImage");
                     String genres = readGenres(node.path("genres"));
                     String description = stripHtml(readString(node, "description"));
