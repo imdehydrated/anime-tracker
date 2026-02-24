@@ -1,306 +1,323 @@
 # Architecture Guide
 
-## Overview
+## Purpose
 
-AniRec has 4 running services:
+This document explains how AniRec is structured, why it is structured this way, and how the major subsystems interact. It is written for contributors making changes across backend, frontend, sidecar, and ML tooling.
 
-- `backend/` (Spring Boot): auth, list CRUD, recommendation APIs, AniList integration, and recommendation orchestration.
-- `frontend/` (React): route-based UI that calls backend APIs.
-- `db/` (PostgreSQL + pgvector): app data + vector search.
-- `ml-sidecar/` (FastAPI): custom semantic embedding/rerank + CF predictions.
+## System Overview
 
-## Backend Layout
+AniRec is a four-service system:
 
-- `config/`: JWT and security config.
-- `controller/`: request/response layer only.
-- `service/`: recommendation logic, orchestration, external calls.
-- `repository/`: JPA + native SQL queries (including pgvector search).
-- `entity/`: database models.
-- `dto/`: request/response models.
-- `exception/`: domain exceptions + global API error handler.
+1. `frontend/` (React SPA)
+2. `backend/` (Spring Boot API)
+3. `db/` (PostgreSQL + pgvector)
+4. `ml-sidecar/` (FastAPI model-serving runtime)
 
-### Backend Rules
+The separation is intentional:
+- Backend owns API contracts, auth, policy, and orchestration.
+- Sidecar owns model inference concerns (embedding/rerank/CF prediction).
+- Database owns durable state and vector/lexical retrieval indexes.
+- Frontend owns user interaction and view-state behavior.
 
-1. Keep controllers thin.
-2. Put business logic in services.
-3. Throw domain exceptions from services (`BadRequestException`, `NotFoundException`, etc.).
-4. Use typed DTOs (not untyped maps) for request bodies.
-5. Keep external API logic inside dedicated service classes.
+This keeps model iteration decoupled from core API lifecycle and allows independent scaling/failure handling.
 
-## Frontend Layout
+## Repository Layout
 
-- `src/api/`: all backend HTTP calls.
-- `src/pages/`: route pages.
-- `src/components/`: reusable UI blocks.
-- `src/hooks/`: reusable state/workflows.
-- `src/context/`: auth state + unauthorized handling.
+Top-level:
+- `backend/`: Spring Boot code and DB migrations
+- `frontend/`: React app
+- `ml-sidecar/`: FastAPI semantic + CF model serving
+- `ml-models/`: exported model artifacts mounted into sidecar
+- `notebooks/`: data prep, training, export, eval, promotion gate tooling
+- `scripts/`: operational helpers (for example session preflight)
 
-### Frontend Rules
+## Backend Design (`backend/`)
 
-1. Pages should call `src/api/*`, not raw Axios.
-2. Use shared hooks/components for repeated workflows.
-3. Keep route protection in auth wrappers (like `RequireAuth`).
-4. Use router navigation (`Link`, `Navigate`) for app routes.
+Backend package structure:
+- `config/`: security and JWT plumbing
+- `controller/`: HTTP request/response boundary
+- `service/`: orchestration and business logic
+- `repository/`: DB access (JPA + native SQL)
+- `entity/`: relational persistence model
+- `dto/`: API and integration payload shapes
+- `exception/`: domain exceptions and API error mapping
 
-## Recommendation Architecture
+### Why this layering
 
-### Endpoints
+- Controllers stay thin so API contracts stay readable and stable.
+- Services centralize behavior and policy, avoiding controller/repository coupling.
+- Repositories isolate SQL/index specifics and keep retrieval optimizations local.
+- DTO/entity split avoids leaking persistence details to API clients.
 
-- Legacy endpoint:
-  - `POST /api/users/recommendations/semantic`
-  - Returns `List<AnimeInfo>` (for compatibility).
-- Scored endpoint:
-  - `POST /api/users/recommendations/semantic/scored`
-  - Returns `List<RecommendationResponse>` (`anime`, `fusionScore`, `reasonCodes`).
+## Backend Core Services
 
-Frontend currently calls scored first, then falls back to legacy on `404`.
+### `SemanticRecommendationService`
 
-### Modes
+Primary recommendation orchestrator. It:
+- routes by mode (`semantic`, `similar`, `cf`)
+- enforces mode semantics (`semantic` ignores seeds, `similar` requires seeds)
+- builds semantic candidates
+- blends with CF candidates when applicable
+- applies dedupe/score calibration/reason metadata
 
-All modes use the same request DTO (`SemanticRequest`) with `mode`:
+Design reason:
+- one orchestrator simplifies cross-signal policy and makes contract behavior consistent across endpoints.
 
-- `semantic`: text-query intent retrieval (+ optional list profile blend). `seedIds` are ignored in this mode for compatibility.
-  Query text is normalized before embedding (lowercase, punctuation cleanup). Shorthand terms are preserved and expanded (for example `romcom -> romcom romance comedy`, `isekai -> isekai another world fantasy adventure`).
-  Candidate generation is hybrid:
-  - vector nearest-neighbor candidates from pgvector
-  - indexed lexical candidates from title + genres + description using PostgreSQL full-text ranking and trigram title similarity
-  - vector + lexical candidates are merged via reciprocal rank fusion (configurable weights + `rrf-k`)
-  - optional sidecar rerank pass can reorder semantic-mode candidates when custom vectors are enabled
-  - semantic dedupe pass can collapse near-duplicate franchise season/special variants before final response shaping
-  - merged candidate scores are calibrated per query to reduce overconfident outliers
-- `similar`: seed-centric similarity (+ optional list profile blend).
-  Similar-mode explanation anchors come from selected seed anime titles. User-list titles are not used unless personalization signal is explicitly part of ranking logic.
-  SmartRec UI now controls this as a toggle (fixed personalization strength) instead of a slider.
-- `cf`: collaborative filtering only (requires logged-in user + sidecar).
+### `FusionScoringService`
 
-### Semantic Preprocessing (Notebook 02)
+Normalizes and combines semantic/CF signal families, applies optional diversity penalty, and controls explanation contribution thresholds.
 
-Semantic training data is not raw reviews. `02_preprocessing.ipynb` now applies a preprocessing pass that:
+Design reason:
+- score math is isolated so tuning does not sprawl through orchestration logic.
 
-- removes AniList/markdown noise from review text
-- masks anime title mentions to a neutral token (`[TITLE]`)
-- extracts higher-signal opinion sentences (story, characters, pacing, visuals, etc.)
-- feeds that filtered text into both:
-  - `corpus.jsonl` (MLM + embedding corpus)
-  - `triplets.jsonl` (triplet fine-tuning data)
+### `AniListService`
 
-### Semantic Experiment Track (Phase 7)
+Owns all AniList GraphQL calls:
+- search-by-query
+- fetch-by-id
+- popularity paging
+- active-catalog paging
 
-- Baseline remains triplet fine-tuning from notebook `03`.
-- Experimental path now uses multi-positive label training with hard-neighbor batches:
-  - `notebooks/semantic_multipos_experiment.py`
-- Hard-neighbor mining can be refreshed during training (`--hard-neighbor-refresh-epochs`) so confuser negatives stay aligned with the latest embedding space.
-- Rationale: this avoids assuming only one valid match per query, which better fits anime retrieval where multiple titles can be good answers.
-- Legacy `notebooks/semantic_mnrl_experiment.py` is kept as a compatibility wrapper that forwards to the new script.
+It includes request pacing, retries, and short-lived cache.
 
-### Vector Sources
+Design reason:
+- external API reliability policy belongs in one integration service, not spread across features.
 
-- OpenAI embedding fallback is disabled in app code.
-- `RECOMMENDATIONS_USE_CUSTOM_VECTORS=true`: use custom vector column (`embedding_custom`, 384-dim) for semantic retrieval.
+### `MlSidecarService`
 
-### Scoring + Fusion
+Backend HTTP client for sidecar endpoints:
+- `/embed`
+- `/semantic/rerank`
+- `/cf/recommend`
+- `/health`
 
-`SemanticRecommendationService` builds candidate lists and uses `FusionScoringService` to:
+Design reason:
+- explicit boundary for sidecar transport, timeout, and fallback behavior.
 
-1. Normalize score types into `[0, 1]`.
-2. Merge semantic and CF overlap candidates.
-3. Blend weights (global config + optional per-request override path).
-4. Optionally apply diversity penalty pass.
-5. Attach explanation metadata:
-   - `fusionScore`
-   - `reasonCodes`
-   - one-sentence `recommendationReason`
-   - sentence now uses concrete signals when available (matched query terms, genre overlap, CF contributor hints, and highly-rated genre context)
-   - optional hosted or local LLM rewrite can convert evidence into more natural one-sentence explanations while preserving deterministic fallback behavior
-6. Reason codes on fused items are contribution-aware:
-   - a source reason is included only when that source contributes enough score share
-   - this avoids misleading explanations when one source had negligible impact
+### `AnimeEmbeddingPopulatorService`
 
-Match % in UI:
+Generates embeddings by pulling AniList metadata and calling sidecar embedding:
+- legacy popularity-based population
+- active-catalog population by format filters
 
-- Frontend shows `Match: X%` from `fusionScore`:
-  - `X = round(clamp(fusionScore, 0, 1) * 100)`
-  - source: `frontend/src/components/AnimeRecItem.js`
-- `fusionScore` is a normalized ranking score, not a calibrated probability of user liking.
-- Score path:
-  - semantic distance from pgvector: `normalizeSemanticDistance(d) = clamp(1 - d/2, 0, 1)`
-  - sidecar rerank score (if present): `normalizeRerankedScore(s) = clamp((s + 1)/2, 0, 1)`
-  - CF score: `normalizeCfScore(pred, conf) = clamp(((clamp(pred,1,10)-1)/9) * clamp(conf,0,1), 0, 1)`
-  - fusion blend for overlap candidates: `fusion = clamp(w_sem * sem + w_cf * cf, 0, 1)` (weights are normalized)
-  - optional diversity pass subtracts a small genre-overlap penalty, then clamps again to `[0,1]`
+Design reason:
+- long-running embedding expansion workflow stays out of request path and remains operationally triggerable.
 
-Performance note:
-- Candidate retrieval overfetches for ranking quality, but metadata hydration from AniList is deferred to final top results to reduce first-request latency spikes.
-- CF recommendations now load anime metadata from local `anime_embeddings` in batch first, then call AniList only for IDs missing locally.
-- Similar mode now skips AniList metadata hydration fallback for final result shaping to reduce rate-limit pressure and keep seed-to-result flow local-first.
+### `CustomEmbeddingImportService`
 
-Phase 8 additions:
+Imports exported JSONL embeddings into DB custom-vector column with fingerprint-based startup sync.
 
-- Dynamic blend policy can increase CF influence as a user has more rated anime.
-- Optional CF contributor hint can enrich the one-sentence reason text (behind a flag).
+Design reason:
+- deterministic artifact import path supports reproducible model promotion and rollback.
 
-### Defaults and Config
+## API Surface
 
-List influence defaults come from backend config:
+Primary API families:
 
-- `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT` (semantic default)
-- `RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT` (similar default)
+Auth and users:
+- `POST /api/users/register`
+- `POST /api/users/login`
 
-Semantic retrieval config:
+Anime list:
+- `GET /api/users/list`
+- `POST /api/users/list`
+- `PUT /api/users/list/{id}`
+- `DELETE /api/users/list/{id}`
 
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED`
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT`
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_MAX_PATTERNS`
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_BOOST`
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_RRF_K`
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_VECTOR_WEIGHT`
-- `RECOMMENDATIONS_SEMANTIC_LEXICAL_WEIGHT`
-- `RECOMMENDATIONS_SEMANTIC_RERANK_ENABLED`
-- `RECOMMENDATIONS_SEMANTIC_RERANK_TOP_K`
-- `RECOMMENDATIONS_SEMANTIC_DEDUPE_ENABLED`
-- `RECOMMENDATIONS_SEMANTIC_DEDUPE_MAX_PER_FRANCHISE`
-- `RECOMMENDATIONS_SEMANTIC_DEDUPE_SUPPRESS_SPECIALS`
-- `RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_ENABLED`
-- `RECOMMENDATIONS_SEMANTIC_SCORE_CALIBRATION_TEMPERATURE`
+Anime lookup:
+- `GET /api/anime/search`
+- `GET /api/anime/{id}`
 
-Fusion config:
+Recommendations:
+- `POST /api/users/recommendations/semantic` (legacy payload shape)
+- `POST /api/users/recommendations/semantic/scored` (scored payload)
+- `POST /api/users/recommendations/blacklist`
+- `GET /api/users/recommendations/blacklist`
+- `DELETE /api/users/recommendations/blacklist/{id}`
+- `POST /api/users/recommendations/custom-embeddings/import`
+- `POST /api/users/recommendations/custom-embeddings/populate-active-catalog`
 
-- `FUSION_SEMANTIC_WEIGHT`
-- `FUSION_CF_WEIGHT`
-- `FUSION_DIVERSITY_PENALTY`
-- `FUSION_CF_CANDIDATE_MULTIPLIER`
-- `FUSION_REASON_MIN_CONTRIBUTION_SHARE`
-- `FUSION_DYNAMIC_BLEND_ENABLED`
-- `FUSION_DYNAMIC_BLEND_MIN_RATED_ANIME`
-- `FUSION_DYNAMIC_BLEND_MAX_RATED_ANIME`
-- `FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT`
-- `FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT`
+Health:
+- `GET /api/health`
 
-Explanation config:
+Contract choice:
+- both legacy and scored recommendation endpoints are kept to avoid breaking existing frontend/backward callers during iterative ranking upgrades.
 
-- `RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED`
-- `RECOMMENDATIONS_EXPLANATIONS_LLM_ENABLED`
-- `RECOMMENDATIONS_EXPLANATIONS_PROVIDER` (`deterministic`, `openai`, `ollama`)
-- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY`
-- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_BASE_URL`
-- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_MODEL`
-- `RECOMMENDATIONS_EXPLANATIONS_OPENAI_TIMEOUT_MS`
-- `RECOMMENDATIONS_EXPLANATIONS_OLLAMA_BASE_URL`
-- `RECOMMENDATIONS_EXPLANATIONS_OLLAMA_MODEL`
-- `RECOMMENDATIONS_EXPLANATIONS_OLLAMA_TIMEOUT_MS`
-- `RECOMMENDATIONS_EXPLANATIONS_LLM_CACHE_SIZE` (in-memory LRU cache entries for generated reasons)
-- `RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST`
+## Recommendation Modes and Behavior
 
-## Data and Infra Notes
+All recommendation requests use the same DTO with `mode`.
 
-- Database uses pgvector index for nearest-neighbor retrieval.
-- Database also uses lexical indexes for semantic fallback/ranking:
-  - `pg_trgm` extension for title trigram similarity
-  - GIN trigram index on normalized title text
-  - GIN full-text index over title + genres + description
-- Backend can auto-sync custom embedding JSONL into DB at startup.
-- AniList calls include retry/pacing/cache safeguards.
-- Sidecar calls are forced to HTTP/1.1 for stable request handling.
+### `semantic` mode
 
-## Offline Evaluation Pipeline
+Query-first semantic retrieval pipeline:
+1. Normalize query text and expand shorthand terms.
+2. Embed query through sidecar custom model.
+3. Retrieve vector candidates from pgvector.
+4. Retrieve lexical candidates from full-text + trigram indexes.
+5. Merge candidates with reciprocal-rank-fusion.
+6. Optionally rerank top candidates in sidecar.
+7. Optionally blend with CF overlap (policy-dependent).
+8. Apply score calibration.
+9. Apply franchise/special dedupe.
+10. Build explanation metadata.
 
-- Script: `notebooks/evaluate_models.py`
-- Input: `notebooks/data/ratings_filtered.csv` + exported `ml-models/` artifacts.
-- Output: `notebooks/eval/baseline_metrics_*.json`
-- Query-intent benchmark script: `notebooks/semantic_query_tests.py`
-  - Input: `notebooks/eval/semantic_query_testset.json` + exported semantic embeddings
-  - Output: `notebooks/eval/semantic_query_benchmark_*.json`
-  - Measures direct search quality with `Hit@K` + `MRR@K` against multiple acceptable titles per query
-  - Includes title-alias normalization (English/romanized variants) to reduce unresolved benchmark mappings
-- Snapshot cleanup: auto-prunes old eval JSONs by retention policy (default keep 40 latest, prune files older than 30 days beyond that).
-- Eval snapshots can include optional experiment metadata (label + CF training hyperparameters) for A/B traceability.
-- Ranking helper: `notebooks/eval_leaderboard.py` to compare/rank:
-  - CF snapshots from `baseline_metrics_*.json`
-  - semantic query snapshots from `semantic_query_benchmark_*.json`
-- Promotion gate script: `notebooks/promotion_gate.py`
-  - compares baseline vs candidate CF snapshots with threshold checks
-  - compares semantic query benchmark baseline vs candidate using `Hit@K` and `MRR@K` deltas
-  - outputs explicit PASS/FAIL before model promotion
+Design reason:
+- hybrid lexical + vector retrieval handles both intent semantics and exact entity mentions.
 
-What it measures:
+### `similar` mode
 
-CF offline ranking metrics:
+Seed-first similarity retrieval:
+- build centroid from seed embeddings
+- optional list-blend personalization
+- retrieve + rerank similar items
 
-- `Recall@10`
-- `HitRate@10`
-- `NDCG@10`
-- `Coverage@10`
-- `Long-tail share`
-- `Novelty`
+Design reason:
+- explicit seed workflow has a different user intent than free-form semantic query; keeping it separate avoids ambiguous behavior.
 
-Semantic query benchmark metrics:
+### `cf` mode
 
-- `Hit@K`
-- `MRR@K`
+Collaborative filtering only:
+- sidecar predicts scores for unseen items from user ratings
+- backend hydrates metadata
 
-Simple meaning of each metric:
+Design reason:
+- pure behavior mode simplifies debugging CF quality independent of semantic retrieval.
 
-- `Recall@10`: Of the anime the user actually liked in the test set, how many showed up in top 10 recommendations.
-  Higher is better.
-- `NDCG@10`: Like recall, but gives more credit when good recommendations are near the top of the list.
-  Higher is better.
-- `HitRate@10`: Percentage of users with at least one relevant hit in top 10.
-  Higher is better.
-- `Coverage@10`: How much of the full catalog the model recommends across all users.
-  Higher means less “same few shows for everyone.”
-- `Long-tail share`: How often recommendations come from less popular anime.
-  Higher means more niche discovery; too low can mean over-popular recommendations.
-- `Novelty`: How surprising/less-popular recommended items are on average.
-  Higher means more novel picks, but very high can reduce mainstream relevance.
+## RSS Hybrid Graph Rerank (Sidecar)
 
-How to read CF metrics together:
+Runtime files:
+- `ml-sidecar/app/semantic_model.py`
+- `ml-sidecar/app/semantic_graph.py`
+- artifact: `ml-models/semantic_graph.npz`
 
-- Strong quality usually means good `Recall@10` and `NDCG@10`.
-- Healthy diversity usually means non-trivial `Coverage@10`, `Long-tail share`, and `Novelty`.
-- No single metric is enough; track all of them before and after model changes.
+When graph artifact exists:
+1. Base semantic score is computed from custom similarity + pgvector similarity.
+2. Global node importance (`pagerank`) is read from graph artifact.
+3. Query relevance is derived from embedding similarity.
+4. Initial activation is formed:
+   - `a0 = 0.45 * global + 0.55 * relevance`
+5. Constrained spreading activation runs:
+   - max hops `2`
+   - decay `0.30`
+   - threshold `0.05`
+6. Final score blend:
+   - `0.55 * base + 0.45 * activation`
 
-How to read semantic query metrics:
+Fallback behavior:
+- if graph artifact is missing or candidate overlap is too sparse, base semantic rerank is used unchanged.
 
-- `Hit@K` answers: did any acceptable title appear in top K.
-- `MRR@K` answers: how early the first acceptable title appeared.
-- For semantic search promotion, prioritize improvements in both `Hit@K` and `MRR@K` on the same test set.
+Design reason:
+- graph signal improves relational relevance while fallback prevents hard dependency on graph completeness.
 
-Split behavior:
+## Sidecar Design (`ml-sidecar/`)
 
-- Uses time split if a timestamp column exists in ratings.
-- Falls back to stratified per-user split when no timestamp column exists.
-- Relevant held-out items are defined by rating threshold (default `>= 7.0`).
-- Evaluator can run CF popularity attenuation A/B via:
-  - `--cf-popularity-alpha`
-  - `--cf-popularity-smoothing`
+Files:
+- `main.py`: app startup and health
+- `routes.py`: API contracts
+- `semantic_model.py`: embedding + semantic rerank logic
+- `semantic_graph.py`: graph loading/activation logic
+- `cf_model.py`: CF prediction logic
 
-## CF Phase 6 (In Progress)
+Health endpoint includes:
+- model load state
+- graph enabled state
+- graph node/edge counts
 
-- Sidecar CF ranking now supports optional popularity attenuation.
-- Controlled by env vars:
-  - `CF_POPULARITY_PENALTY_ALPHA` (`0.0` disables, default `0.15`)
-  - `CF_POPULARITY_PENALTY_SMOOTHING`
-- Popularity priors are loaded from:
-  - `/app/models/cf/item_popularity.json`
-- A/B eval snapshots on the same split seed/user sample:
-  - `alpha=0.00`: recall `0.23716`, ndcg `0.596103`, coverage `0.120475`
-  - `alpha=0.15`: recall `0.237763`, ndcg `0.596700`, coverage `0.127484`
-  - `alpha=0.25`: recall `0.237192`, ndcg `0.596102`, coverage `0.133339`
-- Decision: use `0.15` as default because it improves ranking quality and diversity together without a large hit-rate drop.
-- Notebook 4 training now applies:
-  - weak-negative weighting for unwatched entries in BCE watch loss
-  - long-tail item reweighting for watched/rating reconstruction loss
-  - stronger denoising masking on observed items with minimum kept-signal protection
+Design reason:
+- operational visibility on loaded artifacts is required for safe rollout/promotion.
 
-## Change Checklist
+## Data Layer and Indexing
 
-When changing architecture-sensitive features:
+Main semantic table: `anime_embeddings`
+- metadata fields (title/genres/description/etc.)
+- `embedding` (legacy 1536-dim)
+- `embedding_custom` (authoritative 384-dim custom vector)
 
-1. Update DTOs and validation.
-2. Update controller + service contracts.
-3. Update frontend API module usage.
-4. Update tests for changed behavior.
-5. Update docs:
+Indexes:
+- pgvector IVF for nearest-neighbor retrieval
+- trigram index for title fuzzy matching
+- full-text GIN index over title + genres + description
+
+Design reason:
+- vector index supports semantic similarity; lexical indexes cover literal/alias-heavy queries and cold-start mismatches.
+
+## Frontend Design (`frontend/`)
+
+Structure:
+- `src/api/`: backend client modules (`authApi`, `animeApi`, `listApi`, `recommendationsApi`)
+- `src/context/AuthContext.js`: auth state
+- `src/components/`: reusable UI (`RequireAuth`, cards, rec item, blacklist modal)
+- `src/hooks/`: reusable state flows (`useDebounceSearch`, blacklist/add-to-list hooks)
+- `src/pages/`: route pages (`Home`, `Search`, `MyList`, `SmartRec`, etc.)
+
+Design reason:
+- API access is centralized to avoid duplicated request logic and simplify auth/header/error behavior.
+
+## ML and Notebook Tooling (`notebooks/`)
+
+Core notebook pipeline:
+1. `01_data_collection.ipynb`
+2. `02_preprocessing.ipynb`
+3. `03_semantic_training.ipynb`
+4. `04_cf_training.ipynb`
+5. `05_export.ipynb`
+
+Supporting scripts:
+- `semantic_multipos_experiment.py`: multi-positive semantic experiment runner
+- `build_query_intent_pairs.py`: builds query-intent supervision from benchmark + misses
+- `semantic_query_tests.py`: model-only semantic query benchmark
+- `semantic_query_api_tests.py`: production-path semantic benchmark via backend endpoint
+- `build_semantic_graph.py`: offline graph + PageRank artifact builder
+- `evaluate_models.py`: CF offline metrics
+- `promotion_gate.py`: baseline-vs-candidate promotion decision
+
+Design reason:
+- scriptable evaluation/promotion avoids notebook-only manual decisions and makes model promotion auditable.
+
+## Evaluation and Promotion Policy
+
+Semantic promotion is intent-first:
+- primary metrics: `Hit@K`, `MRR@K`
+- diagnostics: unresolved titles, miss reason breakdown (`model_miss`, `catalog_miss`, `alias_miss`)
+- strict gate for promotion, operational target tracked separately
+
+CF promotion uses ranking/diversity metrics (`Recall`, `NDCG`, `HitRate`, coverage, novelty, long-tail share).
+
+Design reason:
+- semantic query search should be evaluated by query intent outcomes, not list holdout recall.
+
+## Configuration Strategy
+
+Config sources:
+- backend: `application.yml` + env overrides
+- sidecar: env variables and model artifacts in `/app/models`
+
+Important knobs:
+- semantic retrieval fusion and rerank toggles
+- dynamic semantic/CF blend range
+- explanation provider controls
+- startup custom embedding auto-sync
+
+Design reason:
+- environment-driven toggles support controlled rollout and quick rollback without code churn.
+
+## Reliability and Performance Choices
+
+Key decisions:
+- AniList retries + pacing + caches to reduce external API fragility.
+- sidecar communication forced to HTTP/1.1 for stability.
+- metadata hydration deferred to final list where possible.
+- semantic dedupe to reduce low-value near-duplicate franchise results.
+- graph rerank is optional and fallback-safe.
+
+## How to Extend Safely
+
+When adding or changing recommendation behavior:
+1. keep endpoint contracts stable or add compatibility path
+2. keep mode semantics explicit (`semantic` vs `similar` vs `cf`)
+3. add/adjust tests in service and sidecar layers
+4. update benchmark scripts if evaluation semantics change
+5. update docs in same session:
    - `README.md`
    - `DEV-COMMANDS.md`
    - `ARCHITECTURE.md`
