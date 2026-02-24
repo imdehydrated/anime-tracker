@@ -564,6 +564,9 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic -H "Co
 # Similar Shows + optional list personalization (logged in)
 curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"mode":"similar","seedIds":[1535,21],"listWeight":0.35,"limit":15}'
 
+# SmartRec UI note:
+# Similar personalization is now a toggle (no slider). When enabled, UI sends a fixed listWeight.
+
 # For You (CF): login required
 curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"mode":"cf","limit":15}'
 

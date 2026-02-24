@@ -1058,12 +1058,6 @@ a:hover {
 	font-size: 1rem;
 }
 
-.smart-rec-slider {
-	width: 100%;
-	accent-color: #e94560;
-	cursor: pointer;
-}
-
 .smart-rec-slider-hint {
 	color: #888;
 	font-size: 0.8rem;

@@ -11,6 +11,7 @@ import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist'
 
 const MAX_SEEDS = 5;
 const SMART_REC_STATE_KEY = 'smart_rec_page_state_v2';
+const SIMILAR_LIST_WEIGHT_WHEN_ENABLED = 0.25;
 
 /**
  * SmartRec page:
@@ -29,7 +30,6 @@ function SmartRec() {
 	const [seeds, setSeeds] = useState([]);
 	const [context, setContext] = useState('');
 	const [similarUseList, setSimilarUseList] = useState(false);
-	const [similarListWeight, setSimilarListWeight] = useState(0.25);
 	const [results, setResults] = useState([]);
 	const [searching, setSearching] = useState(false);
 	const [searchError, setSearchError] = useState('');
@@ -61,7 +61,6 @@ function SmartRec() {
 			if (Array.isArray(parsed.seeds)) setSeeds(parsed.seeds);
 			if (typeof parsed.context === 'string') setContext(parsed.context);
 			if (typeof parsed.similarUseList === 'boolean') setSimilarUseList(parsed.similarUseList);
-			if (typeof parsed.similarListWeight === 'number') setSimilarListWeight(parsed.similarListWeight);
 			if (Array.isArray(parsed.results)) setResults(parsed.results);
 			if (Array.isArray(parsed.addedIds)) setAddedIds(new Set(parsed.addedIds));
 			if (typeof parsed.searchError === 'string') setSearchError(parsed.searchError);
@@ -79,7 +78,6 @@ function SmartRec() {
 			seeds,
 			context,
 			similarUseList,
-			similarListWeight,
 			results,
 			addedIds: Array.from(addedIds),
 			searchError,
@@ -90,7 +88,6 @@ function SmartRec() {
 		seeds,
 		context,
 		similarUseList,
-		similarListWeight,
 		results,
 		addedIds,
 		searchError
@@ -142,8 +139,8 @@ function SmartRec() {
 
 			if (isSimilarMode) {
 				body.seedIds = seeds.map((seed) => seed.id);
-				if (isLoggedIn && similarUseList && similarListWeight > 0) {
-					body.listWeight = similarListWeight;
+				if (isLoggedIn && similarUseList) {
+					body.listWeight = SIMILAR_LIST_WEIGHT_WHEN_ENABLED;
 				}
 			} else if (!isCfMode) {
 				body.query = context.trim() || null;
@@ -278,24 +275,9 @@ function SmartRec() {
 						/>{' '}
 						Use shows on my list to personalize
 					</label>
-					{similarUseList && (
-						<>
-							<label className="smart-rec-label">
-								List Influence: {Math.round(similarListWeight * 100)}%
-							</label>
-							<input
-								type="range"
-								className="smart-rec-slider"
-								min="0"
-								max="100"
-								value={Math.round(similarListWeight * 100)}
-								onChange={(e) => setSimilarListWeight(Number(e.target.value) / 100)}
-							/>
-							<p className="smart-rec-slider-hint">
-								Blend seed similarity with your personal taste profile.
-							</p>
-						</>
-					)}
+					<p className="smart-rec-slider-hint">
+						When enabled, Similar Shows blends your seed picks with your list profile at a fixed personalization strength.
+					</p>
 				</div>
 			)}
 

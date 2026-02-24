@@ -132,11 +132,20 @@ public class SemanticRecommendationService {
     private int llmMaxRewritesPerRequest;
     @Value("${recommendations.explanations.llm-cache-size:2000}")
     private int llmReasonCacheSize;
+    @Value("${recommendations.metadata-hydration-cache-size:5000}")
+    private int metadataHydrationCacheSize;
     private final Map<String, String> llmReasonCache = Collections.synchronizedMap(
             new LinkedHashMap<>(256, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
                     return size() > Math.max(1, llmReasonCacheSize);
+                }
+            });
+    private final Map<Integer, AniListResponse.AnimeInfo> metadataHydrationCache = Collections.synchronizedMap(
+            new LinkedHashMap<>(512, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Integer, AniListResponse.AnimeInfo> eldest) {
+                    return size() > Math.max(1, metadataHydrationCacheSize);
                 }
             });
 
@@ -272,7 +281,8 @@ public class SemanticRecommendationService {
                 "semantic",
                 limit,
                 username,
-                new ReasoningContext(queryKeywords, topTasteGenres));
+                new ReasoningContext(queryKeywords, topTasteGenres, List.of()),
+                true);
     }
 
     /**
@@ -380,6 +390,7 @@ public class SemanticRecommendationService {
             log.warn("No seed embeddings available for similar mode, seeds={}", normalizedSeeds);
             return List.of();
         }
+        List<String> seedTitles = extractSeedTitlesByIds(normalizedSeeds, 5);
 
         float[] searchVector = averageRows(seedRows);
         // Similar mode should only use list personalization when explicitly requested.
@@ -477,7 +488,8 @@ public class SemanticRecommendationService {
                 "similar",
                 limit,
                 username,
-                new ReasoningContext(List.of(), topTasteGenres));
+                new ReasoningContext(List.of(), topTasteGenres, seedTitles),
+                true);
     }
 
     /**
@@ -1197,9 +1209,30 @@ public class SemanticRecommendationService {
         return anime;
     }
 
-    private AniListResponse.AnimeInfo hydrateMetadataIfMissing(AniListResponse.AnimeInfo anime) {
+    private AniListResponse.AnimeInfo hydrateMetadataIfMissing(AniListResponse.AnimeInfo anime, boolean allowAniListHydration) {
         if (anime == null || anime.getId() == null || !isMetadataIncomplete(anime)) {
             return anime;
+        }
+
+        try {
+            AniListResponse.AnimeInfo localMetadata = loadMetadataFromStore(anime.getId());
+            if (localMetadata != null) {
+                anime = mergeAnimeInfo(anime, localMetadata);
+                if (!isMetadataIncomplete(anime)) {
+                    return anime;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed local metadata hydration for anime {}: {}", anime.getId(), e.getMessage());
+        }
+
+        if (!allowAniListHydration) {
+            return anime;
+        }
+
+        AniListResponse.AnimeInfo cached = metadataHydrationCache.get(anime.getId());
+        if (cached != null) {
+            return mergeAnimeInfo(anime, cached);
         }
 
         try {
@@ -1210,11 +1243,23 @@ public class SemanticRecommendationService {
 
             AniListResponse.AnimeInfo merged = mergeAnimeInfo(anime, fetched);
             persistMetadata(merged);
+            metadataHydrationCache.put(anime.getId(), copyAnimeInfo(fetched));
             return merged;
         } catch (Exception e) {
             log.warn("Failed to hydrate metadata for anime {}: {}", anime.getId(), e.getMessage());
             return anime;
         }
+    }
+
+    private AniListResponse.AnimeInfo loadMetadataFromStore(Integer anilistId) {
+        if (anilistId == null) {
+            return null;
+        }
+        List<Object[]> rows = embeddingRepository.findMetadataByAnilistIds(List.of(anilistId));
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        return mapMetadataRowToAnimeInfo(rows.get(0));
     }
 
     private boolean isMetadataIncomplete(AniListResponse.AnimeInfo anime) {
@@ -1229,6 +1274,12 @@ public class SemanticRecommendationService {
     }
 
     private AniListResponse.AnimeInfo mergeAnimeInfo(AniListResponse.AnimeInfo current, AniListResponse.AnimeInfo fetched) {
+        if (current == null) {
+            return fetched;
+        }
+        if (fetched == null) {
+            return current;
+        }
         if (current.getTitle() == null) {
             current.setTitle(fetched.getTitle());
         } else if (fetched.getTitle() != null) {
@@ -1261,6 +1312,33 @@ public class SemanticRecommendationService {
             current.setEpisodes(fetched.getEpisodes());
         }
         return current;
+    }
+
+    private AniListResponse.AnimeInfo copyAnimeInfo(AniListResponse.AnimeInfo source) {
+        if (source == null) {
+            return null;
+        }
+        AniListResponse.AnimeInfo copy = new AniListResponse.AnimeInfo();
+        copy.setId(source.getId());
+
+        if (source.getTitle() != null) {
+            AniListResponse.AnimeTitle title = new AniListResponse.AnimeTitle();
+            title.setRomaji(source.getTitle().getRomaji());
+            title.setEnglish(source.getTitle().getEnglish());
+            copy.setTitle(title);
+        }
+        if (source.getCoverImage() != null) {
+            AniListResponse.AnimeCoverImage cover = new AniListResponse.AnimeCoverImage();
+            cover.setLarge(source.getCoverImage().getLarge());
+            copy.setCoverImage(cover);
+        }
+
+        copy.setGenres(source.getGenres() == null ? null : List.copyOf(source.getGenres()));
+        copy.setDescription(source.getDescription());
+        copy.setAverageScore(source.getAverageScore());
+        copy.setStatus(source.getStatus());
+        copy.setEpisodes(source.getEpisodes());
+        return copy;
     }
 
     private void persistMetadata(AniListResponse.AnimeInfo anime) {
@@ -1426,7 +1504,8 @@ public class SemanticRecommendationService {
             String mode,
             int limit,
             String username,
-            ReasoningContext reasoningContext) {
+            ReasoningContext reasoningContext,
+            boolean allowAniListHydration) {
         if (fusedCandidates == null || fusedCandidates.isEmpty()) {
             return List.of();
         }
@@ -1437,14 +1516,18 @@ public class SemanticRecommendationService {
         List<RecommendationResponse> results = new ArrayList<>();
         int effectiveLimit = Math.min(limit, processedCandidates.size());
         List<FusionScoringService.FusedCandidate> topCandidates = processedCandidates.subList(0, effectiveLimit);
-        Map<Integer, List<String>> contributorTitlesByAnimeId = buildContributorHints(username, topCandidates);
+        Map<Integer, List<String>> contributorTitlesByAnimeId = "similar".equals(mode)
+                ? Map.of()
+                : buildContributorHints(username, topCandidates);
         int index = 0;
         for (FusionScoringService.FusedCandidate fused : topCandidates) {
-            AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(fused.animeInfo());
+            AniListResponse.AnimeInfo anime = hydrateMetadataIfMissing(fused.animeInfo(), allowAniListHydration);
             List<String> reasonCodes = fused.reasonCodes();
-            List<String> contributorTitles = anime == null
-                    ? List.of()
-                    : contributorTitlesByAnimeId.getOrDefault(anime.getId(), List.of());
+            List<String> contributorTitles = resolveReasonAnchorTitles(
+                    mode,
+                    anime,
+                    contributorTitlesByAnimeId,
+                    reasoningContext);
             boolean allowLlmRewrite = canUseLlmForIndex(index);
             String reason = buildReasonSentence(
                     mode,
@@ -1591,6 +1674,62 @@ public class SemanticRecommendationService {
         }
 
         return contributorByAnimeId;
+    }
+
+    private List<String> resolveReasonAnchorTitles(
+            String mode,
+            AniListResponse.AnimeInfo anime,
+            Map<Integer, List<String>> contributorTitlesByAnimeId,
+            ReasoningContext reasoningContext) {
+        if ("similar".equals(mode)) {
+            return reasoningContext == null
+                    ? List.of()
+                    : reasoningContext.seedTitles();
+        }
+        if (anime == null || contributorTitlesByAnimeId == null || contributorTitlesByAnimeId.isEmpty()) {
+            return List.of();
+        }
+        return contributorTitlesByAnimeId.getOrDefault(anime.getId(), List.of());
+    }
+
+    private List<String> extractSeedTitlesByIds(List<Integer> seedIds, int maxTitles) {
+        if (seedIds == null || seedIds.isEmpty() || maxTitles <= 0) {
+            return List.of();
+        }
+
+        List<Object[]> metadataRows = embeddingRepository.findMetadataByAnilistIds(seedIds);
+        if (metadataRows == null || metadataRows.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Integer, String> titleById = new HashMap<>();
+        for (Object[] row : metadataRows) {
+            if (row == null || row.length < 3 || !(row[0] instanceof Number idNumber)) {
+                continue;
+            }
+            String romaji = row[1] instanceof String s ? s : null;
+            String english = row[2] instanceof String s ? s : null;
+            String title = (english != null && !english.isBlank()) ? english : romaji;
+            if (title != null && !title.isBlank()) {
+                titleById.put(idNumber.intValue(), title.trim());
+            }
+        }
+
+        LinkedHashSet<String> orderedTitles = new LinkedHashSet<>();
+        for (Integer seedId : seedIds) {
+            if (seedId == null) {
+                continue;
+            }
+            String title = titleById.get(seedId);
+            if (title == null || title.isBlank()) {
+                continue;
+            }
+            orderedTitles.add(title);
+            if (orderedTitles.size() >= maxTitles) {
+                break;
+            }
+        }
+        return List.copyOf(orderedTitles);
     }
 
     private List<String> findTopContributorTitles(
@@ -1875,7 +2014,7 @@ public class SemanticRecommendationService {
                 null,
                 reasonCodes,
                 cfContributor == null || cfContributor.isBlank() ? List.of() : List.of(cfContributor),
-                new ReasoningContext(List.of(), List.of()),
+                new ReasoningContext(List.of(), List.of(), List.of()),
                 false);
     }
 
@@ -1894,7 +2033,7 @@ public class SemanticRecommendationService {
                 anime,
                 List.of(RecommendationResponse.CF_SIGNAL),
                 contributorTitles,
-                new ReasoningContext(List.of(), topTasteGenres),
+                new ReasoningContext(List.of(), topTasteGenres, List.of()),
                 allowLlmRewrite);
     }
 
@@ -2196,11 +2335,14 @@ public class SemanticRecommendationService {
     }
 
     private String buildEmergencyFallback(String mode, List<String> reasonCodes, List<String> contributorTitles) {
+        if ("similar".equals(mode)) {
+            if (contributorTitles != null && !contributorTitles.isEmpty()) {
+                return "Recommended because it is similar to " + formatNaturalTitleList(contributorTitles) + ".";
+            }
+            return "Recommended because it is close to the style of your selected seed shows.";
+        }
         if (contributorTitles != null && !contributorTitles.isEmpty()) {
             return "Recommended because you liked " + formatNaturalTitleList(contributorTitles) + ".";
-        }
-        if ("similar".equals(mode)) {
-            return "Recommended because it is close to the style of your selected seed shows.";
         }
         if (reasonCodes != null && reasonCodes.contains(RecommendationResponse.MATCHES_QUERY)) {
             return "Recommended because it matches your search intent.";
@@ -2359,6 +2501,7 @@ public class SemanticRecommendationService {
 
     private record ReasoningContext(
             List<String> queryKeywords,
-            List<String> topTasteGenres) {
+            List<String> topTasteGenres,
+            List<String> seedTitles) {
     }
 }

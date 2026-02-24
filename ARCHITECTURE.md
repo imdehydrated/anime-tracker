@@ -69,6 +69,8 @@ All modes use the same request DTO (`SemanticRequest`) with `mode`:
   - semantic dedupe pass can collapse near-duplicate franchise season/special variants before final response shaping
   - merged candidate scores are calibrated per query to reduce overconfident outliers
 - `similar`: seed-centric similarity (+ optional list profile blend).
+  Similar-mode explanation anchors come from selected seed anime titles. User-list titles are not used unless personalization signal is explicitly part of ranking logic.
+  SmartRec UI now controls this as a toggle (fixed personalization strength) instead of a slider.
 - `cf`: collaborative filtering only (requires logged-in user + sidecar).
 
 ### Semantic Preprocessing (Notebook 02)
@@ -130,6 +132,7 @@ Match % in UI:
 Performance note:
 - Candidate retrieval overfetches for ranking quality, but metadata hydration from AniList is deferred to final top results to reduce first-request latency spikes.
 - CF recommendations now load anime metadata from local `anime_embeddings` in batch first, then call AniList only for IDs missing locally.
+- Similar mode now skips AniList metadata hydration fallback for final result shaping to reduce rate-limit pressure and keep seed-to-result flow local-first.
 
 Phase 8 additions:
 

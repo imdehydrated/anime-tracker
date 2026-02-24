@@ -110,6 +110,8 @@ recommendations:
   custom-embeddings-path: ${CUSTOM_EMBEDDINGS_PATH:/app/models/anime_embeddings.jsonl}
   # On startup, import custom embeddings only if source JSONL changed since last import.
   auto-sync-custom-embeddings: ${AUTO_SYNC_CUSTOM_EMBEDDINGS:true}
+  # Cache size for local metadata hydration fallback (AniList responses stored in-memory).
+  metadata-hydration-cache-size: ${RECOMMENDATIONS_METADATA_HYDRATION_CACHE_SIZE:5000}
   semantic:
     # Hybrid candidate generation for Smart Search: vector retrieval + lexical matches.
     lexical-enabled: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED:true}
