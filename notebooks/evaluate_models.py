@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Offline baseline evaluation for CF + semantic recommendation models.
+"""Evaluate CF and semantic recommendation baselines on offline holdout data.
+
+Purpose:
+- Produce reproducible CF + semantic quality snapshots from exported artifacts.
+- Support promotion comparisons with stable metrics and timestamped JSON reports.
 
 Metrics:
 - Recall@K
@@ -10,8 +14,11 @@ Metrics:
 - Novelty
 
 Split strategy:
-- Time-based split if a timestamp column exists
-- Stratified per-user random split fallback otherwise
+- Time-based split if a timestamp column is available.
+- Stratified per-user random split fallback otherwise.
+
+Primary outputs:
+- `notebooks/eval/baseline_metrics_<timestamp>.json`
 """
 
 from __future__ import annotations

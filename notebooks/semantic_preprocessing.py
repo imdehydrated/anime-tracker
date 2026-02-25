@@ -1,14 +1,19 @@
-"""Semantic review preprocessing helpers for Notebook 02.
+"""Review preprocessing helpers used by Notebook 02 semantic data generation.
 
-Goal:
-- Reduce markup/noise in AniList reviews.
-- Keep high-signal opinion sentences (story, characters, pacing, etc.).
-- Normalize title mentions to a neutral token to reduce memorization noise.
+Goals:
+- Remove markup/noise from AniList review text.
+- Retain higher-signal opinion and constraint sentences.
+- Apply deterministic partial title masking to reduce title memorization.
+
+Public entrypoint:
+- `preprocess_review_text(...)` returns cleaned review text, and optional diagnostics.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
+from typing import Any
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 WHITESPACE_RE = re.compile(r"\s+")
@@ -76,6 +81,14 @@ NOISE_PHRASES = (
     "like and subscribe",
 )
 
+NEGATION_TOKENS = (
+    " not ",
+    " without ",
+    " except ",
+    " but ",
+    " however ",
+)
+
 
 def _normalize_whitespace(text: str) -> str:
     return WHITESPACE_RE.sub(" ", text).strip()
@@ -109,6 +122,17 @@ def _title_variants(anime_title: str) -> list[str]:
     return [v for v in variants if len(v) >= 3]
 
 
+def _stable_fraction(anime_id: int | None, raw_text: str) -> float:
+    material = f"{anime_id or 0}::{raw_text}".encode("utf-8", errors="ignore")
+    digest = hashlib.sha256(material).digest()
+    return int.from_bytes(digest[:8], "big") / float(2**64 - 1)
+
+
+def _should_mask_title(anime_id: int | None, raw_text: str, mask_title_probability: float) -> bool:
+    p = max(0.0, min(1.0, float(mask_title_probability)))
+    return _stable_fraction(anime_id, raw_text) <= p
+
+
 def _mask_title_mentions(text: str, anime_title: str) -> str:
     out = text
     for variant in _title_variants(anime_title):
@@ -117,9 +141,16 @@ def _mask_title_mentions(text: str, anime_title: str) -> str:
     return out
 
 
-def _is_noise_sentence(sentence: str) -> bool:
+def _contains_constraint_language(sentence: str) -> bool:
+    s = f" {sentence.lower()} "
+    return any(token in s for token in NEGATION_TOKENS)
+
+
+def _is_noise_sentence(sentence: str, min_sentence_chars: int = 35) -> bool:
     s = sentence.strip().lower()
-    if len(s) < 25:
+    if not s:
+        return True
+    if len(s) < min_sentence_chars and not _contains_constraint_language(s):
         return True
     if any(phrase in s for phrase in NOISE_PHRASES):
         return True
@@ -128,14 +159,14 @@ def _is_noise_sentence(sentence: str) -> bool:
     return False
 
 
-def _score_sentence(sentence: str) -> float:
+def _score_sentence(sentence: str, min_sentence_chars: int = 35) -> float:
     s = sentence.strip()
     sl = s.lower()
     score = 0.0
 
-    if 40 <= len(s) <= 380:
+    if min_sentence_chars <= len(s) <= 420:
         score += 1.0
-    elif len(s) < 40:
+    elif len(s) < min_sentence_chars:
         score -= 0.8
     else:
         score -= 0.2
@@ -146,10 +177,12 @@ def _score_sentence(sentence: str) -> float:
     opinion_hits = sum(1 for kw in OPINION_WORDS if kw in sl)
     score += min(opinion_hits, 2) * 0.6
 
-    if any(tok in sl for tok in ("because", "however", "although", "but ")):
+    if any(tok in sl for tok in ("because", "however", "although", "but ", "while ")):
         score += 0.3
 
-    # Penalize list-like fragments and metadata-ish lines.
+    if _contains_constraint_language(sl):
+        score += 0.4
+
     if re.search(r"\b\d+/\d+\b", sl):
         score -= 0.5
     if re.search(r"\bepisode\s+\d+\b", sl):
@@ -167,26 +200,47 @@ def _split_sentences(text: str) -> list[str]:
 
 def extract_relevant_sentences(
     text: str,
-    max_sentences: int = 8,
-    min_score: float = 0.8,
-) -> list[str]:
+    max_sentences: int = 10,
+    min_score: float = 0.9,
+    min_sentence_chars: int = 35,
+) -> tuple[list[str], dict[str, int]]:
     sentences = _split_sentences(text)
     if not sentences:
-        return []
+        return [], {
+            "total_sentences": 0,
+            "noise_filtered": 0,
+            "low_score_filtered": 0,
+            "kept_sentences": 0,
+        }
 
     scored: list[tuple[int, float, str]] = []
+    noise_filtered = 0
+    low_score_filtered = 0
+
     for idx, sentence in enumerate(sentences):
-        if _is_noise_sentence(sentence):
+        if _is_noise_sentence(sentence, min_sentence_chars=min_sentence_chars):
+            noise_filtered += 1
             continue
-        score = _score_sentence(sentence)
+        score = _score_sentence(sentence, min_sentence_chars=min_sentence_chars)
         if score >= min_score:
             scored.append((idx, score, sentence))
+        else:
+            low_score_filtered += 1
 
     if not scored:
-        fallback = [s for s in sentences if not _is_noise_sentence(s)]
-        return fallback[:max_sentences]
+        fallback = [
+            s
+            for s in sentences
+            if not _is_noise_sentence(s, min_sentence_chars=min_sentence_chars)
+        ]
+        chosen = fallback[:max_sentences]
+        return chosen, {
+            "total_sentences": len(sentences),
+            "noise_filtered": noise_filtered,
+            "low_score_filtered": low_score_filtered,
+            "kept_sentences": len(chosen),
+        }
 
-    # Keep highest-signal sentences, then restore document order.
     scored.sort(key=lambda row: row[1], reverse=True)
     top = scored[:max_sentences]
     top.sort(key=lambda row: row[0])
@@ -199,28 +253,68 @@ def extract_relevant_sentences(
             continue
         seen.add(key)
         deduped.append(sentence)
-    return deduped
+
+    return deduped, {
+        "total_sentences": len(sentences),
+        "noise_filtered": noise_filtered,
+        "low_score_filtered": low_score_filtered,
+        "kept_sentences": len(deduped),
+    }
 
 
 def preprocess_review_text(
     raw_text: str,
     anime_title: str = "",
+    anime_id: int | None = None,
     max_chars: int = 1200,
-) -> str:
+    min_output_chars: int = 140,
+    mask_title_probability: float = 0.45,
+    max_sentences: int = 10,
+    min_score: float = 0.9,
+    min_sentence_chars: int = 35,
+    return_diagnostics: bool = False,
+) -> str | tuple[str, dict[str, Any]]:
+    diagnostics: dict[str, Any] = {
+        "dropped_short": 0,
+        "dropped_noise": 0,
+        "kept_reviews": 0,
+        "mask_applied": False,
+        "total_sentences": 0,
+        "noise_filtered": 0,
+        "low_score_filtered": 0,
+        "kept_sentences": 0,
+    }
+
     if not isinstance(raw_text, str):
-        return ""
+        diagnostics["dropped_noise"] = 1
+        return ("", diagnostics) if return_diagnostics else ""
 
     cleaned = _strip_markup(raw_text)
     if not cleaned:
-        return ""
+        diagnostics["dropped_noise"] = 1
+        return ("", diagnostics) if return_diagnostics else ""
 
-    masked = _mask_title_mentions(cleaned, anime_title)
-    selected = extract_relevant_sentences(masked, max_sentences=8, min_score=0.8)
-
-    if selected:
-        out = " ".join(selected)
+    if _should_mask_title(anime_id, raw_text, mask_title_probability):
+        processed = _mask_title_mentions(cleaned, anime_title)
+        diagnostics["mask_applied"] = True
     else:
-        out = masked
+        processed = cleaned
 
+    selected, sentence_stats = extract_relevant_sentences(
+        processed,
+        max_sentences=max_sentences,
+        min_score=min_score,
+        min_sentence_chars=min_sentence_chars,
+    )
+    diagnostics.update(sentence_stats)
+
+    out = " ".join(selected) if selected else processed
     out = _normalize_whitespace(out)
-    return out[:max_chars]
+    out = out[:max_chars]
+
+    if len(out) < min_output_chars:
+        diagnostics["dropped_short"] = 1
+        return ("", diagnostics) if return_diagnostics else ""
+
+    diagnostics["kept_reviews"] = 1
+    return (out, diagnostics) if return_diagnostics else out

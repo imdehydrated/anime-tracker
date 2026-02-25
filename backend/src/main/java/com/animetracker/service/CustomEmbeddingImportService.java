@@ -87,6 +87,10 @@ public class CustomEmbeddingImportService {
         int processed = 0;
         int imported = 0;
         int failed = 0;
+        int scoreCoverageCount = 0;
+        int popularityCoverageCount = 0;
+        int tagCoverageCount = 0;
+        int aliasCoverageCount = 0;
 
         log.info("Starting custom embedding import from {}", path.toAbsolutePath());
 
@@ -133,10 +137,27 @@ public class CustomEmbeddingImportService {
                     }
                     String coverImage = readString(node, "cover_image", "coverImage");
                     String genres = readGenres(node.path("genres"));
+                    String tags = readTags(node.path("tags"));
+                    String aliases = readAliases(node);
                     String description = stripHtml(readString(node, "description"));
                     Integer averageScore = readInteger(node, "average_score", "averageScore");
+                    Integer anilistPopularity = readInteger(node, "anilist_popularity", "anilistPopularity", "popularity");
                     String status = readString(node, "status");
                     Integer episodes = readInteger(node, "episodes");
+                    String embeddingText = readString(node, "embedding_text", "embeddingText");
+                    if (embeddingText == null || embeddingText.isBlank()) {
+                        embeddingText = buildEmbeddingText(
+                                titleRomaji,
+                                titleEnglish,
+                                aliases,
+                                genres,
+                                tags,
+                                description);
+                    }
+                    String metadataFingerprint = readString(node, "metadata_fingerprint", "metadataFingerprint");
+                    if (metadataFingerprint == null || metadataFingerprint.isBlank()) {
+                        metadataFingerprint = computeMetadataFingerprint(embeddingText);
+                    }
 
                     embeddingRepository.upsertCustomEmbedding(
                             anilistId,
@@ -148,8 +169,23 @@ public class CustomEmbeddingImportService {
                             averageScore,
                             status,
                             episodes,
+                            anilistPopularity,
+                            embeddingText,
+                            metadataFingerprint,
                             EmbeddingService.toVectorString(vector));
                     imported++;
+                    if (averageScore != null) {
+                        scoreCoverageCount++;
+                    }
+                    if (anilistPopularity != null) {
+                        popularityCoverageCount++;
+                    }
+                    if (tags != null && !tags.isBlank()) {
+                        tagCoverageCount++;
+                    }
+                    if (aliases != null && !aliases.isBlank()) {
+                        aliasCoverageCount++;
+                    }
 
                     if (imported % 500 == 0) {
                         log.info("Custom embedding import progress: {} imported", imported);
@@ -164,16 +200,37 @@ public class CustomEmbeddingImportService {
         }
 
         long totalCustomEmbeddings = embeddingRepository.countCustomEmbeddings();
+        double scoreCoverage = coverage(scoreCoverageCount, imported);
+        double popularityCoverage = coverage(popularityCoverageCount, imported);
+        double tagCoverage = coverage(tagCoverageCount, imported);
+        double aliasCoverage = coverage(aliasCoverageCount, imported);
         importStateRepository.upsert(new CustomEmbeddingImportStateRepository.ImportState(
                 path.toString(),
                 fingerprint.lastModified(),
                 fingerprint.sizeBytes(),
                 fingerprint.sha256(),
                 Instant.now()));
-        log.info("Custom embedding import complete: processed={}, imported={}, failed={}, total_custom={}",
-                processed, imported, failed, totalCustomEmbeddings);
+        log.info(
+                "Custom embedding import complete: processed={}, imported={}, failed={}, total_custom={}, score_coverage={}, popularity_coverage={}, tag_coverage={}, alias_coverage={}",
+                processed,
+                imported,
+                failed,
+                totalCustomEmbeddings,
+                scoreCoverage,
+                popularityCoverage,
+                tagCoverage,
+                aliasCoverage);
 
-        return new ImportStats(path.toString(), processed, imported, failed, totalCustomEmbeddings);
+        return new ImportStats(
+                path.toString(),
+                processed,
+                imported,
+                failed,
+                totalCustomEmbeddings,
+                scoreCoverage,
+                popularityCoverage,
+                tagCoverage,
+                aliasCoverage);
     }
 
     private Path validateAndResolvePath(String importPath) {
@@ -228,6 +285,23 @@ public class CustomEmbeddingImportService {
             return sb.toString();
         } catch (IOException | NoSuchAlgorithmException e) {
             throw new BadRequestException("Failed to fingerprint custom embeddings file: " + e.getMessage());
+        }
+    }
+
+    private String computeMetadataFingerprint(String embeddingText) {
+        if (embeddingText == null || embeddingText.isBlank()) {
+            return null;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(embeddingText.trim().getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new BadRequestException("Failed to compute metadata fingerprint: " + e.getMessage());
         }
     }
 
@@ -286,12 +360,115 @@ public class CustomEmbeddingImportService {
         return null;
     }
 
+    private String readTags(JsonNode tagsNode) {
+        if (tagsNode == null || tagsNode.isMissingNode() || tagsNode.isNull()) {
+            return null;
+        }
+        if (tagsNode.isTextual()) {
+            String text = tagsNode.asText();
+            return text == null || text.isBlank() ? null : text;
+        }
+        if (!tagsNode.isArray()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode tag : tagsNode) {
+            String tagName = null;
+            if (tag.isTextual()) {
+                tagName = tag.asText(null);
+            } else if (tag.isObject()) {
+                JsonNode nameNode = tag.path("name");
+                if (!nameNode.isMissingNode() && !nameNode.isNull()) {
+                    tagName = nameNode.asText(null);
+                }
+            }
+            if (tagName == null || tagName.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(tagName);
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private String readAliases(JsonNode node) {
+        String aliases = readString(node, "aliases");
+        if (aliases != null && !aliases.isBlank()) {
+            return aliases;
+        }
+        JsonNode synonymsNode = node.path("synonyms");
+        if (synonymsNode == null || synonymsNode.isMissingNode() || synonymsNode.isNull()) {
+            return null;
+        }
+        if (synonymsNode.isTextual()) {
+            String text = synonymsNode.asText();
+            return text == null || text.isBlank() ? null : text;
+        }
+        if (!synonymsNode.isArray()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode synonym : synonymsNode) {
+            String text = synonym.asText(null);
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(text);
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private String buildEmbeddingText(
+            String titleRomaji,
+            String titleEnglish,
+            String aliases,
+            String genres,
+            String tags,
+            String description) {
+        StringBuilder sb = new StringBuilder();
+        if (titleRomaji != null && !titleRomaji.isBlank()) {
+            sb.append("Title: ").append(titleRomaji).append("\n");
+        }
+        if (titleEnglish != null && !titleEnglish.isBlank()) {
+            sb.append("English Title: ").append(titleEnglish).append("\n");
+        }
+        if (aliases != null && !aliases.isBlank()) {
+            sb.append("Aliases: ").append(aliases).append("\n");
+        }
+        if (genres != null && !genres.isBlank()) {
+            sb.append("Genres: ").append(genres).append("\n");
+        }
+        if (tags != null && !tags.isBlank()) {
+            sb.append("Tags: ").append(tags).append("\n");
+        }
+        if (description != null && !description.isBlank()) {
+            sb.append("Description: ").append(description);
+        }
+        return sb.toString().trim();
+    }
+
+    private double coverage(int coveredCount, int total) {
+        if (total <= 0) {
+            return 0.0d;
+        }
+        return (double) coveredCount / (double) total;
+    }
+
     public record ImportStats(
             String path,
             int processed,
             int imported,
             int failed,
-            long totalCustomEmbeddings) {
+            long totalCustomEmbeddings,
+            double scoreCoverage,
+            double popularityCoverage,
+            double tagCoverage,
+            double aliasCoverage) {
     }
 
     public record SyncResult(

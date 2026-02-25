@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""
-Normalize Kaggle anime datasets into the canonical CSV files expected by notebooks 01/02/04.
+"""Normalize raw Kaggle datasets into canonical notebook input CSVs.
 
-Supported inputs:
-- hernan4444/anime-recommendation-database-2020 (already canonical)
-- marlesson/myanimelist-dataset-animes-profiles-reviews (adapted)
+Supported source layouts:
+- `hernan4444/anime-recommendation-database-2020` (already canonical)
+- `marlesson/myanimelist-dataset-animes-profiles-reviews` (adapted)
 
-Outputs (written to --output):
-- anime.csv
-- anime_with_synopsis.csv
-- rating_complete.csv
+Outputs written to `--output`:
+- `anime.csv`
+- `anime_with_synopsis.csv`
+- `rating_complete.csv`
 """
 
 from __future__ import annotations

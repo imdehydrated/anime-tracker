@@ -1,9 +1,9 @@
-"""Phase 7 semantic experiment runner: multi-positive + hard-neighbor batches.
+"""Train and evaluate the multi-positive semantic experiment.
 
-Why this experiment:
-- Unlike pure MNRL, it does not assume one single correct target.
-- It trains with label groups (same anime -> multiple positives).
-- It packs hard-neighbor labels into the same batch so loss sees challenging negatives.
+Why this runner exists:
+- Uses label groups (same anime -> multiple positives) instead of one-positive-only assumptions.
+- Builds hard-neighbor batches so contrastive loss sees stronger negatives.
+- Writes timestamped eval snapshots for promotion-gate comparison.
 """
 
 from __future__ import annotations

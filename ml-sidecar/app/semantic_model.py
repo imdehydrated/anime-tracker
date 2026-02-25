@@ -90,6 +90,7 @@ class SemanticModel:
                     {
                         "anilist_id": cid_int,
                         "score": pg_similarity,
+                        "query_adherence_score": rel_score,
                         "title": self.anime_titles.get(cid_int, ""),
                         "_base_score": pg_similarity,
                         "_rel_score": rel_score,
@@ -104,6 +105,7 @@ class SemanticModel:
                 {
                     "anilist_id": cid_int,
                     "score": blended,
+                    "query_adherence_score": rel_score,
                     "title": self.anime_titles.get(cid_int, ""),
                     "_base_score": blended,
                     "_rel_score": rel_score,

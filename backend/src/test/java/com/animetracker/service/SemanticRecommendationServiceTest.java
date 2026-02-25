@@ -17,7 +17,6 @@ import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.List;
@@ -33,6 +32,7 @@ import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.entity.User;
 import com.animetracker.repository.AnimeEmbeddingRepository;
+import com.animetracker.repository.CustomEmbeddingImportStateRepository;
 import com.animetracker.repository.RecommendationBlacklistRepository;
 import com.animetracker.repository.UserRepository;
 
@@ -55,7 +55,7 @@ class SemanticRecommendationServiceTest {
     @Mock
     private MlSidecarService mlSidecarService;
     @Mock
-    private FusionScoringService fusionScoringService;
+    private CustomEmbeddingImportStateRepository customEmbeddingImportStateRepository;
 
     private SemanticRecommendationService service;
 
@@ -69,8 +69,24 @@ class SemanticRecommendationServiceTest {
                 aniListService,
                 populatorService,
                 mlSidecarService,
-                fusionScoringService);
+                customEmbeddingImportStateRepository);
         assertDoesNotThrow(() -> setField(service, "useCustomVectors", true));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityPriorEnabled", true));
+        assertDoesNotThrow(() -> setField(service, "semanticTasteWeightLoggedIn", 0.20f));
+        assertDoesNotThrow(() -> setField(service, "semanticTasteWeightLoggedInBroadQuery", 0.25f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityPriorWeightLoggedIn", 0.10f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityPriorWeightLoggedInBroadQuery", 0.15f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityPriorWeightLoggedOut", 0.15f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityPriorWeightLoggedOutBroadQuery", 0.25f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityGuardrailThreshold", 0.45f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityGuardrailMaxWeight", 0.05f));
+        assertDoesNotThrow(() -> setField(service, "semanticBroadQueryLowQualityScoreThreshold", 72));
+        assertDoesNotThrow(() -> setField(service, "semanticBroadQueryLowQualityPopularityThreshold", 15000));
+        assertDoesNotThrow(() -> setField(service, "semanticBroadQueryLowQualityPenalty", 0.88f));
+        assertDoesNotThrow(() -> setField(service, "semanticPopularityPriorNormalizationPower", 2.0f));
+        assertDoesNotThrow(() -> setField(service, "semanticListBlendCapWithQuery", 0.08f));
+        assertDoesNotThrow(() -> setField(service, "semanticListBlendCapBroadQuery", 0.12f));
+        assertDoesNotThrow(() -> setField(service, "semanticListBlendCapTitleIntent", 0.05f));
     }
 
     @Test
@@ -123,20 +139,6 @@ class SemanticRecommendationServiceTest {
         when(mlSidecarService.embedText(anyString())).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
         when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt())).thenReturn(java.util.Collections.singletonList(
                 sampleSemanticRow(301, "Query Match", 0.12d)));
-        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            List<FusionScoringService.ScoredCandidate> sem =
-                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
-            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
-            for (FusionScoringService.ScoredCandidate candidate : sem) {
-                fused.add(new FusionScoringService.FusedCandidate(
-                        candidate.anilistId(),
-                        candidate.animeInfo(),
-                        candidate.score(),
-                        candidate.reasonCodes()));
-            }
-            return fused;
-        });
 
         List<?> results = service.recommend(
                 null,
@@ -157,20 +159,6 @@ class SemanticRecommendationServiceTest {
                 .thenReturn(java.util.Collections.singletonList(new Object[] { 101, "[0.1,0.2,0.3]" }));
         when(embeddingRepository.findSimilarCustom(anyString(), anyList(), anyInt()))
                 .thenReturn(java.util.Collections.singletonList(sampleSemanticRow(202, "Seed Similar", 0.10d)));
-        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            List<FusionScoringService.ScoredCandidate> sem =
-                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
-            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
-            for (FusionScoringService.ScoredCandidate candidate : sem) {
-                fused.add(new FusionScoringService.FusedCandidate(
-                        candidate.anilistId(),
-                        candidate.animeInfo(),
-                        candidate.score(),
-                        candidate.reasonCodes()));
-            }
-            return fused;
-        });
 
         List<?> results = service.recommend(
                 null,
@@ -201,6 +189,18 @@ class SemanticRecommendationServiceTest {
                 "semantic"));
 
         verify(mlSidecarService).embedText(eq("romcom romance comedy isekai another world fantasy adventure"));
+    }
+
+    @Test
+    void preprocessSemanticQuery_negatedTermsDoNotExpandPositiveSynonyms() throws Exception {
+        String normalized = (String) invokePrivate(
+                "preprocessSemanticQuery",
+                new Class<?>[] { String.class },
+                "not isekai mecha idol");
+
+        assertTrue(normalized.contains("not isekai mecha idol"));
+        assertTrue(!normalized.contains("another world"));
+        assertTrue(!normalized.contains("robot sci fi"));
     }
 
     @Test
@@ -237,20 +237,6 @@ class SemanticRecommendationServiceTest {
         when(mlSidecarService.rerank(any(), anyList(), anyList(), anyInt())).thenReturn(List.of(
                 Map.of("anilist_id", 101, "score", 0.90d),
                 Map.of("anilist_id", 202, "score", 0.20d)));
-        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            List<FusionScoringService.ScoredCandidate> sem =
-                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
-            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
-            for (FusionScoringService.ScoredCandidate candidate : sem) {
-                fused.add(new FusionScoringService.FusedCandidate(
-                        candidate.anilistId(),
-                        candidate.animeInfo(),
-                        candidate.score(),
-                        candidate.reasonCodes()));
-            }
-            return fused;
-        });
 
         @SuppressWarnings("unchecked")
         List<com.animetracker.dto.RecommendationResponse> results =
@@ -282,20 +268,6 @@ class SemanticRecommendationServiceTest {
                 sampleSemanticRow(101, "Attack on Titan OVA", 0.05d),
                 sampleSemanticRow(102, "Attack on Titan Season 1", 0.06d),
                 sampleSemanticRow(201, "Vinland Saga", 0.07d)));
-        when(fusionScoringService.fuseAndRank(anyList(), anyList())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            List<FusionScoringService.ScoredCandidate> sem =
-                    (List<FusionScoringService.ScoredCandidate>) invocation.getArgument(0);
-            List<FusionScoringService.FusedCandidate> fused = new ArrayList<>();
-            for (FusionScoringService.ScoredCandidate candidate : sem) {
-                fused.add(new FusionScoringService.FusedCandidate(
-                        candidate.anilistId(),
-                        candidate.animeInfo(),
-                        candidate.score(),
-                        candidate.reasonCodes()));
-            }
-            return fused;
-        });
 
         @SuppressWarnings("unchecked")
         List<com.animetracker.dto.RecommendationResponse> results =
@@ -342,52 +314,14 @@ class SemanticRecommendationServiceTest {
                 "Local description",
                 80,
                 "FINISHED",
-                12
+                12,
+                100000
         }));
 
         List<?> results = service.recommend("alice", List.of(), null, 10, false, null, "cf");
 
         verify(aniListService, never()).getAnimeById(123);
         org.junit.jupiter.api.Assertions.assertEquals(1, results.size());
-    }
-
-    @Test
-    void resolveDynamicCfBlendWeight_requestedWeightOverridesAll() throws Exception {
-        setField(service, "dynamicBlendEnabled", true);
-        setField(service, "dynamicBlendMinRatedAnime", 10);
-        setField(service, "dynamicBlendMaxRatedAnime", 80);
-        setField(service, "dynamicBlendMinCfWeight", 0.15f);
-        setField(service, "dynamicBlendMaxCfWeight", 0.55f);
-
-        double weight = invokeResolveDynamicCfBlendWeight(0.72f, 0.20f, 999);
-        assertEquals(0.72d, weight, EPS);
-    }
-
-    @Test
-    void resolveDynamicCfBlendWeight_dynamicDisabledUsesResolvedWeight() throws Exception {
-        setField(service, "dynamicBlendEnabled", false);
-
-        double weight = invokeResolveDynamicCfBlendWeight(null, 0.33f, 50);
-        assertEquals(0.33d, weight, EPS);
-    }
-
-    @Test
-    void resolveDynamicCfBlendWeight_interpolatesByRatedAnimeCount() throws Exception {
-        setField(service, "dynamicBlendEnabled", true);
-        setField(service, "dynamicBlendMinRatedAnime", 10);
-        setField(service, "dynamicBlendMaxRatedAnime", 80);
-        setField(service, "dynamicBlendMinCfWeight", 0.15f);
-        setField(service, "dynamicBlendMaxCfWeight", 0.55f);
-
-        // Midpoint between 10 and 80 => midpoint between 0.15 and 0.55.
-        double midWeight = invokeResolveDynamicCfBlendWeight(null, 0.20f, 45);
-        assertEquals(0.35d, midWeight, EPS);
-
-        double lowWeight = invokeResolveDynamicCfBlendWeight(null, 0.20f, 0);
-        assertEquals(0.15d, lowWeight, EPS);
-
-        double highWeight = invokeResolveDynamicCfBlendWeight(null, 0.20f, 500);
-        assertEquals(0.55d, highWeight, EPS);
     }
 
     @Test
@@ -431,17 +365,67 @@ class SemanticRecommendationServiceTest {
         assertNotEquals(input.get(0).score(), calibrated.get(0).score(), EPS);
     }
 
-    private double invokeResolveDynamicCfBlendWeight(
-            Float requestedListWeight,
-            float resolvedListWeight,
-            int ratedAnimeCount) throws Exception {
-        Method method = SemanticRecommendationService.class.getDeclaredMethod(
-                "resolveDynamicCfBlendWeight",
-                Float.class,
-                float.class,
-                int.class);
-        method.setAccessible(true);
-        return (double) method.invoke(service, requestedListWeight, resolvedListWeight, ratedAnimeCount);
+    @Test
+    void applyModeBlendedScoring_loggedOutBroadQuery_penalizesLowQualityLowPopularity() throws Exception {
+        List<FusionScoringService.ScoredCandidate> input = List.of(
+                scoredCandidateWithMetadata(1001, 0.90d, 0.90d, 0.70d, 69, 5957, List.of("Comedy", "Slice of Life")));
+
+        @SuppressWarnings("unchecked")
+        List<FusionScoringService.ScoredCandidate> narrow = (List<FusionScoringService.ScoredCandidate>) invokePrivate(
+                "applyModeBlendedScoring",
+                new Class<?>[] { List.class, String.class, boolean.class, List.class, boolean.class },
+                input,
+                "semantic",
+                false,
+                List.of(),
+                false);
+
+        @SuppressWarnings("unchecked")
+        List<FusionScoringService.ScoredCandidate> broad = (List<FusionScoringService.ScoredCandidate>) invokePrivate(
+                "applyModeBlendedScoring",
+                new Class<?>[] { List.class, String.class, boolean.class, List.class, boolean.class },
+                input,
+                "semantic",
+                false,
+                List.of(),
+                true);
+
+        assertEquals(1, narrow.size());
+        assertEquals(1, broad.size());
+        assertTrue(broad.get(0).score() < narrow.get(0).score());
+        assertEquals(Boolean.TRUE, broad.get(0).animeInfo().getGuardrailApplied());
+    }
+
+    @Test
+    void applyModeBlendedScoring_loggedInBroadQuery_boostsTasteWeight() throws Exception {
+        FusionScoringService.ScoredCandidate highQueryLowTaste = scoredCandidateWithMetadata(
+                2001, 0.85d, 0.85d, 0.80d, 82, 150000, List.of("Action"));
+        FusionScoringService.ScoredCandidate midQueryHighTaste = scoredCandidateWithMetadata(
+                2002, 0.50d, 0.50d, 0.80d, 82, 150000, List.of("Slice of Life"));
+        List<FusionScoringService.ScoredCandidate> input = List.of(highQueryLowTaste, midQueryHighTaste);
+
+        @SuppressWarnings("unchecked")
+        List<FusionScoringService.ScoredCandidate> narrow = (List<FusionScoringService.ScoredCandidate>) invokePrivate(
+                "applyModeBlendedScoring",
+                new Class<?>[] { List.class, String.class, boolean.class, List.class, boolean.class },
+                input,
+                "semantic",
+                true,
+                List.of("slice of life"),
+                false);
+
+        @SuppressWarnings("unchecked")
+        List<FusionScoringService.ScoredCandidate> broad = (List<FusionScoringService.ScoredCandidate>) invokePrivate(
+                "applyModeBlendedScoring",
+                new Class<?>[] { List.class, String.class, boolean.class, List.class, boolean.class },
+                input,
+                "semantic",
+                true,
+                List.of("slice of life"),
+                true);
+
+        assertEquals(2001, narrow.get(0).anilistId());
+        assertEquals(2002, broad.get(0).anilistId());
     }
 
     private Object invokePrivate(String methodName, Class<?>[] argTypes, Object... args) throws Exception {
@@ -453,6 +437,28 @@ class SemanticRecommendationServiceTest {
     private FusionScoringService.ScoredCandidate scoredCandidate(int animeId, double score) {
         com.animetracker.dto.AniListResponse.AnimeInfo anime = new com.animetracker.dto.AniListResponse.AnimeInfo();
         anime.setId(animeId);
+        return new FusionScoringService.ScoredCandidate(
+                animeId,
+                anime,
+                score,
+                List.of(com.animetracker.dto.RecommendationResponse.MATCHES_QUERY));
+    }
+
+    private FusionScoringService.ScoredCandidate scoredCandidateWithMetadata(
+            int animeId,
+            double score,
+            double queryRelevance,
+            double popularityPrior,
+            Integer averageScore,
+            Integer popularity,
+            List<String> genres) {
+        com.animetracker.dto.AniListResponse.AnimeInfo anime = new com.animetracker.dto.AniListResponse.AnimeInfo();
+        anime.setId(animeId);
+        anime.setQueryRelevanceScore(queryRelevance);
+        anime.setPopularityPriorScore(popularityPrior);
+        anime.setAverageScore(averageScore);
+        anime.setPopularity(popularity);
+        anime.setGenres(genres);
         return new FusionScoringService.ScoredCandidate(
                 animeId,
                 anime,
@@ -472,6 +478,7 @@ class SemanticRecommendationServiceTest {
                 80,
                 "FINISHED",
                 12,
+                250000,
                 "embedding text",
                 null,
                 null,

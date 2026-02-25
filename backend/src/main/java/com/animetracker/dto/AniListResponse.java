@@ -62,6 +62,7 @@ public class AniListResponse {
         private AnimeTitle title;
         private Integer episodes;
         private Integer averageScore;
+        private Integer popularity;
         private AnimeCoverImage coverImage;
         private List<String> genres;
         private List<String> synonyms;
@@ -76,6 +77,7 @@ public class AniListResponse {
         private String recommendationReason;
         private List<String> reasonCodes;
         private Double fusionScore;
+        private Double queryAdherenceScore;
         private Double queryRelevanceScore;
         private Double userTasteScore;
         private Double popularityPriorScore;
@@ -111,6 +113,14 @@ public class AniListResponse {
 
         public void setAverageScore(Integer averageScore) {
             this.averageScore = averageScore;
+        }
+
+        public Integer getPopularity() {
+            return popularity;
+        }
+
+        public void setPopularity(Integer popularity) {
+            this.popularity = popularity;
         }
 
         public AnimeCoverImage getCoverImage() {
@@ -252,6 +262,16 @@ public class AniListResponse {
 
         public void setFusionScore(Double fusionScore) {
             this.fusionScore = fusionScore;
+        }
+
+        @JsonProperty("query_adherence_score")
+        public Double getQueryAdherenceScore() {
+            return queryAdherenceScore;
+        }
+
+        @JsonProperty("query_adherence_score")
+        public void setQueryAdherenceScore(Double queryAdherenceScore) {
+            this.queryAdherenceScore = queryAdherenceScore;
         }
 
         @JsonProperty("query_relevance_score")

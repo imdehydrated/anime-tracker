@@ -19,12 +19,9 @@ function normalizeRecommendationPayload(data) {
 	if (!Array.isArray(data)) return data;
 	return data.map((item) => {
 		// Legacy shape: AnimeInfo
-		// Scored shape: RecommendationResponse { anime, fusionScore, reasonCodes }
+		// Scored shape: RecommendationResponse { anime, reasonCodes }
 		if (item?.anime && typeof item.anime === 'object') {
 			const anime = { ...item.anime };
-			if (item.fusionScore != null && anime.fusionScore == null) {
-				anime.fusionScore = item.fusionScore;
-			}
 			if (item.reasonCodes != null && anime.reasonCodes == null) {
 				anime.reasonCodes = item.reasonCodes;
 			}

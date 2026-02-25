@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Summarize and rank offline eval snapshots for CF and semantic query benchmarks."""
+"""Summarize and rank evaluation snapshots for CF and semantic query benchmarks.
+
+Purpose:
+- Provide a quick leaderboard view of historical eval JSON files.
+- Compare current runs against explicit or auto-detected baselines.
+- Optionally write a ranked report for handoff and promotion discussions.
+"""
 
 from __future__ import annotations
 
@@ -324,4 +330,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

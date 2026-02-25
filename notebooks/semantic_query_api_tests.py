@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Production-path semantic query benchmark against backend API."""
+"""Run production-path semantic query benchmarks against backend endpoints.
+
+Purpose:
+- Measure intent quality (Hit@K, MRR@K) on the live API path.
+- Capture latency and miss-reason diagnostics from real endpoint responses.
+- Produce timestamped benchmark JSON snapshots for gate evaluation.
+"""
 
 from __future__ import annotations
 

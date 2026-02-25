@@ -8,8 +8,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
@@ -44,6 +48,7 @@ public class AnimeEmbeddingPopulatorService {
     @Transactional
     public int populate(int totalPages) {
         PopulationStats stats = populatePages(
+                1,
                 totalPages,
                 50,
                 (page, perPage) -> aniListService.fetchPopularAnimePage(page, perPage),
@@ -58,13 +63,49 @@ public class AnimeEmbeddingPopulatorService {
     public PopulationStats populateActiveCatalog(int maxPages, int perPage) {
         int effectivePerPage = Math.max(1, Math.min(50, perPage));
         return populatePages(
+                1,
                 maxPages,
                 effectivePerPage,
                 (page, pageSize) -> aniListService.fetchActiveCatalogPage(page, pageSize, ACTIVE_FORMATS),
                 "active_catalog");
     }
 
+    /**
+     * Populate a bounded popular range starting at startPage.
+     * Useful for scheduled hot-window refresh with adaptive budget.
+     */
+    @Transactional
+    public PopulationStats populatePopularRange(int startPage, int maxPages, int perPage) {
+        int effectiveStartPage = Math.max(1, startPage);
+        int effectivePages = Math.max(1, maxPages);
+        int effectivePerPage = Math.max(1, Math.min(50, perPage));
+        return populatePages(
+                effectiveStartPage,
+                effectivePages,
+                effectivePerPage,
+                (page, pageSize) -> aniListService.fetchPopularAnimePage(page, pageSize),
+                "popular");
+    }
+
+    /**
+     * Populate a bounded active-catalog range starting at startPage.
+     * Useful for cursor-based scheduled catalog rotation.
+     */
+    @Transactional
+    public PopulationStats populateActiveCatalogRange(int startPage, int maxPages, int perPage) {
+        int effectiveStartPage = Math.max(1, startPage);
+        int effectivePages = Math.max(1, maxPages);
+        int effectivePerPage = Math.max(1, Math.min(50, perPage));
+        return populatePages(
+                effectiveStartPage,
+                effectivePages,
+                effectivePerPage,
+                (page, pageSize) -> aniListService.fetchActiveCatalogPage(page, pageSize, ACTIVE_FORMATS),
+                "active_catalog");
+    }
+
     private PopulationStats populatePages(
+            int startPage,
             int totalPages,
             int perPage,
             BiFunction<Integer, Integer, List<AniListResponse.AnimeInfo>> fetchPage,
@@ -76,12 +117,28 @@ public class AnimeEmbeddingPopulatorService {
         int embedded = 0;
         int skipped = 0;
         int failed = 0;
+        int metadataRefreshed = 0;
         int discovered = 0;
         int pagesVisited = 0;
+        int scoreCoverageCount = 0;
+        int popularityCoverageCount = 0;
+        int tagCoverageCount = 0;
+        int aliasCoverageCount = 0;
 
-        for (int page = 1; page <= Math.max(1, totalPages); page++) {
+        int effectiveStartPage = Math.max(1, startPage);
+        int effectiveTotalPages = Math.max(1, totalPages);
+        int lastAttemptedPage = effectiveStartPage - 1;
+        boolean exhausted = false;
+
+        for (int page = effectiveStartPage; page < effectiveStartPage + effectiveTotalPages; page++) {
+            lastAttemptedPage = page;
             pagesVisited++;
-            log.info("Fetching AniList {} page {}/{}", source, page, totalPages);
+            log.info(
+                    "Fetching AniList {} page {} (window {}/{})",
+                    source,
+                    page,
+                    pagesVisited,
+                    effectiveTotalPages);
 
             List<AniListResponse.AnimeInfo> animeList;
             try {
@@ -93,6 +150,7 @@ public class AnimeEmbeddingPopulatorService {
 
             if (animeList == null || animeList.isEmpty()) {
                 log.info("No more anime returned from AniList {} at page {}, stopping", source, page);
+                exhausted = true;
                 break;
             }
 
@@ -103,19 +161,42 @@ public class AnimeEmbeddingPopulatorService {
                     continue;
                 }
                 try {
-                    if (embeddingRepository.existsByAnilistId(anime.getId())) {
-                        skipped++;
-                        continue;
+                    if (anime.getAverageScore() != null) {
+                        scoreCoverageCount++;
                     }
-                    if (upsertEmbeddedAnime(anime)) {
+                    if (anime.getPopularity() != null) {
+                        popularityCoverageCount++;
+                    }
+                    if (anime.getTags() != null && !anime.getTags().isEmpty()) {
+                        tagCoverageCount++;
+                    }
+                    if (anime.getSynonyms() != null && !anime.getSynonyms().isEmpty()) {
+                        aliasCoverageCount++;
+                    }
+
+                    String embeddingText = buildEmbeddingText(anime);
+                    String metadataFingerprint = computeMetadataFingerprint(embeddingText);
+                    if (embeddingRepository.existsByAnilistId(anime.getId())) {
+                        Boolean hasCustomEmbedding = embeddingRepository.hasCustomEmbedding(anime.getId());
+                        String existingFingerprint = embeddingRepository.findMetadataFingerprintByAnilistId(anime.getId());
+                        if (Boolean.TRUE.equals(hasCustomEmbedding) && Objects.equals(existingFingerprint, metadataFingerprint)) {
+                            refreshMetadata(anime, metadataFingerprint);
+                            metadataRefreshed++;
+                            skipped++;
+                            continue;
+                        }
+                        // Metadata exists and custom vector is missing or stale fingerprint changed.
+                    }
+                    if (upsertEmbeddedAnime(anime, embeddingText, metadataFingerprint)) {
                         embedded++;
+                        metadataRefreshed++;
                         if (embedded % 50 == 0) {
                             log.info(
-                                    "Population progress ({}): embedded={}, skipped={}, failed={}",
-                                    source,
-                                    embedded,
-                                    skipped,
-                                    failed);
+                                "Population progress ({}): embedded={}, skipped={}, failed={}",
+                                source,
+                                embedded,
+                                skipped,
+                                failed);
                         }
                     } else {
                         failed++;
@@ -133,27 +214,52 @@ public class AnimeEmbeddingPopulatorService {
         }
 
         long totalCustomEmbeddings = embeddingRepository.countCustomEmbeddings();
+        double scoreCoverage = coverage(scoreCoverageCount, discovered);
+        double popularityCoverage = coverage(popularityCoverageCount, discovered);
+        double tagCoverage = coverage(tagCoverageCount, discovered);
+        double aliasCoverage = coverage(aliasCoverageCount, discovered);
         log.info(
-                "Population complete ({}) pages={} discovered={} embedded={} skipped={} failed={} total_custom={}",
+                "Population complete ({}) start_page={} last_page={} pages={} discovered={} embedded={} skipped={} metadata_refreshed={} failed={} total_custom={} score_coverage={} popularity_coverage={} tag_coverage={} alias_coverage={} exhausted={}",
                 source,
+                effectiveStartPage,
+                lastAttemptedPage,
                 pagesVisited,
                 discovered,
                 embedded,
                 skipped,
+                metadataRefreshed,
                 failed,
-                totalCustomEmbeddings);
+                totalCustomEmbeddings,
+                scoreCoverage,
+                popularityCoverage,
+                tagCoverage,
+                aliasCoverage,
+                exhausted);
+        int nextPageHint = exhausted
+                ? 1
+                : Math.max(1, lastAttemptedPage + 1);
         return new PopulationStats(
                 source,
+                effectiveStartPage,
+                nextPageHint,
+                exhausted,
                 pagesVisited,
                 discovered,
                 embedded,
                 skipped,
+                metadataRefreshed,
                 failed,
-                totalCustomEmbeddings);
+                totalCustomEmbeddings,
+                scoreCoverage,
+                popularityCoverage,
+                tagCoverage,
+                aliasCoverage);
     }
 
-    private boolean upsertEmbeddedAnime(AniListResponse.AnimeInfo anime) {
-        String embeddingText = buildEmbeddingText(anime);
+    private boolean upsertEmbeddedAnime(
+            AniListResponse.AnimeInfo anime,
+            String embeddingText,
+            String metadataFingerprint) {
         float[] vector = mlSidecarService.embedText(embeddingText);
         if (vector == null || vector.length == 0) {
             log.warn("Skipping anime {} because sidecar embedding failed", anime.getId());
@@ -177,8 +283,41 @@ public class AnimeEmbeddingPopulatorService {
                 anime.getAverageScore(),
                 anime.getStatus(),
                 anime.getEpisodes(),
+                anime.getPopularity(),
+                embeddingText,
+                metadataFingerprint,
                 vectorStr);
         return true;
+    }
+
+    private void refreshMetadata(AniListResponse.AnimeInfo anime, String metadataFingerprint) {
+        if (anime == null || anime.getId() == null) {
+            return;
+        }
+        String titleRomaji = anime.getTitle() != null ? anime.getTitle().getRomaji() : null;
+        String titleEnglish = anime.getTitle() != null ? anime.getTitle().getEnglish() : null;
+        String coverImage = anime.getCoverImage() != null ? anime.getCoverImage().getLarge() : null;
+        String genres = anime.getGenres() != null ? String.join(", ", anime.getGenres()) : null;
+        String description = stripHtml(anime.getDescription());
+        embeddingRepository.updateMetadataByAnilistId(
+                anime.getId(),
+                titleRomaji,
+                titleEnglish,
+                coverImage,
+                genres,
+                description,
+                anime.getAverageScore(),
+                anime.getPopularity(),
+                anime.getStatus(),
+                anime.getEpisodes(),
+                metadataFingerprint);
+    }
+
+    private double coverage(int coveredCount, int total) {
+        if (total <= 0) {
+            return 0.0d;
+        }
+        return (double) coveredCount / (double) total;
     }
 
     /**
@@ -289,13 +428,38 @@ public class AnimeEmbeddingPopulatorService {
         return html.replaceAll("<[^>]*>", "").trim();
     }
 
+    private String computeMetadataFingerprint(String embeddingText) {
+        if (embeddingText == null || embeddingText.isBlank()) {
+            return null;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(embeddingText.trim().getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest algorithm unavailable", e);
+        }
+    }
+
     public record PopulationStats(
             String source,
+            int startPage,
+            int nextPageHint,
+            boolean exhausted,
             int pagesVisited,
             int discovered,
             int embedded,
             int skipped,
+            int metadataRefreshed,
             int failed,
-            long totalCustomEmbeddings) {
+            long totalCustomEmbeddings,
+            double scoreCoverage,
+            double popularityCoverage,
+            double tagCoverage,
+            double aliasCoverage) {
     }
 }

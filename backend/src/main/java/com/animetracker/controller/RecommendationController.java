@@ -117,7 +117,11 @@ public class RecommendationController {
                 "processed", stats.processed(),
                 "imported", stats.imported(),
                 "failed", stats.failed(),
-                "totalCustomEmbeddings", stats.totalCustomEmbeddings()));
+                "totalCustomEmbeddings", stats.totalCustomEmbeddings(),
+                "scoreCoverage", stats.scoreCoverage(),
+                "popularityCoverage", stats.popularityCoverage(),
+                "tagCoverage", stats.tagCoverage(),
+                "aliasCoverage", stats.aliasCoverage()));
     }
 
     /**

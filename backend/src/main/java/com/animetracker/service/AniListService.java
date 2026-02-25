@@ -45,6 +45,9 @@ public class AniListService {
     private final Map<String, CachedSearchResults> searchCache = new ConcurrentHashMap<>();
     private final Map<String, Object> searchLocks = new ConcurrentHashMap<>();
     private final AtomicLong nextRequestAtMs = new AtomicLong(0L);
+    private final AtomicLong rateWindowRequests = new AtomicLong(0L);
+    private final AtomicLong rateWindow429Responses = new AtomicLong(0L);
+    private final AtomicLong rateWindowRetryableFailures = new AtomicLong(0L);
     @Value("${anilist.request-spacing-ms:700}")
     private long requestSpacingMs;
 
@@ -69,6 +72,7 @@ public class AniListService {
                   synonyms
                   episodes
                   averageScore
+                  popularity
                   coverImage {
                     large
                   }
@@ -96,6 +100,7 @@ public class AniListService {
                   synonyms
                   episodes
                   averageScore
+                  popularity
                   coverImage {
                     large
                   }
@@ -123,6 +128,7 @@ public class AniListService {
                   synonyms
                   episodes
                   averageScore
+                  popularity
                   coverImage {
                     large
                   }
@@ -173,6 +179,7 @@ public class AniListService {
                   synonyms
                   episodes
                   averageScore
+                  popularity
                   coverImage {
                     large
                   }
@@ -357,9 +364,23 @@ public class AniListService {
         return response.getData().getPage().getMedia();
     }
 
+    public void resetRateLimitWindow() {
+        rateWindowRequests.set(0L);
+        rateWindow429Responses.set(0L);
+        rateWindowRetryableFailures.set(0L);
+    }
+
+    public RateLimitWindow consumeRateLimitWindow() {
+        return new RateLimitWindow(
+                rateWindowRequests.getAndSet(0L),
+                rateWindow429Responses.getAndSet(0L),
+                rateWindowRetryableFailures.getAndSet(0L));
+    }
+
     private AniListResponse executeGraphql(Map<String, Object> requestBody) {
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
             try {
+                rateWindowRequests.incrementAndGet();
                 throttleRequestRate();
                 return webClient.post()
                         .contentType(MediaType.APPLICATION_JSON)
@@ -369,7 +390,11 @@ public class AniListService {
                         .block(REQUEST_TIMEOUT);
             } catch (WebClientResponseException ex) {
                 int status = ex.getStatusCode().value();
+                if (status == 429) {
+                    rateWindow429Responses.incrementAndGet();
+                }
                 if (isRetryableStatus(status) && attempt < MAX_RETRY_ATTEMPTS) {
+                    rateWindowRetryableFailures.incrementAndGet();
                     long retryDelayMs = resolveRetryDelayMs(ex, attempt);
                     log.warn(
                             "AniList request retryable failure (status={}). Retrying attempt {}/{} in {}ms",
@@ -387,6 +412,7 @@ public class AniListService {
                 return null;
             } catch (Exception ex) {
                 if (attempt < MAX_RETRY_ATTEMPTS) {
+                    rateWindowRetryableFailures.incrementAndGet();
                     long retryDelayMs = resolveRetryDelayMs(null, attempt);
                     log.warn(
                             "AniList request transient error. Retrying attempt {}/{} in {}ms: {}",
@@ -496,7 +522,7 @@ public class AniListService {
     }
 
     private AniListResponse.AnimeInfo mapMetadataRowToAnimeInfo(Object[] row) {
-        if (row == null || row.length < 9 || !(row[0] instanceof Number idValue)) {
+        if (row == null || row.length < 10 || !(row[0] instanceof Number idValue)) {
             return null;
         }
         AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
@@ -516,6 +542,7 @@ public class AniListService {
         anime.setAverageScore((Integer) row[6]);
         anime.setStatus((String) row[7]);
         anime.setEpisodes((Integer) row[8]);
+        anime.setPopularity((Integer) row[9]);
         return anime;
     }
 
@@ -542,6 +569,7 @@ public class AniListService {
         copy.setId(source.getId());
         copy.setEpisodes(source.getEpisodes());
         copy.setAverageScore(source.getAverageScore());
+        copy.setPopularity(source.getPopularity());
         copy.setDescription(source.getDescription());
         copy.setStatus(source.getStatus());
         copy.setTitle(copyTitle(source.getTitle()));
@@ -655,5 +683,11 @@ public class AniListService {
         private boolean isFresh(Instant now) {
             return now.isBefore(expiresAt);
         }
+    }
+
+    public record RateLimitWindow(
+            long requests,
+            long status429Responses,
+            long retryableFailures) {
     }
 }

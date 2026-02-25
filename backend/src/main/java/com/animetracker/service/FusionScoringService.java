@@ -10,7 +10,6 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 
 import com.animetracker.dto.AniListResponse;
 
@@ -20,7 +19,6 @@ import jakarta.annotation.PostConstruct;
  * Infrastructure service for blending recommendation candidates from multiple sources.
  * Phase 1: provides score normalization and deterministic fusion utilities.
  */
-@Service
 public class FusionScoringService {
 
     private static final Logger log = LoggerFactory.getLogger(FusionScoringService.class);

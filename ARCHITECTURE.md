@@ -57,7 +57,7 @@ Primary recommendation orchestrator. It:
 - routes by mode (`semantic`, `similar`, `cf`)
 - enforces mode semantics (`semantic` ignores seeds, `similar` requires seeds)
 - builds semantic candidates
-- blends with CF candidates when applicable
+- applies explicit mode scoring (`query/seed relevance + taste + popularity`)
 - applies dedupe/score calibration/reason metadata
 
 Design reason:
@@ -65,10 +65,10 @@ Design reason:
 
 ### `FusionScoringService`
 
-Normalizes and combines semantic/CF signal families, applies optional diversity penalty, and controls explanation contribution thresholds.
+Provides shared normalization/clamp utilities and score record types reused by recommendation code.
 
 Design reason:
-- score math is isolated so tuning does not sprawl through orchestration logic.
+- score math utilities stay centralized and deterministic.
 
 ### `AniListService`
 
@@ -83,6 +83,19 @@ It includes request pacing, retries, and short-lived cache.
 Design reason:
 - external API reliability policy belongs in one integration service, not spread across features.
 
+### `AniListMetadataSyncScheduler`
+
+Runs tiered metadata refresh jobs:
+- hot popular window (6h cadence)
+- daily active-catalog rotation (cursor-based)
+- weekly deep sweep (resume-safe)
+
+State is persisted in `anilist_sync_state` so jobs resume across restarts and avoid restarting from page 1 each run.
+Scheduler adjusts page budgets downward when AniList rate-limit pressure is detected (429/retry-heavy windows), then recovers gradually on clean runs.
+
+Design reason:
+- freshness needs to be operationally safe under AniList limits; schedule + cursor + adaptive budget is more stable than ad-hoc manual full refreshes.
+
 ### `MlSidecarService`
 
 Backend HTTP client for sidecar endpoints:
@@ -93,6 +106,7 @@ Backend HTTP client for sidecar endpoints:
 
 Design reason:
 - explicit boundary for sidecar transport, timeout, and fallback behavior.
+- semantic rerank responses can include `query_adherence_score`, allowing backend to keep query adherence as the primary ranking signal while still blending taste/popularity secondarily.
 
 ### `AnimeEmbeddingPopulatorService`
 
@@ -153,16 +167,20 @@ All recommendation requests use the same DTO with `mode`.
 Query-first semantic retrieval pipeline:
 1. Normalize query text and expand shorthand terms.
 2. Embed query through sidecar custom model.
-3. Retrieve vector candidates from pgvector.
-4. Retrieve lexical candidates from full-text + trigram indexes.
-5. Merge candidates with reciprocal-rank-fusion.
+3. Retrieve vector candidates from pgvector (`default pool=140`).
+4. Retrieve lexical candidates from full-text + trigram indexes (`default pool=60`).
+5. Merge candidates with reciprocal-rank-fusion (`default merged pool=140`).
 6. Optionally rerank top candidates in sidecar.
-7. Optionally run deterministic second-pass lexical expansion for broad/ambiguous queries.
-8. Apply popularity prior with relevance guardrail.
-9. Optionally blend with CF overlap (policy-dependent).
-10. Apply score calibration.
+7. Optionally run deterministic second-pass lexical expansion for broad/ambiguous queries (RAG-lite).
+8. Apply score calibration.
+9. Apply explicit semantic score blend:
+   - logged-in: `0.70*query + 0.20*taste + 0.10*popularity`
+   - logged-out: `0.85*query + 0.15*popularity`
+10. Apply relevance guardrail (suppress taste and cap popularity for low-relevance hits).
 11. Apply franchise/special dedupe.
 12. Build explanation metadata.
+13. Cache successful semantic responses in backend in-memory LRU (6h TTL) using a fingerprinted key:
+   - mode, normalized query, limit, top-k, auth state, user profile fingerprint, model fingerprint, embeddings fingerprint.
 
 Design reason:
 - hybrid lexical + vector retrieval handles both intent semantics and exact entity mentions.
@@ -171,7 +189,7 @@ Design reason:
 
 Seed-first similarity retrieval:
 - build centroid from seed embeddings
-- optional list-blend personalization
+- optional user-taste scoring contribution (no CF overlap blend)
 - retrieve + rerank similar items
 
 Design reason:
@@ -190,10 +208,14 @@ Design reason:
 
 Semantic scoring uses a lightweight hybrid blend rather than graph/PageRank:
 1. Query relevance from semantic retrieval/rerank remains the primary signal.
+   - sidecar emits `query_adherence_score` and backend uses it before fallback relevance fields.
 2. User taste signal is blended when an authenticated profile has usable ratings/history.
-3. Popularity prior is blended conservatively (AniList score/popularity now, MAL-compatible later).
+3. Popularity prior is blended conservatively using metadata coverage-safe fallback:
+   - `0.55 * anilist_score_norm + 0.45 * anilist_popularity_norm`
+   - fallback to score-only when popularity is unavailable.
 4. Guardrails reduce or suppress taste/popularity boosts when query relevance is low.
 5. Query expansion stage is deterministic and bounded (token caps + confidence gate), not LLM-dependent.
+6. Semantic and similar paths do not blend with CF overlap in the current runtime policy.
 
 Design reason:
 - this keeps ranking transparent and tunable while avoiding heavy graph artifact dependencies.
@@ -216,8 +238,25 @@ Design reason:
 
 Main semantic table: `anime_embeddings`
 - metadata fields (title/genres/description/etc.)
+- `anilist_popularity` used by popularity prior
 - `embedding` (legacy 1536-dim)
 - `embedding_custom` (authoritative 384-dim custom vector)
+- `metadata_refreshed_at` and `metadata_fingerprint` drive idempotent metadata refresh and selective re-embedding
+
+Metadata sync state table: `anilist_sync_state`
+- `source_key`
+- `next_page`
+- `last_success_at`
+- `last_error`
+- `last_run_at`
+- `budget_state`
+
+Design reason:
+- sync cursor and adaptive budget must survive restarts and deploys to keep refresh incremental and rate-limit safe.
+
+Canonical artifact:
+- `ml-models/anime_embeddings.jsonl` is rebuilt via `notebooks/export_semantic_embeddings.py`.
+- Export joins `notebooks/data/corpus.jsonl` + `notebooks/data/anilist_anime.jsonl` so runtime import receives score/popularity/alias/tag metadata consistently.
 
 Indexes:
 - pgvector IVF for nearest-neighbor retrieval
@@ -278,7 +317,7 @@ Config sources:
 
 Important knobs:
 - semantic retrieval fusion and rerank toggles
-- dynamic semantic/CF blend range
+- semantic query/taste/popularity blend weights and guardrail thresholds
 - explanation provider controls
 - startup custom embedding auto-sync
 

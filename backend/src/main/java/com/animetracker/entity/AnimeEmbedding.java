@@ -46,6 +46,9 @@ public class AnimeEmbedding {
 	@Column(name = "average_score")
 	private Integer averageScore;
 
+	@Column(name = "anilist_popularity")
+	private Integer anilistPopularity;
+
 	@Column(name = "status", length = 30)
 	private String status;
 
@@ -63,6 +66,12 @@ public class AnimeEmbedding {
 
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
+
+	@Column(name = "metadata_refreshed_at")
+	private LocalDateTime metadataRefreshedAt;
+
+	@Column(name = "metadata_fingerprint", length = 64)
+	private String metadataFingerprint;
 
 	public AnimeEmbedding() {
 	}
@@ -92,6 +101,9 @@ public class AnimeEmbedding {
 	public Integer getAverageScore() { return averageScore; }
 	public void setAverageScore(Integer averageScore) { this.averageScore = averageScore; }
 
+	public Integer getAnilistPopularity() { return anilistPopularity; }
+	public void setAnilistPopularity(Integer anilistPopularity) { this.anilistPopularity = anilistPopularity; }
+
 	public String getStatus() { return status; }
 	public void setStatus(String status) { this.status = status; }
 
@@ -106,4 +118,10 @@ public class AnimeEmbedding {
 
 	public LocalDateTime getUpdatedAt() { return updatedAt; }
 	public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+	public LocalDateTime getMetadataRefreshedAt() { return metadataRefreshedAt; }
+	public void setMetadataRefreshedAt(LocalDateTime metadataRefreshedAt) { this.metadataRefreshedAt = metadataRefreshedAt; }
+
+	public String getMetadataFingerprint() { return metadataFingerprint; }
+	public void setMetadataFingerprint(String metadataFingerprint) { this.metadataFingerprint = metadataFingerprint; }
 }

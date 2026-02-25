@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Promotion gate for CF and semantic recommendation model updates.
+"""Run promotion gates for CF and semantic recommendation candidates.
 
 Purpose:
-- Compare CF eval snapshots (baseline vs candidate) using configurable thresholds.
-- Compare semantic query-benchmark snapshots (baseline vs candidate) using Hit@K + MRR@K.
-- Produce an explicit PASS/FAIL decision before promoting model changes.
+- Compare baseline and candidate snapshots with configurable thresholds.
+- Emit explicit PASS/FAIL decisions for both CF and semantic query quality.
+- Write a machine-readable report for release and handoff workflows.
 """
 
 from __future__ import annotations

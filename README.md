@@ -34,15 +34,20 @@ For deeper design details, see `ARCHITECTURE.md`.
   - indexed lexical candidates (full-text + trigram over title/genres/description)
   - vector + lexical candidates merged with reciprocal-rank-fusion policy
   - optional sidecar reranking on semantic mode when custom vectors are enabled
+  - sidecar rerank now emits `query_adherence_score` and backend prioritizes it as the query-first relevance signal
   - optional deterministic second-pass query expansion for broad or underspecified queries
-  - popularity-aware prior blended in backend scoring (guardrailed by query relevance)
+  - popularity-aware prior blended from AniList score + AniList popularity (guardrailed by query relevance)
+  - explicit query-first scoring policy:
+    - logged-in: `0.70*query + 0.20*taste + 0.10*popularity`
+    - logged-out: `0.85*query + 0.15*popularity`
+  - semantic response cache (in-memory LRU, 6-hour TTL) for faster repeat queries
   - semantic dedupe pass reduces same-franchise season/special clutter in top results
   - per-query score calibration to reduce overconfident outliers
+  - metadata freshness is handled by tiered AniList sync jobs (hot popular window, daily active rotation, weekly deep sweep) with persisted cursor state and adaptive page budgets
+  - metadata fingerprinting prevents unnecessary re-embedding; vectors are refreshed only when embedding-relevant metadata changes
 - CF mode predicts unwatched anime using a trained autoencoder.
 - CF ranking uses a mild popularity attenuation by default (tunable via env vars).
-- Fusion can dynamically shift semantic-vs-CF weight based on how rich a user profile is.
-- Fusion scoring combines available signals into a normalized rank score.
-- Recommendation reason codes are contribution-aware, so explanations reflect which signal actually drove ranking.
+- Recommendation reason codes and one-sentence explanations are generated from active mode signals (query/seed/taste).
 - Frontend renders recommendation reason text from backend metadata.
 
 ## Run Locally
@@ -81,6 +86,7 @@ Use these docs for details:
 
 - `DEV-COMMANDS.md` for setup, notebook run order, eval commands, and troubleshooting
 - `ARCHITECTURE.md` for design and scoring behavior
+- canonical semantic artifact refresh is script-based via `notebooks/export_semantic_embeddings.py`
 - Eval scripts auto-prune old snapshot JSONs by retention defaults (tunable flags in `DEV-COMMANDS.md`)
 - Eval A/B comparison tooling includes `notebooks/eval_leaderboard.py` for ranking snapshot runs
 - Promotion gating for model updates uses `notebooks/promotion_gate.py` (commands in `DEV-COMMANDS.md`)

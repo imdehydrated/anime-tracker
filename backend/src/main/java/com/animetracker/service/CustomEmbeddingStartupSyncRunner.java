@@ -50,12 +50,16 @@ public class CustomEmbeddingStartupSyncRunner implements ApplicationRunner {
 
             CustomEmbeddingImportService.ImportStats stats = result.stats();
             log.info(
-                    "Custom embeddings auto-imported from {}: processed={}, imported={}, failed={}, totalCustomEmbeddings={}",
+                    "Custom embeddings auto-imported from {}: processed={}, imported={}, failed={}, totalCustomEmbeddings={}, scoreCoverage={}, popularityCoverage={}, tagCoverage={}, aliasCoverage={}",
                     stats.path(),
                     stats.processed(),
                     stats.imported(),
                     stats.failed(),
-                    stats.totalCustomEmbeddings());
+                    stats.totalCustomEmbeddings(),
+                    stats.scoreCoverage(),
+                    stats.popularityCoverage(),
+                    stats.tagCoverage(),
+                    stats.aliasCoverage());
         } catch (BadRequestException e) {
             // Missing file should not fail app startup.
             log.warn("Custom embedding auto-sync skipped: {}", e.getMessage());

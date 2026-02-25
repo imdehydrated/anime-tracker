@@ -36,7 +36,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 */
 	@Query(value = """
 			SELECT id, anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes,
+			       genres, description, average_score, status, episodes, anilist_popularity,
 			       embedding_text, created_at, updated_at,
 			       (embedding <=> CAST(:vector AS vector)) AS distance
 			FROM anime_embeddings
@@ -59,7 +59,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	@Query(value = """
 			WITH ranked AS (
 				SELECT id, anilist_id, title_romaji, title_english, cover_image,
-				       genres, description, average_score, status, episodes,
+				       genres, description, average_score, status, episodes, anilist_popularity,
 				       embedding_text, created_at, updated_at,
 				       ts_rank_cd(
 				         to_tsvector(
@@ -81,7 +81,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 				WHERE anilist_id NOT IN (:excludeIds)
 			)
 			SELECT id, anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes,
+			       genres, description, average_score, status, episodes, anilist_popularity,
 			       embedding_text, created_at, updated_at,
 			       (
 			         1.0 - LEAST(
@@ -110,12 +110,12 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	@Query(value = """
 			INSERT INTO anime_embeddings
 			    (anilist_id, title_romaji, title_english, cover_image, genres,
-			     description, average_score, status, episodes, embedding_text,
-			     embedding, created_at, updated_at)
+			     description, average_score, status, episodes, anilist_popularity, embedding_text,
+			     embedding, metadata_refreshed_at, metadata_fingerprint, created_at, updated_at)
 			VALUES
 			    (:anilistId, :titleRomaji, :titleEnglish, :coverImage, :genres,
-			     :description, :averageScore, :status, :episodes, :embeddingText,
-			     CAST(:embedding AS vector), NOW(), NOW())
+			     :description, :averageScore, :status, :episodes, :anilistPopularity, :embeddingText,
+			     CAST(:embedding AS vector), NOW(), :metadataFingerprint, NOW(), NOW())
 			ON CONFLICT (anilist_id) DO UPDATE SET
 			    title_romaji = EXCLUDED.title_romaji,
 			    title_english = EXCLUDED.title_english,
@@ -125,8 +125,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			    average_score = EXCLUDED.average_score,
 			    status = EXCLUDED.status,
 			    episodes = EXCLUDED.episodes,
+			    anilist_popularity = EXCLUDED.anilist_popularity,
 			    embedding_text = EXCLUDED.embedding_text,
 			    embedding = EXCLUDED.embedding,
+			    metadata_refreshed_at = NOW(),
+			    metadata_fingerprint = COALESCE(EXCLUDED.metadata_fingerprint, anime_embeddings.metadata_fingerprint),
 			    updated_at = NOW()
 			""", nativeQuery = true)
 	void upsertWithEmbedding(
@@ -139,7 +142,9 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("averageScore") Integer averageScore,
 			@Param("status") String status,
 			@Param("episodes") Integer episodes,
+			@Param("anilistPopularity") Integer anilistPopularity,
 			@Param("embeddingText") String embeddingText,
+			@Param("metadataFingerprint") String metadataFingerprint,
 			@Param("embedding") String embedding);
 
 	/**
@@ -147,7 +152,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 */
 	@Query(value = """
 			SELECT id, anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes,
+			       genres, description, average_score, status, episodes, anilist_popularity,
 			       embedding_text, created_at, updated_at,
 			       (embedding_custom <=> CAST(:vector AS vector)) AS distance
 			FROM anime_embeddings
@@ -170,12 +175,13 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	@Query(value = """
 			INSERT INTO anime_embeddings
 			    (anilist_id, title_romaji, title_english, cover_image, genres,
-			     description, average_score, status, episodes, embedding_custom,
+			     description, average_score, status, episodes, anilist_popularity, embedding_text, embedding_custom,
+			     metadata_refreshed_at, metadata_fingerprint,
 			     created_at, updated_at)
 			VALUES
 			    (:anilistId, :titleRomaji, :titleEnglish, :coverImage, :genres,
-			     :description, :averageScore, :status, :episodes,
-			     CAST(:embeddingCustom AS vector), NOW(), NOW())
+			     :description, :averageScore, :status, :episodes, :anilistPopularity, :embeddingText,
+			     CAST(:embeddingCustom AS vector), NOW(), :metadataFingerprint, NOW(), NOW())
 			ON CONFLICT (anilist_id) DO UPDATE SET
 			    title_romaji = COALESCE(EXCLUDED.title_romaji, anime_embeddings.title_romaji),
 			    title_english = COALESCE(EXCLUDED.title_english, anime_embeddings.title_english),
@@ -185,7 +191,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			    average_score = COALESCE(EXCLUDED.average_score, anime_embeddings.average_score),
 			    status = COALESCE(EXCLUDED.status, anime_embeddings.status),
 			    episodes = COALESCE(EXCLUDED.episodes, anime_embeddings.episodes),
+			    anilist_popularity = COALESCE(EXCLUDED.anilist_popularity, anime_embeddings.anilist_popularity),
+			    embedding_text = COALESCE(EXCLUDED.embedding_text, anime_embeddings.embedding_text),
 			    embedding_custom = EXCLUDED.embedding_custom,
+			    metadata_refreshed_at = NOW(),
+			    metadata_fingerprint = COALESCE(EXCLUDED.metadata_fingerprint, anime_embeddings.metadata_fingerprint),
 			    updated_at = NOW()
 			""", nativeQuery = true)
 	void upsertCustomEmbedding(
@@ -198,6 +208,9 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("averageScore") Integer averageScore,
 			@Param("status") String status,
 			@Param("episodes") Integer episodes,
+			@Param("anilistPopularity") Integer anilistPopularity,
+			@Param("embeddingText") String embeddingText,
+			@Param("metadataFingerprint") String metadataFingerprint,
 			@Param("embeddingCustom") String embeddingCustom);
 
 	@Transactional
@@ -210,8 +223,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			    genres = COALESCE(:genres, genres),
 			    description = COALESCE(:description, description),
 			    average_score = COALESCE(:averageScore, average_score),
+			    anilist_popularity = COALESCE(:anilistPopularity, anilist_popularity),
 			    status = COALESCE(:status, status),
 			    episodes = COALESCE(:episodes, episodes),
+			    metadata_refreshed_at = NOW(),
+			    metadata_fingerprint = COALESCE(:metadataFingerprint, metadata_fingerprint),
 			    updated_at = NOW()
 			WHERE anilist_id = :anilistId
 			""", nativeQuery = true)
@@ -223,8 +239,10 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("genres") String genres,
 			@Param("description") String description,
 			@Param("averageScore") Integer averageScore,
+			@Param("anilistPopularity") Integer anilistPopularity,
 			@Param("status") String status,
-			@Param("episodes") Integer episodes);
+			@Param("episodes") Integer episodes,
+			@Param("metadataFingerprint") String metadataFingerprint);
 
 	@Query(value = """
 			SELECT COUNT(*)
@@ -258,7 +276,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 */
 	@Query(value = """
 			SELECT anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes
+			       genres, description, average_score, status, episodes, anilist_popularity
 			FROM anime_embeddings
 			WHERE anilist_id IN (:anilistIds)
 			""", nativeQuery = true)
@@ -270,7 +288,7 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 */
 	@Query(value = """
 			SELECT anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes
+			       genres, description, average_score, status, episodes, anilist_popularity
 			FROM anime_embeddings
 			WHERE
 			    ts_rank_cd(
@@ -312,4 +330,18 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	List<Object[]> searchLocalMetadata(
 			@Param("queryText") String queryText,
 			@Param("limit") int limit);
+
+	@Query(value = """
+			SELECT CASE WHEN embedding_custom IS NULL THEN FALSE ELSE TRUE END
+			FROM anime_embeddings
+			WHERE anilist_id = :anilistId
+			""", nativeQuery = true)
+	Boolean hasCustomEmbedding(@Param("anilistId") Integer anilistId);
+
+	@Query(value = """
+			SELECT metadata_fingerprint
+			FROM anime_embeddings
+			WHERE anilist_id = :anilistId
+			""", nativeQuery = true)
+	String findMetadataFingerprintByAnilistId(@Param("anilistId") Integer anilistId);
 }

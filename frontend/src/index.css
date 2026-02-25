@@ -843,15 +843,6 @@ a:hover {
 	margin: 0.2rem 0;
 }
 
-.anime-rec-item-fusion {
-	font-size: 0.76rem;
-	color: var(--accent);
-	border: 1px solid var(--border);
-	border-radius: 999px;
-	padding: 0.1rem 0.45rem;
-	background: rgba(255, 77, 109, 0.08);
-}
-
 .anime-rec-item-actions {
 	margin-top: auto;
 	display: flex;

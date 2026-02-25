@@ -3,6 +3,7 @@ package com.animetracker;  // Package name (like a folder structure)
 // Import statements: Bring in classes from other packages
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Main Application Class
@@ -10,6 +11,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * When you run "java -jar app.jar", this main() method executes.
  */
 @SpringBootApplication
+@EnableScheduling
 public class AnimeTrackerApplication {
 
     /**

@@ -10,9 +10,6 @@ function AnimeRecItem({ anime, children }) {
 		? anime.description.slice(0, 200) + (anime.description.length > 200 ? '...' : '')
 		: 'No description available.';
 	const recommendationReason = anime.recommendationReason;
-	const fusionScore = typeof anime.fusionScore === 'number'
-		? Math.max(0, Math.min(1, anime.fusionScore))
-		: null;
 
 	return (
 		<div className="anime-rec-item">
@@ -34,9 +31,6 @@ function AnimeRecItem({ anime, children }) {
 				<div className="anime-rec-item-meta">
 					{anime.genres && <span>{anime.genres.join(', ')}</span>}
 					<span>Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100</span>
-					{fusionScore != null && (
-						<span className="anime-rec-item-fusion">Match: {Math.round(fusionScore * 100)}%</span>
-					)}
 				</div>
 
 				{recommendationReason && (

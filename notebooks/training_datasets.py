@@ -1,8 +1,9 @@
-"""Shared dataset classes for notebook training.
+"""Shared dataset classes used by semantic and CF training notebooks.
 
-Keeping these classes in a real module (instead of notebook cells) allows
-Windows multiprocessing workers to import them when DataLoader/Trainer uses
-`num_workers > 0`.
+Why this module exists:
+- Keeps dataset definitions importable outside notebooks.
+- Avoids Windows multiprocessing pickling issues when `num_workers > 0`.
+- Centralizes training input behavior for reproducible experiments.
 """
 
 from __future__ import annotations

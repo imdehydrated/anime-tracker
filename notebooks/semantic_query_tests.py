@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Query-intent benchmark tests for semantic anime retrieval quality.
+"""Run model-only semantic query benchmark tests against embedding artifacts.
 
-This complements profile-holdout offline metrics by testing direct
-text-query behavior against a curated query->acceptable-title set.
+Purpose:
+- Evaluate query-intent retrieval quality without backend/runtime effects.
+- Complement profile holdout metrics with curated query-to-acceptable-title cases.
+- Produce timestamped benchmark snapshots for baseline and promotion comparisons.
 """
 
 from __future__ import annotations

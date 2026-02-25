@@ -176,6 +176,12 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored
   -d "{\"mode\":\"semantic\",\"query\":\"dark psychological thriller with mind games\",\"limit\":10}"
 ```
 
+Inspect query-adherence diagnostics in scored payload:
+- `query_adherence_score`
+- `query_relevance_score`
+- `user_taste_score`
+- `popularity_prior_score`
+
 Semantic legacy endpoint:
 ```powershell
 curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic `
@@ -244,9 +250,47 @@ Coverage tracking:
 - use response stats:
   - `discovered`
   - `embedded`
+  - `metadataRefreshed`
   - `activeCatalogCoverage`
+  - `scoreCoverage`
+  - `popularityCoverage`
+  - `tagCoverage`
+  - `aliasCoverage`
 - compute:
   - `active_catalog_coverage = embedded / discovered`
+
+## 11.1) Metadata Sync Scheduler (Tiered AniList Refresh)
+
+Scheduler is disabled by default and can be enabled with env:
+
+```powershell
+$env:RECOMMENDATIONS_METADATA_SYNC_ENABLED = "true"
+```
+
+Key knobs:
+- `RECOMMENDATIONS_METADATA_SYNC_HOT_POPULAR_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_DAILY_ACTIVE_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_DEEP_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_PER_PAGE`
+- `RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_BUDGET_ENABLED`
+
+Inspect persisted sync state:
+
+```powershell
+docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT source_key, next_page, last_success_at, last_error, last_run_at, budget_state FROM anilist_sync_state ORDER BY source_key;"
+```
+
+Inspect metadata fingerprint refresh state:
+
+```powershell
+docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT COUNT(*) FILTER (WHERE metadata_fingerprint IS NOT NULL) AS fingerprinted_rows, COUNT(*) FILTER (WHERE metadata_refreshed_at IS NOT NULL) AS refreshed_rows, COUNT(*) AS total_rows FROM anime_embeddings;"
+```
+
+Tail backend logs for scheduled runs:
+
+```powershell
+docker-compose logs -f backend | Select-String "AniList sync"
+```
 
 ## 12) Database Commands
 
@@ -259,6 +303,7 @@ Useful SQL checks:
 ```sql
 SELECT COUNT(*) AS total_embeddings FROM anime_embeddings;
 SELECT COUNT(*) AS custom_embeddings FROM anime_embeddings WHERE embedding_custom IS NOT NULL;
+SELECT COUNT(*) AS popularity_populated FROM anime_embeddings WHERE anilist_popularity IS NOT NULL;
 SELECT anilist_id, vector_dims(embedding_custom) FROM anime_embeddings WHERE embedding_custom IS NOT NULL LIMIT 10;
 SELECT id, source_path, source_size_bytes, source_sha256, imported_at FROM custom_embedding_import_state;
 ```
@@ -319,8 +364,19 @@ python .\notebooks\semantic_multipos_experiment.py `
   --epochs 4
 ```
 
+Rebuild canonical semantic embeddings artifact (metadata-complete JSONL):
+```powershell
+python .\notebooks\export_semantic_embeddings.py `
+  --model-path .\ml-models\semantic `
+  --corpus-path .\notebooks\data\corpus.jsonl `
+  --metadata-path .\notebooks\data\anilist_anime.jsonl `
+  --output-path .\ml-models\anime_embeddings.jsonl `
+  --batch-size 64
+```
+
 Note:
 - keep `ml-models/anime_embeddings.jsonl` as the canonical runtime artifact for semantic retrieval/import.
+- when popularity/metadata scoring logic changes, regenerate this artifact before import + promotion benchmarks.
 
 ## 16) Evaluation and Promotion Commands
 
@@ -401,19 +457,19 @@ Semantic/fusion behavior:
 - `RECOMMENDATIONS_SEMANTIC_POPULARITY_PRIOR_WEIGHT_LOGGED_OUT`
 - `RECOMMENDATIONS_SEMANTIC_POPULARITY_GUARDRAIL_THRESHOLD`
 - `RECOMMENDATIONS_SEMANTIC_POPULARITY_GUARDRAIL_MAX_WEIGHT`
+- `RECOMMENDATIONS_SEMANTIC_VECTOR_CANDIDATE_LIMIT`
+- `RECOMMENDATIONS_SEMANTIC_LEXICAL_CANDIDATE_LIMIT`
+- `RECOMMENDATIONS_SEMANTIC_MERGED_CANDIDATE_LIMIT`
+- `RECOMMENDATIONS_SEMANTIC_TITLE_INTENT_LEXICAL_BOOST`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_ENABLED`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_CONTEXT_SIZE`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_MAX_ADDED_TOKENS`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_TRIGGER_MAX_QUERY_TOKENS`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_SKIP_TOP_RELEVANCE_THRESHOLD`
-- `FUSION_SEMANTIC_WEIGHT`
-- `FUSION_CF_WEIGHT`
-- `FUSION_DIVERSITY_PENALTY`
-- `FUSION_DYNAMIC_BLEND_ENABLED`
-- `FUSION_DYNAMIC_BLEND_MIN_RATED_ANIME`
-- `FUSION_DYNAMIC_BLEND_MAX_RATED_ANIME`
-- `FUSION_DYNAMIC_BLEND_MIN_CF_WEIGHT`
-- `FUSION_DYNAMIC_BLEND_MAX_CF_WEIGHT`
+- `RECOMMENDATIONS_SEMANTIC_CACHE_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_CACHE_SIZE`
+- `RECOMMENDATIONS_SEMANTIC_CACHE_TTL_HOURS`
+- `RECOMMENDATIONS_SEMANTIC_MODEL_FINGERPRINT`
 
 Explanation path:
 - `RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED`
