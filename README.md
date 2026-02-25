@@ -32,7 +32,6 @@ For deeper design details, see `ARCHITECTURE.md`.
 - Smart Search now uses hybrid semantic retrieval:
   - vector candidates from pgvector
   - indexed lexical candidates (full-text + trigram over title/genres/description)
-  - vector + lexical candidates merged with reciprocal-rank-fusion policy
   - optional sidecar reranking on semantic mode when custom vectors are enabled
   - sidecar rerank now emits `query_adherence_score` and backend prioritizes it as the query-first relevance signal
   - optional deterministic second-pass query expansion for broad or underspecified queries
