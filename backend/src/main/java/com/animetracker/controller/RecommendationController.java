@@ -55,7 +55,8 @@ public class RecommendationController {
                 request.getLimit(),
                 Boolean.TRUE.equals(request.getUseListOnly()),
                 request.getListWeight(),
-                request.getMode());
+                request.getMode(),
+                request.getFilters());
         List<AniListResponse.AnimeInfo> legacy = scored.stream()
                 .map(RecommendationResponse::getAnime)
                 .toList();
@@ -73,7 +74,8 @@ public class RecommendationController {
                 request.getLimit(),
                 Boolean.TRUE.equals(request.getUseListOnly()),
                 request.getListWeight(),
-                request.getMode());
+                request.getMode(),
+                request.getFilters());
         return ResponseEntity.ok(results);
     }
 

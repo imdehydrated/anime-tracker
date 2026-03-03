@@ -9,6 +9,7 @@ Recommendation features require the ML sidecar to be enabled and healthy at star
 - User auth with JWT (register/login)
 - Personal anime list management (status, score, progress)
 - AniList search + details
+- Search filters for format/safety controls (extra seasons, movies, ONA/OVA/specials, music, adult)
 - AI recommendation modes:
   - Smart Search (semantic text query + optional taste blending when logged in)
   - Similar Shows (seed-based similarity)
@@ -18,6 +19,9 @@ Recommendation features require the ML sidecar to be enabled and healthy at star
 - Population failure tracking and retry tooling for embedding sync
 - Typed population failure reasons with reason-aware retry/dead-letter backoff policy
 - Local-search metadata quality guardrails and UI cover fallbacks for incomplete AniList rows
+- Global recommendation controls (extra seasons, movies, ONA/OVA/specials, music, adult toggle, popularity attenuation)
+  - shared toggle-card UI across SmartRec, For You, and Search for consistent filter behavior
+  - recommendation pages include a dedicated advanced popularity-attenuation selector with helper guidance
 
 ## Architecture at a Glance
 
@@ -49,9 +53,13 @@ For deeper design details, see `ARCHITECTURE.md`.
   - metadata freshness is handled by tiered AniList sync jobs (hot popular window, daily active rotation, weekly deep sweep) with persisted cursor state and adaptive page budgets
   - embedding population failures are tracked with reason codes and retry schedules (`OPEN`, `DEAD_LETTER`, `RESOLVED`)
   - metadata fingerprinting prevents unnecessary re-embedding; vectors are refreshed only when embedding-relevant metadata changes
-  - local metadata search now performs a one-call AniList fallback merge when critical fields are missing, backfills improved metadata, and can run a bounded per-item ID hydration pass for still-incomplete rows
+- local metadata search now performs a one-call AniList fallback merge when critical fields are missing, backfills improved metadata, and can run a bounded per-item ID hydration pass for still-incomplete rows
+  - `/api/anime/search` supports additive format/safety filters and caches by `(query + filter fingerprint)` so toggles return consistent results
 - CF mode predicts unwatched anime using a trained autoencoder.
-- CF ranking uses a mild popularity attenuation by default (tunable via env vars).
+- Global controls are applied consistently across semantic, similar, and CF result sets.
+- Adult safety filtering is default-on (`includeAdult=false`) and can be explicitly opted into.
+- CF ranking uses a separate popularity attenuation curve (tunable via dedicated CF env vars).
+- Underfilled-result safeguard expands candidate fetch and applies safe format-relax fallback (adult filter still enforced) when default controls would return too few items.
 - Recommendation reason codes and one-sentence explanations are generated from active mode signals (query/seed/taste).
 - Frontend renders recommendation reason text from backend metadata.
 

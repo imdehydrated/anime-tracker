@@ -80,6 +80,7 @@ Owns all AniList GraphQL calls:
 
 It includes request pacing, retries, and short-lived cache.
 Search also applies a metadata quality gate on local-first results: when critical card fields are missing (for example cover/title/genres), it performs one upstream search fetch, merges missing fields before returning/caching, backfills improved metadata into the local catalog, and applies a bounded per-item ID hydration pass for remaining incomplete rows.
+`/api/anime/search` additionally applies the same format/safety controls used by recommendation filtering (`includeExtraSeasons`, `includeMovies`, `includeOnasOvasSpecials`, `includeMusic`, `includeAdult`), and cache keys include both query and filter fingerprint so toggles do not reuse stale cached result sets.
 
 Design reason:
 - external API reliability policy belongs in one integration service, not spread across features.
@@ -162,6 +163,13 @@ Health:
 Contract choice:
 - both legacy and scored recommendation endpoints are kept to avoid breaking existing frontend/backward callers during iterative ranking upgrades.
 - recommendation payloads may include optional scoring diagnostics (for example query relevance, taste overlap score, popularity prior, and guardrail flag) without breaking existing clients.
+- request payload can include additive global controls under `filters`:
+  - `includeExtraSeasons`
+  - `includeMovies`
+  - `includeOnasOvasSpecials`
+  - `includeMusic`
+  - `includeAdult`
+  - `popularityAttenuation` (`low|medium|high`)
 
 ## Recommendation Modes and Behavior
 
@@ -182,10 +190,14 @@ Query-first semantic retrieval pipeline:
    - logged-in: `0.70*query + 0.20*taste + 0.10*popularity`
    - logged-out: `0.85*query + 0.15*popularity`
 10. Apply relevance guardrail (suppress taste and cap popularity for low-relevance hits).
-11. Apply franchise/special dedupe.
-12. Build explanation metadata.
-13. Cache successful semantic responses in backend in-memory LRU (6h TTL) using a fingerprinted key:
+11. Apply global controls filter pass (adult safety + format controls + popularity attenuation).
+    - candidate pool sizing is automatically overfetched when restrictive controls are active.
+    - if default controls underfill results, backend applies a safe fallback that relaxes format filters only (adult safety remains enforced).
+12. Apply franchise/special dedupe.
+13. Build explanation metadata.
+14. Cache successful semantic responses in backend in-memory LRU (6h TTL) using a fingerprinted key:
    - mode, normalized query, limit, top-k, auth state, user profile fingerprint, model fingerprint, embeddings fingerprint.
+   - controls fingerprint (prevents stale cached responses when filter toggles change).
 
 Design reason:
 - hybrid lexical + vector retrieval handles both intent semantics and exact entity mentions.
@@ -293,6 +305,8 @@ Structure:
 - `src/api/`: backend client modules (`authApi`, `animeApi`, `listApi`, `recommendationsApi`)
 - `src/context/AuthContext.js`: auth state
 - `src/components/`: reusable UI (`RequireAuth`, cards, rec item, blacklist modal)
+- `src/components/FilterControlPanel.js`: shared Sprout-style filter toggle UI for recommendation/search pages
+  - recommendation pages use the same component to render a dedicated advanced popularity-attenuation selector with explanatory helper text
 - `src/hooks/`: reusable state flows (`useDebounceSearch`, blacklist/add-to-list hooks)
 - `src/pages/`: route pages (`Home`, `Search`, `MyList`, `SmartRec`, etc.)
 

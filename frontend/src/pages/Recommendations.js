@@ -7,8 +7,17 @@ import { getApiError } from '../api/client';
 import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
+import FilterControlPanel from '../components/FilterControlPanel';
 
 const RECOMMENDATIONS_STATE_KEY = 'recommendations_page_state_v1';
+const DEFAULT_GLOBAL_FILTERS = {
+	includeExtraSeasons: false,
+	includeMovies: false,
+	includeOnasOvasSpecials: false,
+	includeMusic: false,
+	includeAdult: false,
+	popularityAttenuation: 'medium',
+};
 
 /**
  * "For You" recommendations page:
@@ -20,6 +29,7 @@ function Recommendations() {
 	const [loading, setLoading] = useState(false);
 	const [fetchError, setFetchError] = useState('');
 	const [addedIds, setAddedIds] = useState(new Set());
+	const [filters, setFilters] = useState(DEFAULT_GLOBAL_FILTERS);
 	const [hydrated, setHydrated] = useState(false);
 
 	const { isLoggedIn } = useAuth();
@@ -35,7 +45,7 @@ function Recommendations() {
 		clearMessages();
 
 		try {
-			const data = await getSemanticRecommendations({ useListOnly: true, limit: 15 });
+			const data = await getSemanticRecommendations({ useListOnly: true, limit: 15, filters });
 			setRecommendations(data);
 		} catch (err) {
 			setFetchError(getApiError(err, 'Failed to load recommendations.'));
@@ -59,6 +69,9 @@ function Recommendations() {
 			if (Array.isArray(parsed.addedIds)) {
 				setAddedIds(new Set(parsed.addedIds));
 			}
+			if (parsed.filters && typeof parsed.filters === 'object') {
+				setFilters((prev) => ({ ...prev, ...parsed.filters }));
+			}
 		} catch {
 			// Ignore corrupted cache and continue with fresh fetch.
 		} finally {
@@ -71,8 +84,9 @@ function Recommendations() {
 		sessionStorage.setItem(RECOMMENDATIONS_STATE_KEY, JSON.stringify({
 			recommendations,
 			addedIds: Array.from(addedIds),
+			filters,
 		}));
-	}, [isLoggedIn, hydrated, recommendations, addedIds]);
+	}, [isLoggedIn, hydrated, recommendations, addedIds, filters]);
 
 	useEffect(() => {
 		if (!isLoggedIn || !hydrated) return;
@@ -112,6 +126,14 @@ function Recommendations() {
 					Manage Blacklist
 				</button>
 			</div>
+
+			<FilterControlPanel
+				title="Global Recommendation Filters"
+				filters={filters}
+				setFilters={setFilters}
+				showPopularityAttenuation={true}
+				showAdultToggle={true}
+			/>
 
 			{(fetchError || error) && <p className="error-message">{fetchError || error}</p>}
 			{message && <p className="success-message">{message}</p>}

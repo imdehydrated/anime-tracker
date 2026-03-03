@@ -12,14 +12,24 @@ import { useAddToList } from '../hooks/useAddToList';
 import { getApiError } from '../api/client';
 import { searchAnime } from '../api/animeApi';
 import { getUserList } from '../api/listApi';
+import FilterControlPanel from '../components/FilterControlPanel';
 
 import AnimeCard from '../components/AnimeCard';
+
+const DEFAULT_SEARCH_FILTERS = {
+	includeExtraSeasons: false,
+	includeMovies: false,
+	includeOnasOvasSpecials: false,
+	includeMusic: false,
+	includeAdult: false,
+};
 
 function Search() {
 	const [query, setQuery] = useState('');
 	const [results, setResults] = useState([]);
 	const [loading, setLoading] = useState(false);
 	const [searchError, setSearchError] = useState('');
+	const [filters, setFilters] = useState(DEFAULT_SEARCH_FILTERS);
 	const [userListIds, setUserListIds] = useState(new Set());
 
 	const { isLoggedIn } = useAuth();
@@ -45,20 +55,20 @@ function Search() {
 		}
 
 		const timer = setTimeout(() => {
-			performSearch(query);
+			performSearch(query, filters);
 		}, 400);
 
 		return () => clearTimeout(timer);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [query]);
+	}, [query, filters]);
 
-	const performSearch = async (searchQuery) => {
+	const performSearch = async (searchQuery, activeFilters = filters) => {
 		setSearchError('');
 		clearMessages();
 		setLoading(true);
 
 		try {
-			const data = await searchAnime(searchQuery);
+			const data = await searchAnime(searchQuery, activeFilters);
 			setResults(data);
 		} catch (err) {
 			setSearchError(getApiError(err, 'Search failed. Try again.'));
@@ -69,7 +79,7 @@ function Search() {
 
 	const handleSubmit = (e) => {
 		e.preventDefault();
-		if (query.length >= 1) performSearch(query);
+		if (query.length >= 1) performSearch(query, filters);
 	};
 
 	const handleAddToList = async (anime) => {
@@ -97,6 +107,14 @@ function Search() {
 
 			{(searchError || error) && <p className="error-message">{searchError || error}</p>}
 			{message && <p className="success-message">{message}</p>}
+
+			<FilterControlPanel
+				title="Search Filters"
+				filters={filters}
+				setFilters={setFilters}
+				showPopularityAttenuation={false}
+				showAdultToggle={true}
+			/>
 
 			<div className="card-grid">
 				{results.map((anime) => (

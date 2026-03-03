@@ -4,23 +4,22 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.LinkedHashMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.RecommendationResponse;
+import com.animetracker.dto.SemanticRequest;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.entity.RecommendationBlacklist;
 import com.animetracker.entity.User;
@@ -60,6 +60,19 @@ public class SemanticRecommendationService {
     private static final Set<String> QUERY_NEGATION_BREAK_TOKENS = Set.of("and", "or", "but", "except");
     private static final Set<String> DEDUPE_SPECIAL_MARKERS = Set.of(
             "special", "ova", "ona", "movie", "film", "recap", "summary", "compilation", "digest");
+    private static final Set<String> ADULT_BLOCKLIST_TAG_KEYWORDS = Set.of(
+            "hentai", "nudity", "sex", "sexual", "erotic", "porn", "explicit");
+    private static final Set<String> MUSIC_KEYWORDS = Set.of("music", "song", "idol", "concert");
+    private static final Set<String> SEASON_ORDINAL_WORDS = Set.of(
+            "second",
+            "third",
+            "fourth",
+            "fifth",
+            "sixth",
+            "seventh",
+            "eighth",
+            "ninth",
+            "tenth");
 
     private final AnimeEmbeddingRepository embeddingRepository;
     private final AnimeListEntryService animeListEntryService;
@@ -166,6 +179,22 @@ public class SemanticRecommendationService {
     private int semanticCacheTtlHours;
     @Value("${recommendations.semantic.model-fingerprint:semantic-v1}")
     private String semanticModelFingerprint;
+    @Value("${recommendations.filters.popularity-attenuation-low:0.00}")
+    private float popularityAttenuationLow;
+    @Value("${recommendations.filters.popularity-attenuation-medium:0.08}")
+    private float popularityAttenuationMedium;
+    @Value("${recommendations.filters.popularity-attenuation-high:0.16}")
+    private float popularityAttenuationHigh;
+    @Value("${recommendations.filters.cf-popularity-attenuation-low:0.00}")
+    private float cfPopularityAttenuationLow;
+    @Value("${recommendations.filters.cf-popularity-attenuation-medium:0.05}")
+    private float cfPopularityAttenuationMedium;
+    @Value("${recommendations.filters.cf-popularity-attenuation-high:0.10}")
+    private float cfPopularityAttenuationHigh;
+    @Value("${recommendations.filters.underfill-min-ratio:0.60}")
+    private float controlsUnderfillMinRatio;
+    @Value("${recommendations.filters.underfill-min-floor:5}")
+    private int controlsUnderfillMinFloor;
     @Value("${recommendations.explanations.cf-contributors-enabled:false}")
     private boolean cfContributorExplanationsEnabled;
     @Value("${recommendations.explanations.llm-enabled:false}")
@@ -251,7 +280,28 @@ public class SemanticRecommendationService {
             boolean useListOnly,
             Float requestedListWeight,
             String mode) {
+        return recommend(
+                username,
+                seedIds,
+                query,
+                requestedLimit,
+                useListOnly,
+                requestedListWeight,
+                mode,
+                null);
+    }
 
+    public List<RecommendationResponse> recommend(
+            String username,
+            List<Integer> seedIds,
+            String query,
+            Integer requestedLimit,
+            boolean useListOnly,
+            Float requestedListWeight,
+            String mode,
+            SemanticRequest.Filters filters) {
+
+        RecommendationControls controls = resolveRecommendationControls(filters);
         String effectiveMode = (mode == null || mode.isBlank())
                 ? "semantic"
                 : mode.trim().toLowerCase();
@@ -259,12 +309,12 @@ public class SemanticRecommendationService {
 
         // CF-only mode: delegate entirely to sidecar
         if ("cf".equals(effectiveMode)) {
-            return recommendCf(username, requestedLimit);
+            return recommendCf(username, requestedLimit, controls);
         }
 
         // Similar mode: seed-driven "shows like these", with optional list influence
         if ("similar".equals(effectiveMode)) {
-            return recommendSimilar(username, seedIds, requestedLimit, effectiveRequestedListWeight);
+            return recommendSimilar(username, seedIds, requestedLimit, effectiveRequestedListWeight, controls);
         }
 
         List<Integer> normalizedSeeds = normalizeIds(seedIds);
@@ -302,7 +352,8 @@ public class SemanticRecommendationService {
                     username != null,
                     buildSemanticUserProfileFingerprint(username, effectiveRequestedListWeight),
                     resolveSemanticModelFingerprint(),
-                    resolveEmbeddingsFingerprint());
+                    resolveEmbeddingsFingerprint(),
+                    controls.fingerprint());
             List<RecommendationResponse> cached = readSemanticCache(semanticCacheKey);
             if (cached != null) {
                 return cached;
@@ -359,8 +410,9 @@ public class SemanticRecommendationService {
 
         List<Integer> excludeIds = buildExcludeIds(username, List.of());
         String vectorStr = EmbeddingService.toVectorString(searchVector);
-        int vectorCandidateLimit = Math.max(limit, semanticVectorCandidateLimit);
-        int mergedCandidateLimit = Math.max(limit, semanticMergedCandidateLimit);
+        int controlsCandidateFloor = controls.recommendedCandidateFloor(limit);
+        int vectorCandidateLimit = Math.max(Math.max(limit, semanticVectorCandidateLimit), controlsCandidateFloor);
+        int mergedCandidateLimit = Math.max(Math.max(limit, semanticMergedCandidateLimit), controlsCandidateFloor);
         SemanticRowSelection rowSelection = selectSemanticRows(
                 vectorStr,
                 excludeIds,
@@ -391,6 +443,7 @@ public class SemanticRecommendationService {
                 username,
                 new ReasoningContext(queryKeywords, topTasteGenres, List.of()),
                 true);
+        results = applyRecommendationControls(results, controls, "semantic", limit);
         writeSemanticCache(semanticCacheKey, results);
         return results;
     }
@@ -398,7 +451,10 @@ public class SemanticRecommendationService {
     /**
      * CF-only mode: get predictions entirely from the sidecar's collaborative filtering model.
      */
-    private List<RecommendationResponse> recommendCf(String username, Integer requestedLimit) {
+    private List<RecommendationResponse> recommendCf(
+            String username,
+            Integer requestedLimit,
+            RecommendationControls controls) {
         if (username == null) {
             throw new UnauthorizedException("Login required for CF recommendations");
         }
@@ -411,8 +467,9 @@ public class SemanticRecommendationService {
         List<Integer> excludeIds = buildExcludeIds(username, List.of());
         List<WatchedProfile> watchedProfiles = buildWatchedProfiles(username);
 
+        int cfFetchLimit = Math.max(limit, Math.min(50, controls.recommendedCandidateFloor(limit)));
         List<Map<String, Object>> predictions = mlSidecarService.getCfRecommendations(
-                userRatings, excludeIds, limit);
+                userRatings, excludeIds, cfFetchLimit);
 
         if (predictions == null || predictions.isEmpty()) {
             throw new BadRequestException("CF model returned no predictions - your list may be too small");
@@ -474,7 +531,7 @@ public class SemanticRecommendationService {
                 log.warn("Failed to fetch anime {} for CF result: {}", anilistId, e.getMessage());
             }
         }
-        return results;
+        return applyRecommendationControls(results, controls, "cf", limit);
     }
 
     /**
@@ -484,7 +541,8 @@ public class SemanticRecommendationService {
             String username,
             List<Integer> seedIds,
             Integer requestedLimit,
-            Float requestedListWeight) {
+            Float requestedListWeight,
+            RecommendationControls controls) {
 
         List<Integer> normalizedSeeds = normalizeIds(seedIds);
         if (normalizedSeeds.isEmpty()) {
@@ -523,7 +581,7 @@ public class SemanticRecommendationService {
         String vectorStr = EmbeddingService.toVectorString(searchVector);
 
         // Overfetch for reranking headroom
-        int similarPoolLimit = Math.max(limit, similarCandidateLimit);
+        int similarPoolLimit = Math.max(Math.max(limit, similarCandidateLimit), controls.recommendedCandidateFloor(limit));
         List<Object[]> candidates = findSimilarRows(vectorStr, excludeIds, similarPoolLimit);
         List<FusionScoringService.ScoredCandidate> semanticCandidates;
         List<String> baseReasonCodes = buildBaseReasonCodes(true, false, usedListProfile);
@@ -609,13 +667,14 @@ public class SemanticRecommendationService {
                 topTasteGenres,
                 false);
         List<FusionScoringService.FusedCandidate> fused = toFusedCandidates(semanticCandidates);
-        return finalizeCandidatesWithReasons(
+        List<RecommendationResponse> results = finalizeCandidatesWithReasons(
                 fused,
                 "similar",
                 limit,
                 username,
                 new ReasoningContext(List.of(), topTasteGenres, seedTitles),
                 true);
+        return applyRecommendationControls(results, controls, "similar", limit);
     }
 
     /**
@@ -1473,6 +1532,310 @@ public class SemanticRecommendationService {
         return fused;
     }
 
+    private RecommendationControls resolveRecommendationControls(SemanticRequest.Filters filters) {
+        if (filters == null) {
+            return RecommendationControls.defaults();
+        }
+        return new RecommendationControls(
+                Boolean.TRUE.equals(filters.getIncludeExtraSeasons()),
+                Boolean.TRUE.equals(filters.getIncludeMovies()),
+                Boolean.TRUE.equals(filters.getIncludeOnasOvasSpecials()),
+                Boolean.TRUE.equals(filters.getIncludeMusic()),
+                Boolean.TRUE.equals(filters.getIncludeAdult()),
+                parsePopularityAttenuation(filters.getPopularityAttenuation()),
+                true);
+    }
+
+    private PopularityAttenuation parsePopularityAttenuation(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return PopularityAttenuation.MEDIUM;
+        }
+        return switch (raw.trim().toLowerCase()) {
+            case "low" -> PopularityAttenuation.LOW;
+            case "high" -> PopularityAttenuation.HIGH;
+            default -> PopularityAttenuation.MEDIUM;
+        };
+    }
+
+    private List<RecommendationResponse> applyRecommendationControls(
+            List<RecommendationResponse> input,
+            RecommendationControls controls,
+            String mode,
+            int limit) {
+        if (input == null || input.isEmpty()) {
+            return List.of();
+        }
+        RecommendationControls effectiveControls = controls == null
+                ? RecommendationControls.defaults()
+                : controls;
+        List<RecommendationResponse> filtered = filterAndScoreRecommendations(input, effectiveControls, mode);
+        int underfillTarget = resolveUnderfillTarget(limit);
+        if (filtered.size() < underfillTarget && !effectiveControls.explicitUserFilters()) {
+            RecommendationControls relaxedControls = effectiveControls.relaxedForUnderfill();
+            List<RecommendationResponse> relaxed = filterAndScoreRecommendations(input, relaxedControls, mode);
+            if (relaxed.size() > filtered.size()) {
+                log.debug(
+                        "Recommendation controls underfill fallback applied: mode={}, strict_size={}, relaxed_size={}, target={}",
+                        mode,
+                        filtered.size(),
+                        relaxed.size(),
+                        underfillTarget);
+                filtered = relaxed;
+            }
+        }
+
+        filtered.sort((left, right) -> {
+            int byScore = Double.compare(
+                    numberValue(right.getFusionScore(), 0.0d),
+                    numberValue(left.getFusionScore(), 0.0d));
+            if (byScore != 0) {
+                return byScore;
+            }
+            Integer leftId = left.getAnime() == null ? null : left.getAnime().getId();
+            Integer rightId = right.getAnime() == null ? null : right.getAnime().getId();
+            if (leftId == null && rightId == null) {
+                return 0;
+            }
+            if (leftId == null) {
+                return 1;
+            }
+            if (rightId == null) {
+                return -1;
+            }
+            return Integer.compare(leftId, rightId);
+        });
+
+        int safeLimit = Math.max(1, limit);
+        if (filtered.size() <= safeLimit) {
+            return filtered;
+        }
+        return List.copyOf(filtered.subList(0, safeLimit));
+    }
+
+    private List<RecommendationResponse> filterAndScoreRecommendations(
+            List<RecommendationResponse> input,
+            RecommendationControls controls,
+            String mode) {
+        List<RecommendationResponse> filtered = new ArrayList<>(input.size());
+        for (RecommendationResponse row : input) {
+            if (row == null || row.getAnime() == null) {
+                continue;
+            }
+            AniListResponse.AnimeInfo anime = row.getAnime();
+            if (!controls.includeAdult() && isAdultCandidate(anime)) {
+                continue;
+            }
+            if (!controls.includeMusic() && isMusicCandidate(anime)) {
+                continue;
+            }
+            if (!controls.includeMovies() && isMovieCandidate(anime)) {
+                continue;
+            }
+            if (!controls.includeOnasOvasSpecials() && isOnaOvaSpecialCandidate(anime)) {
+                continue;
+            }
+            if (!controls.includeExtraSeasons() && isExtraSeasonCandidate(anime)) {
+                continue;
+            }
+
+            double baseScore = row.getFusionScore() == null
+                    ? numberValue(anime.getQueryRelevanceScore(), 0.0d)
+                    : row.getFusionScore();
+            double adjustedScore = applyPopularityAttenuation(
+                    baseScore,
+                    anime.getPopularity(),
+                    controls.popularityAttenuation(),
+                    mode);
+            filtered.add(new RecommendationResponse(anime, adjustedScore, row.getReasonCodes()));
+        }
+        return filtered;
+    }
+
+    private int resolveUnderfillTarget(int limit) {
+        int safeLimit = Math.max(1, limit);
+        int ratioTarget = (int) Math.ceil(safeLimit * FusionScoringService.clamp(controlsUnderfillMinRatio, 0.25d, 1.0d));
+        int floorTarget = Math.max(1, controlsUnderfillMinFloor);
+        return Math.min(safeLimit, Math.max(ratioTarget, floorTarget));
+    }
+
+    private double applyPopularityAttenuation(
+            double baseScore,
+            Integer popularity,
+            PopularityAttenuation attenuation,
+            String mode) {
+        boolean cfMode = "cf".equalsIgnoreCase(mode);
+        double alpha = switch (attenuation == null ? PopularityAttenuation.MEDIUM : attenuation) {
+            case LOW -> FusionScoringService.clamp(
+                    cfMode ? cfPopularityAttenuationLow : popularityAttenuationLow,
+                    0.0d,
+                    0.35d);
+            case HIGH -> FusionScoringService.clamp(
+                    cfMode ? cfPopularityAttenuationHigh : popularityAttenuationHigh,
+                    0.0d,
+                    0.35d);
+            case MEDIUM -> FusionScoringService.clamp(
+                    cfMode ? cfPopularityAttenuationMedium : popularityAttenuationMedium,
+                    0.0d,
+                    0.35d);
+        };
+        if (alpha <= 0.0d) {
+            return FusionScoringService.clamp(baseScore, 0.0d, 1.0d);
+        }
+        double popularityNorm = normalizePopularityForAttenuation(popularity);
+        double nicheBoost = 1.0d - popularityNorm;
+        return FusionScoringService.clamp(baseScore * (1.0d + (alpha * nicheBoost)), 0.0d, 1.0d);
+    }
+
+    private double normalizePopularityForAttenuation(Integer popularity) {
+        if (popularity == null || popularity <= 0) {
+            return 0.50d;
+        }
+        double capped = Math.min(2_000_000.0d, popularity.doubleValue());
+        return FusionScoringService.clamp(Math.log1p(capped) / Math.log1p(2_000_000.0d), 0.0d, 1.0d);
+    }
+
+    private boolean isAdultCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(anime.getIsAdult())) {
+            return true;
+        }
+        Set<String> genres = parseGenreList(anime.getGenres());
+        if (genres.contains("hentai")) {
+            return true;
+        }
+        boolean ecchiGenre = genres.contains("ecchi");
+        if (anime.getTags() != null) {
+            for (AniListResponse.AnimeTag tag : anime.getTags()) {
+                if (tag == null || tag.getName() == null || tag.getName().isBlank()) {
+                    continue;
+                }
+                String lowered = tag.getName().toLowerCase();
+                boolean blocklisted = ADULT_BLOCKLIST_TAG_KEYWORDS.stream().anyMatch(lowered::contains);
+                if (blocklisted) {
+                    return true;
+                }
+                if (ecchiGenre && lowered.contains("ecchi") && tag.getRank() != null && tag.getRank() >= 80) {
+                    return true;
+                }
+            }
+        }
+        if (ecchiGenre) {
+            String text = animeTextBlob(anime);
+            return text.contains("explicit") || text.contains("erotic") || text.contains("sexual");
+        }
+        return false;
+    }
+
+    private boolean isMovieCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        String format = anime.getFormat();
+        if (format != null && "MOVIE".equalsIgnoreCase(format.trim())) {
+            return true;
+        }
+        String text = animeTextBlob(anime);
+        return text.contains(" movie ") || text.contains(" film ");
+    }
+
+    private boolean isOnaOvaSpecialCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        String format = anime.getFormat();
+        if (format != null) {
+            String normalized = format.trim().toUpperCase();
+            if ("ONA".equals(normalized) || "OVA".equals(normalized) || "SPECIAL".equals(normalized)) {
+                return true;
+            }
+        }
+        String text = animeTextBlob(anime);
+        return text.contains(" ova ") || text.contains(" ona ") || text.contains(" special ");
+    }
+
+    private boolean isMusicCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        String format = anime.getFormat();
+        if (format != null && "MUSIC".equalsIgnoreCase(format.trim())) {
+            return true;
+        }
+        Set<String> genres = parseGenreList(anime.getGenres());
+        if (genres.contains("music")) {
+            return true;
+        }
+        String text = animeTextBlob(anime);
+        for (String keyword : MUSIC_KEYWORDS) {
+            if (text.contains(" " + keyword + " ")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isExtraSeasonCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        String title = animeTitleBlob(anime).trim();
+        if (title.isBlank()) {
+            return false;
+        }
+        if (title.matches(".*\\bseason\\s+([2-9]\\d*|ii|iii|iv|v|vi|vii|viii|ix|x)\\b.*")) {
+            return true;
+        }
+        if (title.matches(".*\\b([2-9]\\d*)(st|nd|rd|th)\\s+season\\b.*")) {
+            return true;
+        }
+        for (String ordinalWord : SEASON_ORDINAL_WORDS) {
+            if (title.contains(" " + ordinalWord + " season ")) {
+                return true;
+            }
+        }
+        if (title.matches(".*\\b(part|cour)\\s+([2-9]\\d*|ii|iii|iv|v|vi|vii|viii|ix|x)\\b.*")) {
+            return true;
+        }
+        return title.matches(".*\\b(ii|iii|iv|v|vi)\\b.*");
+    }
+
+    private String animeTitleBlob(AniListResponse.AnimeInfo anime) {
+        StringBuilder text = new StringBuilder(" ");
+        if (anime != null && anime.getTitle() != null) {
+            if (anime.getTitle().getEnglish() != null) {
+                text.append(anime.getTitle().getEnglish()).append(' ');
+            }
+            if (anime.getTitle().getRomaji() != null) {
+                text.append(anime.getTitle().getRomaji()).append(' ');
+            }
+            if (anime.getTitle().getNativeTitle() != null) {
+                text.append(anime.getTitle().getNativeTitle()).append(' ');
+            }
+        }
+        if (anime != null && anime.getSynonyms() != null) {
+            for (String synonym : anime.getSynonyms()) {
+                if (synonym == null || synonym.isBlank()) {
+                    continue;
+                }
+                text.append(synonym).append(' ');
+            }
+        }
+        return text.toString()
+                .toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ");
+    }
+
+    private String animeTextBlob(AniListResponse.AnimeInfo anime) {
+        StringBuilder text = new StringBuilder(animeTitleBlob(anime));
+        if (anime != null && anime.getDescription() != null) {
+            text.append(anime.getDescription()).append(' ');
+        }
+        return text.toString().toLowerCase().replaceAll("[^a-z0-9\\s]", " ").replaceAll("\\s+", " ");
+    }
+
     /**
      * Build a map of {anilistId -> score} for the sidecar CF model.
      */
@@ -1902,6 +2265,21 @@ public class SemanticRecommendationService {
         if (current.getEpisodes() == null) {
             current.setEpisodes(fetched.getEpisodes());
         }
+        if (current.getIsAdult() == null) {
+            current.setIsAdult(fetched.getIsAdult());
+        }
+        if (current.getFormat() == null || current.getFormat().isBlank()) {
+            current.setFormat(fetched.getFormat());
+        }
+        if (current.getSeason() == null || current.getSeason().isBlank()) {
+            current.setSeason(fetched.getSeason());
+        }
+        if (current.getSeasonYear() == null) {
+            current.setSeasonYear(fetched.getSeasonYear());
+        }
+        if (current.getTags() == null || current.getTags().isEmpty()) {
+            current.setTags(fetched.getTags());
+        }
         return current;
     }
 
@@ -1930,6 +2308,11 @@ public class SemanticRecommendationService {
         copy.setPopularity(source.getPopularity());
         copy.setStatus(source.getStatus());
         copy.setEpisodes(source.getEpisodes());
+        copy.setIsAdult(source.getIsAdult());
+        copy.setFormat(source.getFormat());
+        copy.setSeason(source.getSeason());
+        copy.setSeasonYear(source.getSeasonYear());
+        copy.setTags(source.getTags() == null ? null : List.copyOf(source.getTags()));
         return copy;
     }
 
@@ -2973,7 +3356,8 @@ public class SemanticRecommendationService {
             boolean authenticated,
             String userProfileFingerprint,
             String modelFingerprint,
-            String embeddingsFingerprint) {
+            String embeddingsFingerprint,
+            String controlsFingerprint) {
         return new SemanticCacheKey(
                 mode == null ? "semantic" : mode,
                 normalizedQuery == null ? "" : normalizedQuery,
@@ -2982,7 +3366,8 @@ public class SemanticRecommendationService {
                 authenticated,
                 userProfileFingerprint == null ? "na" : userProfileFingerprint,
                 modelFingerprint == null ? "default" : modelFingerprint,
-                embeddingsFingerprint == null ? "unknown" : embeddingsFingerprint);
+                embeddingsFingerprint == null ? "unknown" : embeddingsFingerprint,
+                controlsFingerprint == null ? "default" : controlsFingerprint);
     }
 
     private String buildSemanticUserProfileFingerprint(String username, Float requestedListWeight) {
@@ -3170,7 +3555,8 @@ public class SemanticRecommendationService {
             boolean authenticated,
             String userProfileFingerprint,
             String modelFingerprint,
-            String embeddingsFingerprint) {
+            String embeddingsFingerprint,
+            String controlsFingerprint) {
     }
 
     private record CachedSemanticResults(
@@ -3200,4 +3586,77 @@ public class SemanticRecommendationService {
             List<String> topTasteGenres,
             List<String> seedTitles) {
     }
+
+    private enum PopularityAttenuation {
+        LOW,
+        MEDIUM,
+        HIGH
+    }
+
+    private record RecommendationControls(
+            boolean includeExtraSeasons,
+            boolean includeMovies,
+            boolean includeOnasOvasSpecials,
+            boolean includeMusic,
+            boolean includeAdult,
+            PopularityAttenuation popularityAttenuation,
+            boolean explicitUserFilters) {
+        static RecommendationControls defaults() {
+            return new RecommendationControls(
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    PopularityAttenuation.MEDIUM,
+                    false);
+        }
+
+        RecommendationControls relaxedForUnderfill() {
+            return new RecommendationControls(
+                    true,
+                    true,
+                    true,
+                    true,
+                    includeAdult,
+                    popularityAttenuation == null ? PopularityAttenuation.MEDIUM : popularityAttenuation,
+                    explicitUserFilters);
+        }
+
+        int recommendedCandidateFloor(int requestedLimit) {
+            int safeLimit = Math.max(1, requestedLimit);
+            int restrictive = 0;
+            if (!includeExtraSeasons) {
+                restrictive++;
+            }
+            if (!includeMovies) {
+                restrictive++;
+            }
+            if (!includeOnasOvasSpecials) {
+                restrictive++;
+            }
+            if (!includeMusic) {
+                restrictive++;
+            }
+            if (!includeAdult) {
+                restrictive++;
+            }
+            double multiplier = 1.0d + (0.35d * restrictive);
+            int bonus = restrictive >= 3 ? 8 : 4;
+            return (int) Math.ceil(safeLimit * multiplier) + bonus;
+        }
+
+        String fingerprint() {
+            return String.join(":",
+                    Boolean.toString(includeExtraSeasons),
+                    Boolean.toString(includeMovies),
+                    Boolean.toString(includeOnasOvasSpecials),
+                    Boolean.toString(includeMusic),
+                    Boolean.toString(includeAdult),
+                    popularityAttenuation == null ? PopularityAttenuation.MEDIUM.name() : popularityAttenuation.name(),
+                    Boolean.toString(explicitUserFilters));
+        }
+    }
 }
+
+

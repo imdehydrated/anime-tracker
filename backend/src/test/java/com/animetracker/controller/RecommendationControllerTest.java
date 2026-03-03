@@ -57,7 +57,8 @@ class RecommendationControllerTest {
                 anyInt(),
                 anyBoolean(),
                 nullable(Float.class),
-                nullable(String.class)))
+                nullable(String.class),
+                nullable(SemanticRequest.Filters.class)))
                 .thenReturn(List.of(scored));
 
         ResponseEntity<List<AniListResponse.AnimeInfo>> response = controller.getSemanticRecommendations(request);
@@ -72,7 +73,8 @@ class RecommendationControllerTest {
                 anyInt(),
                 anyBoolean(),
                 nullable(Float.class),
-                nullable(String.class));
+                nullable(String.class),
+                nullable(SemanticRequest.Filters.class));
     }
 
     @Test
@@ -91,7 +93,8 @@ class RecommendationControllerTest {
                 anyInt(),
                 anyBoolean(),
                 nullable(Float.class),
-                nullable(String.class)))
+                nullable(String.class),
+                nullable(SemanticRequest.Filters.class)))
                 .thenReturn(List.of(scored));
 
         ResponseEntity<List<RecommendationResponse>> response = controller.getSemanticRecommendationsScored(request);
@@ -107,7 +110,8 @@ class RecommendationControllerTest {
                 anyInt(),
                 anyBoolean(),
                 nullable(Float.class),
-                nullable(String.class));
+                nullable(String.class),
+                nullable(SemanticRequest.Filters.class));
     }
 
     @Test

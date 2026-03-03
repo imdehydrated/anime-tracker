@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
@@ -42,6 +43,19 @@ public class AniListService {
     private static final long RETRY_MAX_DELAY_MS = 60_000L;
     private static final int SEARCH_RESULT_LIMIT = 10;
     private static final int LOCAL_SEARCH_SUFFICIENT_RESULTS = 5;
+    private static final Set<String> ADULT_BLOCKLIST_TAG_KEYWORDS = Set.of(
+            "hentai", "nudity", "sex", "sexual", "erotic", "porn", "explicit");
+    private static final Set<String> MUSIC_KEYWORDS = Set.of("music", "song", "idol", "concert");
+    private static final Set<String> SEASON_ORDINAL_WORDS = Set.of(
+            "second",
+            "third",
+            "fourth",
+            "fifth",
+            "sixth",
+            "seventh",
+            "eighth",
+            "ninth",
+            "tenth");
 
     private final WebClient webClient;
     private final AnimeEmbeddingRepository embeddingRepository;
@@ -84,6 +98,11 @@ public class AniListService {
                     large
                   }
                   genres
+                  tags {
+                    name
+                    rank
+                  }
+                  isAdult
                   format
                   season
                   seasonYear
@@ -112,6 +131,11 @@ public class AniListService {
                     large
                   }
                   genres
+                  tags {
+                    name
+                    rank
+                  }
+                  isAdult
                   format
                   season
                   seasonYear
@@ -144,6 +168,7 @@ public class AniListService {
                     name
                     rank
                   }
+                  isAdult
                   description
                   status
                   format
@@ -195,6 +220,7 @@ public class AniListService {
                     name
                     rank
                   }
+                  isAdult
                   description
                   status
                   format
@@ -225,21 +251,27 @@ public class AniListService {
             """;
 
     public List<AniListResponse.AnimeInfo> searchAnime(String query) {
+        return searchAnime(query, SearchFilters.defaults());
+    }
+
+    public List<AniListResponse.AnimeInfo> searchAnime(String query, SearchFilters filters) {
+        SearchFilters effectiveFilters = filters == null ? SearchFilters.defaults() : filters;
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase();
         if (normalizedQuery.isBlank()) {
             return Collections.emptyList();
         }
+        String cacheKey = normalizedQuery + "|" + effectiveFilters.fingerprint();
 
         Instant now = Instant.now();
-        CachedSearchResults cached = searchCache.get(normalizedQuery);
+        CachedSearchResults cached = searchCache.get(cacheKey);
         if (cached != null && cached.isFresh(now)) {
             return copyAnimeList(cached.results());
         }
 
-        Object lock = searchLocks.computeIfAbsent(normalizedQuery, ignored -> new Object());
+        Object lock = searchLocks.computeIfAbsent(cacheKey, ignored -> new Object());
         synchronized (lock) {
             now = Instant.now();
-            cached = searchCache.get(normalizedQuery);
+            cached = searchCache.get(cacheKey);
             if (cached != null && cached.isFresh(now)) {
                 return copyAnimeList(cached.results());
             }
@@ -266,10 +298,21 @@ public class AniListService {
                     }
                 }
                 effectiveLocalResults = hydrateIncompleteSearchRows(effectiveLocalResults);
-                searchCache.put(
-                        normalizedQuery,
-                        new CachedSearchResults(copyAnimeList(effectiveLocalResults), now.plus(SEARCH_CACHE_TTL)));
-                return effectiveLocalResults;
+                effectiveLocalResults = applySearchFilters(effectiveLocalResults, effectiveFilters);
+                if (effectiveLocalResults.size() >= LOCAL_SEARCH_SUFFICIENT_RESULTS) {
+                    searchCache.put(
+                            cacheKey,
+                            new CachedSearchResults(copyAnimeList(effectiveLocalResults), now.plus(SEARCH_CACHE_TTL)));
+                    return effectiveLocalResults;
+                }
+            } else {
+                localResults = applySearchFilters(localResults, effectiveFilters);
+                if (localResults.size() >= LOCAL_SEARCH_SUFFICIENT_RESULTS) {
+                    searchCache.put(
+                            cacheKey,
+                            new CachedSearchResults(copyAnimeList(localResults), now.plus(SEARCH_CACHE_TTL)));
+                    return localResults;
+                }
             }
 
             List<AniListResponse.AnimeInfo> fetched;
@@ -283,22 +326,206 @@ public class AniListService {
                 fetched = Collections.emptyList();
             }
             if (!fetched.isEmpty()) {
-                searchCache.put(
-                        normalizedQuery,
-                        new CachedSearchResults(copyAnimeList(fetched), now.plus(SEARCH_CACHE_TTL)));
-                return fetched;
+                List<AniListResponse.AnimeInfo> filteredFetched = applySearchFilters(fetched, effectiveFilters);
+                if (!filteredFetched.isEmpty()) {
+                    searchCache.put(
+                            cacheKey,
+                            new CachedSearchResults(copyAnimeList(filteredFetched), now.plus(SEARCH_CACHE_TTL)));
+                    return filteredFetched;
+                }
             }
 
-            if (!localResults.isEmpty()) {
-                return localResults;
+            List<AniListResponse.AnimeInfo> localFallback = applySearchFilters(localResults, effectiveFilters);
+            if (!localFallback.isEmpty()) {
+                return localFallback;
             }
 
             if (cached != null) {
                 log.debug("Serving stale AniList search cache for query='{}' after request failure", normalizedQuery);
                 return copyAnimeList(cached.results());
             }
-            return fetched;
+            return Collections.emptyList();
         }
+    }
+
+    private List<AniListResponse.AnimeInfo> applySearchFilters(
+            List<AniListResponse.AnimeInfo> source,
+            SearchFilters filters) {
+        if (source == null || source.isEmpty()) {
+            return Collections.emptyList();
+        }
+        SearchFilters effective = filters == null ? SearchFilters.defaults() : filters;
+        List<AniListResponse.AnimeInfo> filtered = new ArrayList<>(source.size());
+        for (AniListResponse.AnimeInfo anime : source) {
+            if (anime == null) {
+                continue;
+            }
+            if (!effective.includeAdult() && isAdultCandidate(anime)) {
+                continue;
+            }
+            if (!effective.includeMusic() && isMusicCandidate(anime)) {
+                continue;
+            }
+            if (!effective.includeMovies() && isMovieCandidate(anime)) {
+                continue;
+            }
+            if (!effective.includeOnasOvasSpecials() && isOnaOvaSpecialCandidate(anime)) {
+                continue;
+            }
+            if (!effective.includeExtraSeasons() && isExtraSeasonCandidate(anime)) {
+                continue;
+            }
+            filtered.add(anime);
+        }
+        return filtered;
+    }
+
+    private boolean isAdultCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(anime.getIsAdult())) {
+            return true;
+        }
+        Set<String> genres = parseGenreSet(anime.getGenres());
+        if (genres.contains("hentai")) {
+            return true;
+        }
+        boolean ecchiGenre = genres.contains("ecchi");
+        if (anime.getTags() != null) {
+            for (AniListResponse.AnimeTag tag : anime.getTags()) {
+                if (tag == null || tag.getName() == null || tag.getName().isBlank()) {
+                    continue;
+                }
+                String lowered = tag.getName().toLowerCase();
+                if (ADULT_BLOCKLIST_TAG_KEYWORDS.stream().anyMatch(lowered::contains)) {
+                    return true;
+                }
+                if (ecchiGenre && lowered.contains("ecchi") && tag.getRank() != null && tag.getRank() >= 70) {
+                    return true;
+                }
+            }
+        }
+        if (!ecchiGenre) {
+            return false;
+        }
+        String text = animeTextBlob(anime);
+        return text.contains(" explicit ")
+                || text.contains(" erotic ")
+                || text.contains(" sexual ");
+    }
+
+    private boolean isMovieCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        if (anime.getFormat() != null && "MOVIE".equalsIgnoreCase(anime.getFormat().trim())) {
+            return true;
+        }
+        String text = animeTextBlob(anime);
+        return text.contains(" movie ") || text.contains(" film ");
+    }
+
+    private boolean isOnaOvaSpecialCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        if (anime.getFormat() != null) {
+            String normalized = anime.getFormat().trim().toUpperCase();
+            if ("ONA".equals(normalized) || "OVA".equals(normalized) || "SPECIAL".equals(normalized)) {
+                return true;
+            }
+        }
+        String text = animeTextBlob(anime);
+        return text.contains(" ona ") || text.contains(" ova ") || text.contains(" special ");
+    }
+
+    private boolean isMusicCandidate(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return false;
+        }
+        if (anime.getFormat() != null && "MUSIC".equalsIgnoreCase(anime.getFormat().trim())) {
+            return true;
+        }
+        Set<String> genres = parseGenreSet(anime.getGenres());
+        if (genres.contains("music")) {
+            return true;
+        }
+        String text = animeTextBlob(anime);
+        for (String keyword : MUSIC_KEYWORDS) {
+            if (text.contains(" " + keyword + " ")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isExtraSeasonCandidate(AniListResponse.AnimeInfo anime) {
+        String title = animeTitleBlob(anime).trim();
+        if (title.isBlank()) {
+            return false;
+        }
+        if (title.matches(".*\\bseason\\s+([2-9]\\d*|ii|iii|iv|v|vi|vii|viii|ix|x)\\b.*")) {
+            return true;
+        }
+        if (title.matches(".*\\b([2-9]\\d*)(st|nd|rd|th)\\s+season\\b.*")) {
+            return true;
+        }
+        for (String ordinalWord : SEASON_ORDINAL_WORDS) {
+            if (title.contains(" " + ordinalWord + " season ")) {
+                return true;
+            }
+        }
+        if (title.matches(".*\\b(part|cour)\\s+([2-9]\\d*|ii|iii|iv|v|vi|vii|viii|ix|x)\\b.*")) {
+            return true;
+        }
+        return title.matches(".*\\b(ii|iii|iv|v|vi|vii|viii|ix|x)\\b.*");
+    }
+
+    private Set<String> parseGenreSet(List<String> genres) {
+        if (genres == null || genres.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> normalized = new java.util.HashSet<>();
+        for (String genre : genres) {
+            if (genre == null || genre.isBlank()) {
+                continue;
+            }
+            normalized.add(genre.toLowerCase());
+        }
+        return normalized;
+    }
+
+    private String animeTitleBlob(AniListResponse.AnimeInfo anime) {
+        StringBuilder text = new StringBuilder(" ");
+        if (anime != null && anime.getTitle() != null) {
+            if (anime.getTitle().getEnglish() != null) {
+                text.append(anime.getTitle().getEnglish()).append(' ');
+            }
+            if (anime.getTitle().getRomaji() != null) {
+                text.append(anime.getTitle().getRomaji()).append(' ');
+            }
+            if (anime.getTitle().getNativeTitle() != null) {
+                text.append(anime.getTitle().getNativeTitle()).append(' ');
+            }
+        }
+        if (anime != null && anime.getSynonyms() != null) {
+            for (String synonym : anime.getSynonyms()) {
+                if (synonym == null || synonym.isBlank()) {
+                    continue;
+                }
+                text.append(synonym).append(' ');
+            }
+        }
+        return text.toString().toLowerCase().replaceAll("[^a-z0-9\\s]", " ").replaceAll("\\s+", " ");
+    }
+
+    private String animeTextBlob(AniListResponse.AnimeInfo anime) {
+        StringBuilder text = new StringBuilder(animeTitleBlob(anime));
+        if (anime != null && anime.getDescription() != null) {
+            text.append(anime.getDescription()).append(' ');
+        }
+        return text.toString().toLowerCase().replaceAll("[^a-z0-9\\s]", " ").replaceAll("\\s+", " ");
     }
 
     private List<AniListResponse.AnimeInfo> fetchSearchUncached(String query) {
@@ -824,6 +1051,12 @@ public class AniListService {
         if (merged.getSynonyms() == null || merged.getSynonyms().isEmpty()) {
             merged.setSynonyms(fetched.getSynonyms() == null ? null : new ArrayList<>(fetched.getSynonyms()));
         }
+        if (merged.getTags() == null || merged.getTags().isEmpty()) {
+            merged.setTags(copyTags(fetched.getTags()));
+        }
+        if (merged.getIsAdult() == null) {
+            merged.setIsAdult(fetched.getIsAdult());
+        }
         return merged;
     }
 
@@ -899,6 +1132,7 @@ public class AniListService {
         copy.setRecommendationReason(source.getRecommendationReason());
         copy.setReasonCodes(source.getReasonCodes() == null ? null : new ArrayList<>(source.getReasonCodes()));
         copy.setFusionScore(source.getFusionScore());
+        copy.setIsAdult(source.getIsAdult());
         copy.setFormat(source.getFormat());
         copy.setSeason(source.getSeason());
         copy.setSeasonYear(source.getSeasonYear());
@@ -990,6 +1224,40 @@ public class AniListService {
             copies.add(copy);
         }
         return copies;
+    }
+
+    public record SearchFilters(
+            boolean includeExtraSeasons,
+            boolean includeMovies,
+            boolean includeOnasOvasSpecials,
+            boolean includeMusic,
+            boolean includeAdult) {
+        public static SearchFilters defaults() {
+            return new SearchFilters(false, false, false, false, false);
+        }
+
+        public static SearchFilters fromNullable(
+                Boolean includeExtraSeasons,
+                Boolean includeMovies,
+                Boolean includeOnasOvasSpecials,
+                Boolean includeMusic,
+                Boolean includeAdult) {
+            return new SearchFilters(
+                    Boolean.TRUE.equals(includeExtraSeasons),
+                    Boolean.TRUE.equals(includeMovies),
+                    Boolean.TRUE.equals(includeOnasOvasSpecials),
+                    Boolean.TRUE.equals(includeMusic),
+                    Boolean.TRUE.equals(includeAdult));
+        }
+
+        public String fingerprint() {
+            return String.join(":",
+                    Boolean.toString(includeExtraSeasons),
+                    Boolean.toString(includeMovies),
+                    Boolean.toString(includeOnasOvasSpecials),
+                    Boolean.toString(includeMusic),
+                    Boolean.toString(includeAdult));
+        }
     }
 
     private record CachedAnimeInfo(AniListResponse.AnimeInfo anime, Instant expiresAt) {

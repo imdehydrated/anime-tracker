@@ -25,6 +25,12 @@ public class SemanticRequest {
 	@DecimalMax(value = "1.0", message = "listWeight must be between 0 and 1")
 	private Float listWeight;
 	private String mode; // "semantic" (default), "similar", or "cf"
+	private String cursor;
+	@Min(value = 1, message = "pageSize must be between 1 and 50")
+	@Max(value = 50, message = "pageSize must be between 1 and 50")
+	private Integer pageSize;
+	private Boolean excludeSeen;
+	private Filters filters;
 
 	public List<Integer> getSeedIds() { return seedIds; }
 	public void setSeedIds(List<Integer> seedIds) { this.seedIds = seedIds; }
@@ -43,4 +49,43 @@ public class SemanticRequest {
 
 	public String getMode() { return mode; }
 	public void setMode(String mode) { this.mode = mode; }
+
+	public String getCursor() { return cursor; }
+	public void setCursor(String cursor) { this.cursor = cursor; }
+
+	public Integer getPageSize() { return pageSize; }
+	public void setPageSize(Integer pageSize) { this.pageSize = pageSize; }
+
+	public Boolean getExcludeSeen() { return excludeSeen; }
+	public void setExcludeSeen(Boolean excludeSeen) { this.excludeSeen = excludeSeen; }
+
+	public Filters getFilters() { return filters; }
+	public void setFilters(Filters filters) { this.filters = filters; }
+
+	public static class Filters {
+		private Boolean includeExtraSeasons;
+		private Boolean includeMovies;
+		private Boolean includeOnasOvasSpecials;
+		private Boolean includeMusic;
+		private Boolean includeAdult;
+		private String popularityAttenuation;
+
+		public Boolean getIncludeExtraSeasons() { return includeExtraSeasons; }
+		public void setIncludeExtraSeasons(Boolean includeExtraSeasons) { this.includeExtraSeasons = includeExtraSeasons; }
+
+		public Boolean getIncludeMovies() { return includeMovies; }
+		public void setIncludeMovies(Boolean includeMovies) { this.includeMovies = includeMovies; }
+
+		public Boolean getIncludeOnasOvasSpecials() { return includeOnasOvasSpecials; }
+		public void setIncludeOnasOvasSpecials(Boolean includeOnasOvasSpecials) { this.includeOnasOvasSpecials = includeOnasOvasSpecials; }
+
+		public Boolean getIncludeMusic() { return includeMusic; }
+		public void setIncludeMusic(Boolean includeMusic) { this.includeMusic = includeMusic; }
+
+		public Boolean getIncludeAdult() { return includeAdult; }
+		public void setIncludeAdult(Boolean includeAdult) { this.includeAdult = includeAdult; }
+
+		public String getPopularityAttenuation() { return popularityAttenuation; }
+		public void setPopularityAttenuation(String popularityAttenuation) { this.popularityAttenuation = popularityAttenuation; }
+	}
 }

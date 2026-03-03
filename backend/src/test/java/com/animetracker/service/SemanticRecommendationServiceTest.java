@@ -29,6 +29,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.animetracker.exception.BadRequestException;
 import com.animetracker.exception.UnauthorizedException;
+import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.SemanticRequest;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.entity.User;
 import com.animetracker.repository.AnimeEmbeddingRepository;
@@ -286,6 +288,34 @@ class SemanticRecommendationServiceTest {
     }
 
     @Test
+    void isExtraSeasonCandidate_detectsOrdinalSeasonPattern() throws Exception {
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        AniListResponse.AnimeTitle title = new AniListResponse.AnimeTitle();
+        title.setEnglish("Haikyuu!! 2nd Season");
+        anime.setTitle(title);
+
+        boolean flagged = (boolean) invokePrivate(
+                "isExtraSeasonCandidate",
+                new Class<?>[] { AniListResponse.AnimeInfo.class },
+                anime);
+        assertTrue(flagged);
+    }
+
+    @Test
+    void isExtraSeasonCandidate_doesNotFlagBaseTitle() throws Exception {
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        AniListResponse.AnimeTitle title = new AniListResponse.AnimeTitle();
+        title.setEnglish("Haikyuu!!");
+        anime.setTitle(title);
+
+        boolean flagged = (boolean) invokePrivate(
+                "isExtraSeasonCandidate",
+                new Class<?>[] { AniListResponse.AnimeInfo.class },
+                anime);
+        assertTrue(!flagged);
+    }
+
+    @Test
     void recommend_cfMode_usesLocalMetadataBeforeAnilistFallback() {
         User user = new User();
         user.setId(10L);
@@ -426,6 +456,81 @@ class SemanticRecommendationServiceTest {
 
         assertEquals(2001, narrow.get(0).anilistId());
         assertEquals(2002, broad.get(0).anilistId());
+    }
+
+    @Test
+    void applyRecommendationControls_filtersAdultByDefault() throws Exception {
+        com.animetracker.dto.AniListResponse.AnimeInfo anime = new com.animetracker.dto.AniListResponse.AnimeInfo();
+        anime.setId(777);
+        anime.setGenres(List.of("Comedy", "Ecchi"));
+        com.animetracker.dto.AniListResponse.AnimeTag tag = new com.animetracker.dto.AniListResponse.AnimeTag();
+        tag.setName("Ecchi");
+        tag.setRank(80);
+        anime.setTags(List.of(tag));
+        com.animetracker.dto.RecommendationResponse row = new com.animetracker.dto.RecommendationResponse(
+                anime,
+                0.55d,
+                List.of(com.animetracker.dto.RecommendationResponse.MATCHES_QUERY));
+
+        Object controls = invokePrivate(
+                "resolveRecommendationControls",
+                new Class<?>[] { SemanticRequest.Filters.class },
+                new Object[] { null });
+
+        Method method = SemanticRecommendationService.class.getDeclaredMethod(
+                "applyRecommendationControls",
+                List.class,
+                controls.getClass(),
+                String.class,
+                int.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<com.animetracker.dto.RecommendationResponse> filtered =
+                (List<com.animetracker.dto.RecommendationResponse>) method.invoke(
+                        service,
+                        List.of(row),
+                        controls,
+                        "semantic",
+                        10);
+
+        assertTrue(filtered.isEmpty());
+    }
+
+    @Test
+    void applyRecommendationControls_underfilledDefaultsRelaxFormatFilters() throws Exception {
+        com.animetracker.dto.AniListResponse.AnimeInfo anime = new com.animetracker.dto.AniListResponse.AnimeInfo();
+        anime.setId(778);
+        anime.setFormat("MOVIE");
+        com.animetracker.dto.RecommendationResponse row = new com.animetracker.dto.RecommendationResponse(
+                anime,
+                0.50d,
+                List.of(com.animetracker.dto.RecommendationResponse.MATCHES_QUERY));
+
+        Object controls = invokePrivate(
+                "resolveRecommendationControls",
+                new Class<?>[] { SemanticRequest.Filters.class },
+                new Object[] { null });
+
+        Method method = SemanticRecommendationService.class.getDeclaredMethod(
+                "applyRecommendationControls",
+                List.class,
+                controls.getClass(),
+                String.class,
+                int.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<com.animetracker.dto.RecommendationResponse> filtered =
+                (List<com.animetracker.dto.RecommendationResponse>) method.invoke(
+                        service,
+                        List.of(row),
+                        controls,
+                        "semantic",
+                        10);
+
+        assertEquals(1, filtered.size());
+        assertEquals(778, filtered.get(0).getAnime().getId());
     }
 
     private Object invokePrivate(String methodName, Class<?>[] argTypes, Object... args) throws Exception {

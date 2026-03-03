@@ -162,6 +162,16 @@ Search by text:
 curl.exe "http://localhost:8080/api/anime/search?q=attack on titan"
 ```
 
+Search with format/safety filters:
+```powershell
+curl.exe "http://localhost:8080/api/anime/search?q=haikyuu&includeExtraSeasons=false&includeMovies=false&includeOnasOvasSpecials=false&includeMusic=false&includeAdult=false"
+```
+
+UI sanity check:
+- open `Smart Recommendations`, `Recommended For You`, and `Search`
+- confirm filter controls render as toggle cards and toggling updates results
+- in recommendation pages, confirm the `Popularity Attenuation Factor` advanced selector renders as a full-width styled dropdown with helper text
+
 Search metadata quality check (look for missing cover/genres/title gaps in returned rows):
 ```powershell
 curl.exe "http://localhost:8080/api/anime/search?q=blue lock"
@@ -181,7 +191,7 @@ Semantic scored endpoint:
 ```powershell
 curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
   -H "Content-Type: application/json" `
-  -d "{\"mode\":\"semantic\",\"query\":\"dark psychological thriller with mind games\",\"limit\":10}"
+  -d "{\"mode\":\"semantic\",\"query\":\"dark psychological thriller with mind games\",\"limit\":10,\"filters\":{\"includeExtraSeasons\":false,\"includeMovies\":false,\"includeOnasOvasSpecials\":false,\"includeMusic\":false,\"includeAdult\":false,\"popularityAttenuation\":\"medium\"}}"
 ```
 
 Inspect query-adherence diagnostics in scored payload:
@@ -530,5 +540,11 @@ Explanation path:
 - `RECOMMENDATIONS_EXPLANATIONS_OPENAI_MODEL`
 
 CF popularity attenuation:
-- `CF_POPULARITY_PENALTY_ALPHA`
-- `CF_POPULARITY_PENALTY_SMOOTHING`
+- `RECOMMENDATIONS_POPULARITY_ATTENUATION_LOW`
+- `RECOMMENDATIONS_POPULARITY_ATTENUATION_MEDIUM`
+- `RECOMMENDATIONS_POPULARITY_ATTENUATION_HIGH`
+- `RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_LOW`
+- `RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_MEDIUM`
+- `RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_HIGH`
+- `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_RATIO`
+- `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_FLOOR`

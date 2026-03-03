@@ -28,11 +28,23 @@ public class AnimeSearchController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<AniListResponse.AnimeInfo>> searchAnime(@RequestParam String q) {
+    public ResponseEntity<List<AniListResponse.AnimeInfo>> searchAnime(
+            @RequestParam String q,
+            @RequestParam(required = false) Boolean includeExtraSeasons,
+            @RequestParam(required = false) Boolean includeMovies,
+            @RequestParam(required = false) Boolean includeOnasOvasSpecials,
+            @RequestParam(required = false) Boolean includeMusic,
+            @RequestParam(required = false) Boolean includeAdult) {
         if (q == null || q.trim().isEmpty()) {
             throw new BadRequestException("Search query cannot be empty");
         }
-        return ResponseEntity.ok(aniListService.searchAnime(q.trim()));
+        AniListService.SearchFilters filters = AniListService.SearchFilters.fromNullable(
+                includeExtraSeasons,
+                includeMovies,
+                includeOnasOvasSpecials,
+                includeMusic,
+                includeAdult);
+        return ResponseEntity.ok(aniListService.searchAnime(q.trim(), filters));
     }
 
     @GetMapping("/{id}")

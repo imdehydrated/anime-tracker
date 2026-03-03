@@ -69,6 +69,7 @@ public class AniListResponse {
         private List<AnimeTag> tags;
         private String description;
         private String status;
+        private Boolean isAdult;
         private String format;
         private String season;
         private Integer seasonYear;
@@ -169,6 +170,14 @@ public class AniListResponse {
 
         public void setStatus(String status) {
             this.status = status;
+        }
+
+        public Boolean getIsAdult() {
+            return isAdult;
+        }
+
+        public void setIsAdult(Boolean isAdult) {
+            this.isAdult = isAdult;
         }
 
         public String getFormat() {

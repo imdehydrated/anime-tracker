@@ -8,10 +8,19 @@ import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useDebounceSearch } from '../hooks/useDebounceSearch';
 import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
+import FilterControlPanel from '../components/FilterControlPanel';
 
 const MAX_SEEDS = 5;
 const SMART_REC_STATE_KEY = 'smart_rec_page_state_v2';
 const SIMILAR_LIST_WEIGHT_WHEN_ENABLED = 0.25;
+const DEFAULT_GLOBAL_FILTERS = {
+	includeExtraSeasons: false,
+	includeMovies: false,
+	includeOnasOvasSpecials: false,
+	includeMusic: false,
+	includeAdult: false,
+	popularityAttenuation: 'medium',
+};
 
 /**
  * SmartRec page:
@@ -30,6 +39,7 @@ function SmartRec() {
 	const [seeds, setSeeds] = useState([]);
 	const [context, setContext] = useState('');
 	const [similarUseList, setSimilarUseList] = useState(false);
+	const [filters, setFilters] = useState(DEFAULT_GLOBAL_FILTERS);
 	const [results, setResults] = useState([]);
 	const [searching, setSearching] = useState(false);
 	const [searchError, setSearchError] = useState('');
@@ -61,6 +71,9 @@ function SmartRec() {
 			if (Array.isArray(parsed.seeds)) setSeeds(parsed.seeds);
 			if (typeof parsed.context === 'string') setContext(parsed.context);
 			if (typeof parsed.similarUseList === 'boolean') setSimilarUseList(parsed.similarUseList);
+			if (parsed.filters && typeof parsed.filters === 'object') {
+				setFilters((prev) => ({ ...prev, ...parsed.filters }));
+			}
 			if (Array.isArray(parsed.results)) setResults(parsed.results);
 			if (Array.isArray(parsed.addedIds)) setAddedIds(new Set(parsed.addedIds));
 			if (typeof parsed.searchError === 'string') setSearchError(parsed.searchError);
@@ -78,6 +91,7 @@ function SmartRec() {
 			seeds,
 			context,
 			similarUseList,
+			filters,
 			results,
 			addedIds: Array.from(addedIds),
 			searchError,
@@ -88,6 +102,7 @@ function SmartRec() {
 		seeds,
 		context,
 		similarUseList,
+		filters,
 		results,
 		addedIds,
 		searchError
@@ -148,6 +163,7 @@ function SmartRec() {
 			if (isCfMode) {
 				body.useListOnly = true;
 			}
+			body.filters = filters;
 
 			const data = await getSemanticRecommendations(body);
 			setResults(data);
@@ -280,6 +296,14 @@ function SmartRec() {
 					</p>
 				</div>
 			)}
+
+			<FilterControlPanel
+				title="Global Recommendation Filters"
+				filters={filters}
+				setFilters={setFilters}
+				showPopularityAttenuation={true}
+				showAdultToggle={true}
+			/>
 
 			<div className="smart-rec-actions">
 				<button

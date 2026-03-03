@@ -123,6 +123,18 @@ recommendations:
   auto-sync-custom-embeddings: ${AUTO_SYNC_CUSTOM_EMBEDDINGS:true}
   # Cache size for local metadata hydration fallback (AniList responses stored in-memory).
   metadata-hydration-cache-size: ${RECOMMENDATIONS_METADATA_HYDRATION_CACHE_SIZE:5000}
+  # Global recommendation control tuning knobs.
+  filters:
+    popularity-attenuation-low: ${RECOMMENDATIONS_POPULARITY_ATTENUATION_LOW:0.00}
+    popularity-attenuation-medium: ${RECOMMENDATIONS_POPULARITY_ATTENUATION_MEDIUM:0.08}
+    popularity-attenuation-high: ${RECOMMENDATIONS_POPULARITY_ATTENUATION_HIGH:0.16}
+    # Separate CF attenuation curve so CF can stay less popularity-biased than semantic/similar.
+    cf-popularity-attenuation-low: ${RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_LOW:0.00}
+    cf-popularity-attenuation-medium: ${RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_MEDIUM:0.05}
+    cf-popularity-attenuation-high: ${RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_HIGH:0.10}
+    # Keep small candidate pools from collapsing after strict control filters.
+    underfill-min-ratio: ${RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_RATIO:0.60}
+    underfill-min-floor: ${RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_FLOOR:5}
   semantic:
     # Hybrid candidate generation for Smart Search: vector retrieval + lexical matches.
     lexical-enabled: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED:true}
