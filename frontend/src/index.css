@@ -864,6 +864,7 @@ a:hover {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	gap: 0.38rem;
 	padding: 0.4rem 0.85rem;
 	border-radius: 4px;
 	font-family: inherit;
@@ -874,6 +875,12 @@ a:hover {
 	color: var(--text-dim);
 	cursor: pointer;
 	transition: all 0.2s;
+}
+
+.feedback-btn-icon {
+	width: 0.95rem;
+	height: 0.95rem;
+	flex-shrink: 0;
 }
 
 .feedback-btn:hover {
@@ -889,6 +896,24 @@ a:hover {
 .feedback-btn-down:hover {
 	border-color: var(--danger);
 	color: var(--danger);
+}
+
+.feedback-btn-up.is-active-up {
+	border-color: #4caf50;
+	background-color: rgba(76, 175, 80, 0.16);
+	color: #8de79a;
+}
+
+.feedback-btn-down.is-active-down {
+	border-color: var(--danger);
+	background-color: rgba(244, 67, 54, 0.16);
+	color: #ff8a80;
+}
+
+.feedback-login-hint {
+	font-size: 0.84rem;
+	color: var(--text-muted);
+	font-weight: 500;
 }
 
 /* =====================

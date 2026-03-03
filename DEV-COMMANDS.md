@@ -252,6 +252,14 @@ curl.exe -X DELETE http://localhost:8080/api/users/recommendations/feedback/1 `
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Feedback taste-weight knobs (backend env):
+- `RECOMMENDATIONS_FEEDBACK_TASTE_THUMBS_UP_WEIGHT` (default `1.50`)
+- `RECOMMENDATIONS_FEEDBACK_TASTE_THUMBS_DOWN_WEIGHT` (default `1.00`)
+
+Behavior:
+- both thumbs signals contribute to logged-in taste profile.
+- thumbs-down is a negative taste signal, not a hard exclusion block.
+
 ## 11) Embedding Operations
 
 Manual import from default path:

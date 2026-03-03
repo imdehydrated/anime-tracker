@@ -16,6 +16,8 @@ Recommendation features require the ML sidecar to be enabled and healthy at star
   - For You (collaborative filtering)
 - Recommendation explanations (single-sentence reason text)
 - Recommendation feedback support (thumbs up / thumbs down) with backend persistence
+  - thumbs-up and thumbs-down signals contribute to logged-in taste personalization
+  - thumbs-down is no longer a hard block; it acts as a negative taste signal
 - Population failure tracking and retry tooling for embedding sync
 - Typed population failure reasons with reason-aware retry/dead-letter backoff policy
 - Local-search metadata quality guardrails and UI cover fallbacks for incomplete AniList rows

@@ -163,6 +163,18 @@ public class SemanticRecommendationService {
     private float semanticListBlendCapBroadQuery;
     @Value("${recommendations.semantic.list-blend-cap-title-intent:0.05}")
     private float semanticListBlendCapTitleIntent;
+    @Value("${recommendations.feedback.taste-thumbs-up-weight:1.50}")
+    private float feedbackTasteThumbsUpWeight;
+    @Value("${recommendations.feedback.taste-thumbs-down-weight:1.00}")
+    private float feedbackTasteThumbsDownWeight;
+    @Value("${recommendations.feedback.taste-rating-weight:0.70}")
+    private float feedbackTasteRatingWeight;
+    @Value("${recommendations.feedback.score-adjustment-thumbs-up:0.04}")
+    private float feedbackScoreAdjustmentThumbsUp;
+    @Value("${recommendations.feedback.score-adjustment-thumbs-down:0.06}")
+    private float feedbackScoreAdjustmentThumbsDown;
+    @Value("${recommendations.cf.taste-vector-weight:0.20}")
+    private float cfTasteVectorWeight;
     @Value("${recommendations.semantic.second-pass-enabled:true}")
     private boolean semanticSecondPassEnabled;
     @Value("${recommendations.semantic.second-pass-context-size:25}")
@@ -405,6 +417,7 @@ public class SemanticRecommendationService {
         List<String> topTasteGenres = (username != null && usedListProfile)
                 ? buildTopUserGenres(username, 3)
                 : List.of();
+        Map<Integer, String> feedbackSignals = username == null ? Map.of() : loadFeedbackSignalMap(username);
 
         if (searchVector == null) {
             return List.of();
@@ -445,7 +458,7 @@ public class SemanticRecommendationService {
                 username,
                 new ReasoningContext(queryKeywords, topTasteGenres, List.of()),
                 true);
-        results = applyRecommendationControls(results, controls, "semantic", limit);
+        results = applyRecommendationControls(results, controls, "semantic", limit, feedbackSignals);
         writeSemanticCache(semanticCacheKey, results);
         return results;
     }
@@ -468,6 +481,9 @@ public class SemanticRecommendationService {
         Map<Integer, Float> userRatings = buildUserRatingMap(username);
         List<Integer> excludeIds = buildExcludeIds(username, List.of());
         List<WatchedProfile> watchedProfiles = buildWatchedProfiles(username);
+        Map<Integer, String> feedbackSignals = loadFeedbackSignalMap(username);
+        double cfTasteBlendWeight = FusionScoringService.clamp(cfTasteVectorWeight, 0.0d, 0.35d);
+        float[] tasteVector = cfTasteBlendWeight > 0.0d ? buildUserPreferenceVector(username) : null;
 
         int cfFetchLimit = Math.max(limit, Math.min(50, controls.recommendedCandidateFloor(limit)));
         List<Map<String, Object>> predictions = mlSidecarService.getCfRecommendations(
@@ -495,6 +511,9 @@ public class SemanticRecommendationService {
                 }
             }
         }
+        Map<Integer, float[]> candidateEmbeddingVectors = (tasteVector == null || predictedIds.isEmpty())
+                ? Map.of()
+                : loadEmbeddingVectorMap(predictedIds);
 
         // Build recommendation payload; use local metadata first, AniList as fallback only when missing locally.
         List<RecommendationResponse> results = new ArrayList<>();
@@ -509,12 +528,20 @@ public class SemanticRecommendationService {
             double predictedScore = numberValue(pred.get("predicted_score"), 1.0d);
             double watchConfidence = numberValue(pred.get("watch_confidence"), 0.0d);
             double normalizedScore = FusionScoringService.normalizeCfScore(predictedScore, watchConfidence);
+            double tasteSimilarity = Double.NaN;
+            if (tasteVector != null && !candidateEmbeddingVectors.isEmpty()) {
+                tasteSimilarity = normalizedCosineSimilarity(tasteVector, candidateEmbeddingVectors.get(anilistId));
+                normalizedScore = blendCfWithTasteVectorScore(normalizedScore, tasteSimilarity, cfTasteBlendWeight);
+            }
             try {
                 AniListResponse.AnimeInfo anime = localMetadataById.get(anilistId);
                 if (anime == null) {
                     anime = aniListService.getAnimeById(anilistId);
                 }
                 if (anime != null) {
+                    if (!Double.isNaN(tasteSimilarity)) {
+                        anime.setUserTasteScore(tasteSimilarity);
+                    }
                     List<String> reasonCodes = List.of(RecommendationResponse.CF_SIGNAL);
                     List<String> contributorTitles = findTopContributorTitles(anime, watchedProfiles, 5);
                     String reasonSentence = buildCfReasonSentence(
@@ -533,7 +560,7 @@ public class SemanticRecommendationService {
                 log.warn("Failed to fetch anime {} for CF result: {}", anilistId, e.getMessage());
             }
         }
-        return applyRecommendationControls(results, controls, "cf", limit);
+        return applyRecommendationControls(results, controls, "cf", limit, feedbackSignals);
     }
 
     /**
@@ -662,6 +689,7 @@ public class SemanticRecommendationService {
         List<String> topTasteGenres = (username != null && usedListProfile)
                 ? buildTopUserGenres(username, 3)
                 : List.of();
+        Map<Integer, String> feedbackSignals = username == null ? Map.of() : loadFeedbackSignalMap(username);
         semanticCandidates = applyModeBlendedScoring(
                 semanticCandidates,
                 "similar",
@@ -676,7 +704,7 @@ public class SemanticRecommendationService {
                 username,
                 new ReasoningContext(List.of(), topTasteGenres, seedTitles),
                 true);
-        return applyRecommendationControls(results, controls, "similar", limit);
+        return applyRecommendationControls(results, controls, "similar", limit, feedbackSignals);
     }
 
     /**
@@ -1564,17 +1592,35 @@ public class SemanticRecommendationService {
             RecommendationControls controls,
             String mode,
             int limit) {
+        return applyRecommendationControls(input, controls, mode, limit, Map.of());
+    }
+
+    private List<RecommendationResponse> applyRecommendationControls(
+            List<RecommendationResponse> input,
+            RecommendationControls controls,
+            String mode,
+            int limit,
+            Map<Integer, String> feedbackSignals) {
         if (input == null || input.isEmpty()) {
             return List.of();
         }
         RecommendationControls effectiveControls = controls == null
                 ? RecommendationControls.defaults()
                 : controls;
-        List<RecommendationResponse> filtered = filterAndScoreRecommendations(input, effectiveControls, mode);
+        Map<Integer, String> effectiveFeedbackSignals = feedbackSignals == null ? Map.of() : feedbackSignals;
+        List<RecommendationResponse> filtered = filterAndScoreRecommendations(
+                input,
+                effectiveControls,
+                mode,
+                effectiveFeedbackSignals);
         int underfillTarget = resolveUnderfillTarget(limit);
         if (filtered.size() < underfillTarget && !effectiveControls.explicitUserFilters()) {
             RecommendationControls relaxedControls = effectiveControls.relaxedForUnderfill();
-            List<RecommendationResponse> relaxed = filterAndScoreRecommendations(input, relaxedControls, mode);
+            List<RecommendationResponse> relaxed = filterAndScoreRecommendations(
+                    input,
+                    relaxedControls,
+                    mode,
+                    effectiveFeedbackSignals);
             if (relaxed.size() > filtered.size()) {
                 log.debug(
                         "Recommendation controls underfill fallback applied: mode={}, strict_size={}, relaxed_size={}, target={}",
@@ -1618,6 +1664,14 @@ public class SemanticRecommendationService {
             List<RecommendationResponse> input,
             RecommendationControls controls,
             String mode) {
+        return filterAndScoreRecommendations(input, controls, mode, Map.of());
+    }
+
+    private List<RecommendationResponse> filterAndScoreRecommendations(
+            List<RecommendationResponse> input,
+            RecommendationControls controls,
+            String mode,
+            Map<Integer, String> feedbackSignals) {
         List<RecommendationResponse> filtered = new ArrayList<>(input.size());
         for (RecommendationResponse row : input) {
             if (row == null || row.getAnime() == null) {
@@ -1648,9 +1702,24 @@ public class SemanticRecommendationService {
                     anime.getPopularity(),
                     controls.popularityAttenuation(),
                     mode);
+            String feedbackSignal = anime.getId() == null ? null : feedbackSignals.get(anime.getId());
+            adjustedScore = applyFeedbackScoreAdjustment(adjustedScore, feedbackSignal);
             filtered.add(new RecommendationResponse(anime, adjustedScore, row.getReasonCodes()));
         }
         return filtered;
+    }
+
+    private double applyFeedbackScoreAdjustment(double baseScore, String feedbackSignal) {
+        if (feedbackSignal == null || feedbackSignal.isBlank()) {
+            return FusionScoringService.clamp(baseScore, 0.0d, 1.0d);
+        }
+        double upDelta = FusionScoringService.clamp(feedbackScoreAdjustmentThumbsUp, 0.0d, 0.20d);
+        double downDelta = FusionScoringService.clamp(feedbackScoreAdjustmentThumbsDown, 0.0d, 0.20d);
+        return switch (feedbackSignal) {
+            case RecommendationFeedback.SIGNAL_THUMBS_UP -> FusionScoringService.clamp(baseScore + upDelta, 0.0d, 1.0d);
+            case RecommendationFeedback.SIGNAL_THUMBS_DOWN -> FusionScoringService.clamp(baseScore - downDelta, 0.0d, 1.0d);
+            default -> FusionScoringService.clamp(baseScore, 0.0d, 1.0d);
+        };
     }
 
     private int resolveUnderfillTarget(int limit) {
@@ -2023,13 +2092,10 @@ public class SemanticRecommendationService {
         Set<Integer> excluded = new LinkedHashSet<>(seedIds);
 
         if (username != null) {
-            User user = getUser(username);
             List<AnimeListEntry> userList = animeListEntryService.getUserList(username);
             for (AnimeListEntry entry : userList) {
                 excluded.add(entry.getAnilistId());
             }
-            feedbackRepository.findByUserAndSignal(user, RecommendationFeedback.SIGNAL_THUMBS_DOWN)
-                    .forEach(entry -> excluded.add(entry.getAnilistId()));
         }
 
         if (excluded.isEmpty()) {
@@ -2039,19 +2105,34 @@ public class SemanticRecommendationService {
     }
 
     private float[] buildUserPreferenceVector(String username) {
+        User user = getUser(username);
         List<AnimeListEntry> userList = animeListEntryService.getUserList(username);
-        if (userList.isEmpty()) {
-            return null;
+        List<RecommendationFeedback> feedbackEntries = feedbackRepository.findByUserOrderByUpdatedAtDesc(user);
+        if (feedbackEntries == null) {
+            feedbackEntries = List.of();
         }
 
         Map<Integer, Integer> scoreById = new HashMap<>();
-        List<Integer> listIds = new ArrayList<>();
+        Map<Integer, String> feedbackSignalById = new HashMap<>();
+        Set<Integer> tasteIds = new LinkedHashSet<>();
+
         for (AnimeListEntry entry : userList) {
-            listIds.add(entry.getAnilistId());
+            tasteIds.add(entry.getAnilistId());
             scoreById.put(entry.getAnilistId(), entry.getScore());
         }
+        for (RecommendationFeedback entry : feedbackEntries) {
+            if (entry.getAnilistId() == null || entry.getSignal() == null) {
+                continue;
+            }
+            tasteIds.add(entry.getAnilistId());
+            feedbackSignalById.put(entry.getAnilistId(), entry.getSignal());
+        }
 
-        List<Object[]> rows = loadEmbeddings(listIds, true);
+        if (tasteIds.isEmpty()) {
+            return null;
+        }
+
+        List<Object[]> rows = loadEmbeddings(new ArrayList<>(tasteIds), true);
         if (rows.isEmpty()) {
             return null;
         }
@@ -2066,12 +2147,22 @@ public class SemanticRecommendationService {
             float[] vector = EmbeddingService.fromVectorString(vectorStr);
             allVectors.add(vector);
 
+            float ratingComponent = 0f;
             Integer score = scoreById.get(anilistId);
-            if (score == null) {
-                continue;
+            if (score != null) {
+                ratingComponent = normalizeUserScoreWeight(score);
             }
+            float scoreWeight = (float) FusionScoringService.clamp(feedbackTasteRatingWeight, 0.0d, 1.0d);
 
-            float weight = score - 6.5f;
+            float feedbackComponent = 0f;
+            String feedbackSignal = feedbackSignalById.get(anilistId);
+            if (RecommendationFeedback.SIGNAL_THUMBS_UP.equals(feedbackSignal)) {
+                feedbackComponent = (float) FusionScoringService.clamp(feedbackTasteThumbsUpWeight, 0.0d, 1.0d);
+            } else if (RecommendationFeedback.SIGNAL_THUMBS_DOWN.equals(feedbackSignal)) {
+                feedbackComponent = -(float) FusionScoringService.clamp(feedbackTasteThumbsDownWeight, 0.0d, 1.0d);
+            }
+            float weight = (float) FusionScoringService.clamp((scoreWeight * ratingComponent) + feedbackComponent, -1.0d, 1.0d);
+
             if (Math.abs(weight) < 0.01f) {
                 continue;
             }
@@ -2093,6 +2184,90 @@ public class SemanticRecommendationService {
         }
 
         return average(allVectors);
+    }
+
+    private float normalizeUserScoreWeight(Integer score) {
+        if (score == null) {
+            return 0f;
+        }
+        double boundedScore = FusionScoringService.clamp(score.doubleValue(), 1.0d, 10.0d);
+        double normalized = (boundedScore - 5.5d) / 4.5d;
+        return (float) FusionScoringService.clamp(normalized, -1.0d, 1.0d);
+    }
+
+    private Map<Integer, String> loadFeedbackSignalMap(String username) {
+        if (username == null || username.isBlank()) {
+            return Map.of();
+        }
+        User user = getUser(username);
+        List<RecommendationFeedback> entries = feedbackRepository.findByUserOrderByUpdatedAtDesc(user);
+        if (entries == null || entries.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, String> signals = new HashMap<>();
+        for (RecommendationFeedback entry : entries) {
+            if (entry == null || entry.getAnilistId() == null || entry.getSignal() == null || entry.getSignal().isBlank()) {
+                continue;
+            }
+            // Repository ordering is newest-first; preserve first signal per anime id.
+            signals.putIfAbsent(entry.getAnilistId(), entry.getSignal());
+        }
+        return signals.isEmpty() ? Map.of() : Map.copyOf(signals);
+    }
+
+    private Map<Integer, float[]> loadEmbeddingVectorMap(List<Integer> ids) {
+        List<Integer> normalizedIds = normalizeIds(ids);
+        if (normalizedIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Object[]> rows = findEmbeddingRowsByIds(normalizedIds);
+        if (rows == null || rows.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, float[]> vectors = new HashMap<>();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || !(row[0] instanceof Integer anilistId) || !(row[1] instanceof String vectorStr)) {
+                continue;
+            }
+            if (vectorStr.isBlank()) {
+                continue;
+            }
+            try {
+                vectors.put(anilistId, EmbeddingService.fromVectorString(vectorStr));
+            } catch (Exception e) {
+                log.debug("Skipping invalid candidate vector for anime {}: {}", anilistId, e.getMessage());
+            }
+        }
+        return vectors.isEmpty() ? Map.of() : vectors;
+    }
+
+    private double normalizedCosineSimilarity(float[] left, float[] right) {
+        if (left == null || right == null || left.length == 0 || left.length != right.length) {
+            return Double.NaN;
+        }
+        double dot = 0.0d;
+        double leftNorm = 0.0d;
+        double rightNorm = 0.0d;
+        for (int i = 0; i < left.length; i++) {
+            double l = left[i];
+            double r = right[i];
+            dot += l * r;
+            leftNorm += l * l;
+            rightNorm += r * r;
+        }
+        if (leftNorm <= 0.0d || rightNorm <= 0.0d) {
+            return Double.NaN;
+        }
+        double cosine = dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+        return FusionScoringService.clamp((cosine + 1.0d) / 2.0d, 0.0d, 1.0d);
+    }
+
+    private double blendCfWithTasteVectorScore(double cfScore, double tasteScore, double tasteWeight) {
+        double weight = FusionScoringService.clamp(tasteWeight, 0.0d, 0.35d);
+        if (Double.isNaN(tasteScore) || weight <= 0.0d) {
+            return FusionScoringService.clamp(cfScore, 0.0d, 1.0d);
+        }
+        return FusionScoringService.clamp(((1.0d - weight) * cfScore) + (weight * tasteScore), 0.0d, 1.0d);
     }
 
     private List<Object[]> loadEmbeddings(List<Integer> ids, boolean embedMissing) {

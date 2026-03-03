@@ -92,6 +92,10 @@ class SemanticRecommendationServiceTest {
         assertDoesNotThrow(() -> setField(service, "semanticListBlendCapWithQuery", 0.08f));
         assertDoesNotThrow(() -> setField(service, "semanticListBlendCapBroadQuery", 0.12f));
         assertDoesNotThrow(() -> setField(service, "semanticListBlendCapTitleIntent", 0.05f));
+        assertDoesNotThrow(() -> setField(service, "feedbackTasteRatingWeight", 0.70f));
+        assertDoesNotThrow(() -> setField(service, "feedbackScoreAdjustmentThumbsUp", 0.04f));
+        assertDoesNotThrow(() -> setField(service, "feedbackScoreAdjustmentThumbsDown", 0.06f));
+        assertDoesNotThrow(() -> setField(service, "cfTasteVectorWeight", 0.20f));
     }
 
     @Test
@@ -336,6 +340,7 @@ class SemanticRecommendationServiceTest {
         when(mlSidecarService.isEnabled()).thenReturn(true);
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
         when(animeListEntryService.getUserList("alice")).thenReturn(List.of(watched));
+        when(feedbackRepository.findByUserOrderByUpdatedAtDesc(user)).thenReturn(List.of());
         when(mlSidecarService.getCfRecommendations(anyMap(), anyList(), anyInt())).thenReturn(List.of(cfPrediction));
         when(embeddingRepository.findMetadataByAnilistIds(List.of(123))).thenReturn(java.util.Collections.singletonList(new Object[] {
                 123,
@@ -354,6 +359,67 @@ class SemanticRecommendationServiceTest {
 
         verify(aniListService, never()).getAnimeById(123);
         org.junit.jupiter.api.Assertions.assertEquals(1, results.size());
+    }
+
+    @Test
+    void recommend_cfMode_blendsTasteVectorIntoCfScore() {
+        User user = new User();
+        user.setId(11L);
+        user.setUsername("alice");
+
+        AnimeListEntry watched = new AnimeListEntry();
+        watched.setAnilistId(1);
+        watched.setScore(10);
+
+        Map<String, Object> cfPrediction = Map.of(
+                "anilist_id", 123,
+                "predicted_score", 5.0,
+                "watch_confidence", 1.0);
+
+        when(mlSidecarService.isEnabled()).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(animeListEntryService.getUserList("alice")).thenReturn(List.of(watched));
+        when(feedbackRepository.findByUserOrderByUpdatedAtDesc(user)).thenReturn(List.of());
+        when(mlSidecarService.getCfRecommendations(anyMap(), anyList(), anyInt())).thenReturn(List.of(cfPrediction));
+        when(embeddingRepository.findMetadataByAnilistIds(List.of(123))).thenReturn(java.util.Collections.singletonList(new Object[] {
+                123,
+                "Local Title",
+                "Local English",
+                "https://img.test/123.jpg",
+                "Action, Sports",
+                "Local description",
+                80,
+                "FINISHED",
+                12,
+                100000
+        }));
+        when(embeddingRepository.findCustomEmbeddingsByAnilistIds(anyList())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<Integer> ids = invocation.getArgument(0);
+            if (ids.contains(123)) {
+                return java.util.Collections.singletonList(new Object[] { 123, "[1.0,0.0]" });
+            }
+            if (ids.contains(1)) {
+                return java.util.Collections.singletonList(new Object[] { 1, "[1.0,0.0]" });
+            }
+            return List.of();
+        });
+
+        @SuppressWarnings("unchecked")
+        List<com.animetracker.dto.RecommendationResponse> results =
+                (List<com.animetracker.dto.RecommendationResponse>) (List<?>) service.recommend(
+                        "alice",
+                        List.of(),
+                        null,
+                        10,
+                        false,
+                        null,
+                        "cf");
+
+        assertEquals(1, results.size());
+        double pureCfScore = FusionScoringService.normalizeCfScore(5.0d, 1.0d);
+        assertTrue(results.get(0).getFusionScore() > pureCfScore);
+        assertTrue(numberValue(results.get(0).getAnime().getUserTasteScore(), 0.0d) > 0.95d);
     }
 
     @Test
@@ -385,27 +451,11 @@ class SemanticRecommendationServiceTest {
     }
 
     @Test
-    void buildExcludeIds_includesThumbsDownFeedback() throws Exception {
-        User user = new User();
-        user.setId(22L);
-        user.setUsername("alice");
-
+    void buildExcludeIds_doesNotIncludeThumbsDownFeedback() throws Exception {
         AnimeListEntry listEntry = new AnimeListEntry();
         listEntry.setAnilistId(111);
 
-        RecommendationFeedback down = new RecommendationFeedback(
-                user,
-                222,
-                RecommendationFeedback.SIGNAL_THUMBS_DOWN,
-                "semantic",
-                null,
-                "Disliked Show",
-                null);
-
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
         when(animeListEntryService.getUserList("alice")).thenReturn(List.of(listEntry));
-        when(feedbackRepository.findByUserAndSignal(user, RecommendationFeedback.SIGNAL_THUMBS_DOWN))
-                .thenReturn(List.of(down));
 
         @SuppressWarnings("unchecked")
         List<Integer> excluded = (List<Integer>) invokePrivate(
@@ -416,7 +466,38 @@ class SemanticRecommendationServiceTest {
 
         assertTrue(excluded.contains(333));
         assertTrue(excluded.contains(111));
-        assertTrue(excluded.contains(222));
+        org.junit.jupiter.api.Assertions.assertFalse(excluded.contains(222));
+    }
+
+    @Test
+    void buildUserPreferenceVector_usesThumbsFeedbackWhenListIsEmpty() throws Exception {
+        User user = new User();
+        user.setId(22L);
+        user.setUsername("alice");
+
+        RecommendationFeedback up = new RecommendationFeedback(
+                user,
+                222,
+                RecommendationFeedback.SIGNAL_THUMBS_UP,
+                "semantic",
+                null,
+                "Liked Show",
+                null);
+
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(animeListEntryService.getUserList("alice")).thenReturn(List.of());
+        when(feedbackRepository.findByUserOrderByUpdatedAtDesc(user)).thenReturn(List.of(up));
+        when(embeddingRepository.findCustomEmbeddingsByAnilistIds(anyList()))
+                .thenReturn(java.util.Collections.singletonList(new Object[] { 222, "[1.0,0.0]" }));
+
+        float[] vector = (float[]) invokePrivate(
+                "buildUserPreferenceVector",
+                new Class<?>[] { String.class },
+                "alice");
+
+        assertTrue(vector != null);
+        assertTrue(vector[0] > 0.90f);
+        assertTrue(Math.abs(vector[1]) < 1e-5f);
     }
 
     @Test
@@ -596,6 +677,59 @@ class SemanticRecommendationServiceTest {
 
         assertEquals(1, filtered.size());
         assertEquals(778, filtered.get(0).getAnime().getId());
+    }
+
+    @Test
+    void applyRecommendationControls_appliesFeedbackScoreAdjustmentsAcrossModes() throws Exception {
+        com.animetracker.dto.AniListResponse.AnimeInfo downAnime = new com.animetracker.dto.AniListResponse.AnimeInfo();
+        downAnime.setId(901);
+        com.animetracker.dto.AniListResponse.AnimeInfo upAnime = new com.animetracker.dto.AniListResponse.AnimeInfo();
+        upAnime.setId(902);
+
+        com.animetracker.dto.RecommendationResponse downRow = new com.animetracker.dto.RecommendationResponse(
+                downAnime,
+                0.50d,
+                List.of(com.animetracker.dto.RecommendationResponse.MATCHES_QUERY));
+        com.animetracker.dto.RecommendationResponse upRow = new com.animetracker.dto.RecommendationResponse(
+                upAnime,
+                0.50d,
+                List.of(com.animetracker.dto.RecommendationResponse.MATCHES_QUERY));
+
+        Object controls = invokePrivate(
+                "resolveRecommendationControls",
+                new Class<?>[] { SemanticRequest.Filters.class },
+                new Object[] { null });
+
+        Method method = SemanticRecommendationService.class.getDeclaredMethod(
+                "applyRecommendationControls",
+                List.class,
+                controls.getClass(),
+                String.class,
+                int.class,
+                Map.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<com.animetracker.dto.RecommendationResponse> adjusted =
+                (List<com.animetracker.dto.RecommendationResponse>) method.invoke(
+                        service,
+                        List.of(downRow, upRow),
+                        controls,
+                        "semantic",
+                        10,
+                        Map.of(
+                                901, RecommendationFeedback.SIGNAL_THUMBS_DOWN,
+                                902, RecommendationFeedback.SIGNAL_THUMBS_UP));
+
+        assertEquals(2, adjusted.size());
+        assertEquals(902, adjusted.get(0).getAnime().getId());
+        assertEquals(901, adjusted.get(1).getAnime().getId());
+        assertTrue(numberValue(adjusted.get(0).getFusionScore(), 0.0d)
+                > numberValue(adjusted.get(1).getFusionScore(), 0.0d));
+    }
+
+    private double numberValue(Number value, double fallback) {
+        return value == null ? fallback : value.doubleValue();
     }
 
     private Object invokePrivate(String methodName, Class<?>[] argTypes, Object... args) throws Exception {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getApiError } from '../api/client';
 import {
 	addRecommendationFeedback,
@@ -7,7 +7,7 @@ import {
 } from '../api/recommendationsApi';
 
 // Shared thumbs feedback workflow for recommendation pages.
-export function useRecommendationFeedback(setError, removeFromResults) {
+export function useRecommendationFeedback(setError, isLoggedIn) {
 	const [feedbackItems, setFeedbackItems] = useState([]);
 	const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 	const [feedbackSearch, setFeedbackSearch] = useState('');
@@ -22,7 +22,7 @@ export function useRecommendationFeedback(setError, removeFromResults) {
 				title: anime.title?.english || anime.title?.romaji,
 				coverImage: anime.coverImage?.large,
 			});
-			removeFromResults(anime.id);
+			await fetchFeedback();
 		} catch (err) {
 			setError(getApiError(err, 'Failed to submit feedback.'));
 		}
@@ -38,6 +38,7 @@ export function useRecommendationFeedback(setError, removeFromResults) {
 				title: anime.title?.english || anime.title?.romaji,
 				coverImage: anime.coverImage?.large,
 			});
+			await fetchFeedback();
 		} catch (err) {
 			setError(getApiError(err, 'Failed to submit feedback.'));
 		}
@@ -71,6 +72,27 @@ export function useRecommendationFeedback(setError, removeFromResults) {
 		}
 	};
 
+	useEffect(() => {
+		if (!isLoggedIn) {
+			setFeedbackItems([]);
+			return;
+		}
+		void fetchFeedback();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isLoggedIn]);
+
+	const feedbackSignalByAnimeId = useMemo(() => {
+		const out = new Map();
+		for (const item of feedbackItems) {
+			if (item?.anilistId != null && item?.signal) {
+				out.set(item.anilistId, item.signal);
+			}
+		}
+		return out;
+	}, [feedbackItems]);
+
+	const getFeedbackSignal = (animeId) => feedbackSignalByAnimeId.get(animeId) || null;
+
 	return {
 		feedbackItems,
 		showFeedbackModal,
@@ -81,5 +103,6 @@ export function useRecommendationFeedback(setError, removeFromResults) {
 		handleThumbsDown,
 		handleThumbsUp,
 		handleRemoveFeedback,
+		getFeedbackSignal,
 	};
 }

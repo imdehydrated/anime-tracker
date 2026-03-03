@@ -8,6 +8,8 @@ import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useRecommendationFeedback } from '../hooks/useRecommendationFeedback';
 import FilterControlPanel from '../components/FilterControlPanel';
+import { ReactComponent as ThumbUpIcon } from '../assets/thumb-up.svg';
+import { ReactComponent as ThumbDownIcon } from '../assets/thumb-down.svg';
 
 const RECOMMENDATIONS_STATE_KEY = 'recommendations_page_state_v1';
 const DEFAULT_GLOBAL_FILTERS = {
@@ -34,10 +36,7 @@ function Recommendations() {
 
 	const { isLoggedIn } = useAuth();
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
-	const feedback = useRecommendationFeedback(
-		setError,
-		(animeId) => setRecommendations((prev) => prev.filter((item) => item.id !== animeId))
-	);
+	const feedback = useRecommendationFeedback(setError, isLoggedIn);
 
 	const fetchRecommendations = async () => {
 		setLoading(true);
@@ -155,16 +154,18 @@ function Recommendations() {
 										Add to List
 									</button>
 									<button
-										className="feedback-btn feedback-btn-up"
+										className={`feedback-btn feedback-btn-up${feedback.getFeedbackSignal(anime.id) === 'THUMBS_UP' ? ' is-active-up' : ''}`}
 										onClick={() => feedback.handleThumbsUp(anime, 'cf', null)}
 									>
-										Thumbs Up
+										<ThumbUpIcon className="feedback-btn-icon" aria-hidden="true" />
+										<span>Thumbs Up</span>
 									</button>
 									<button
-										className="feedback-btn feedback-btn-down"
+										className={`feedback-btn feedback-btn-down${feedback.getFeedbackSignal(anime.id) === 'THUMBS_DOWN' ? ' is-active-down' : ''}`}
 										onClick={() => feedback.handleThumbsDown(anime, 'cf', null)}
 									>
-										Thumbs Down
+										<ThumbDownIcon className="feedback-btn-icon" aria-hidden="true" />
+										<span>Thumbs Down</span>
 									</button>
 								</>
 							)}

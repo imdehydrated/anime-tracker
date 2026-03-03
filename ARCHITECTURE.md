@@ -225,8 +225,9 @@ Design reason:
 ### Feedback Signals (Thumbs)
 
 Thumbs feedback is stored in backend (`recommendation_feedback`) and consumed server-side:
-- thumbs-down is treated as immediate exclusion signal in candidate filtering.
-- thumbs-up is stored for later rerank/personalization feature use.
+- thumbs-up contributes a positive taste signal to logged-in preference-vector construction.
+- thumbs-down contributes a negative taste signal to logged-in preference-vector construction.
+- thumbs-down is not a hard exclusion block in recommendation candidate filtering.
 
 Design reason:
 - keeping feedback in backend avoids client-only state drift, supports multi-device consistency, and enables scalable downstream use (analytics/training features) without frontend coupling.

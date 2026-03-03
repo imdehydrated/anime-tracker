@@ -9,6 +9,8 @@ import { useAddToList } from '../hooks/useAddToList';
 import { useDebounceSearch } from '../hooks/useDebounceSearch';
 import { useRecommendationFeedback } from '../hooks/useRecommendationFeedback';
 import FilterControlPanel from '../components/FilterControlPanel';
+import { ReactComponent as ThumbUpIcon } from '../assets/thumb-up.svg';
+import { ReactComponent as ThumbDownIcon } from '../assets/thumb-down.svg';
 
 const MAX_SEEDS = 5;
 const SMART_REC_STATE_KEY = 'smart_rec_page_state_v2';
@@ -57,10 +59,7 @@ function SmartRec() {
 	} = useDebounceSearch(300, 2);
 
 	const [userListIds, setUserListIds] = useState(new Set());
-	const feedback = useRecommendationFeedback(
-		setError,
-		(animeId) => setResults((prev) => prev.filter((item) => item.id !== animeId))
-	);
+	const feedback = useRecommendationFeedback(setError, isLoggedIn);
 
 	useEffect(() => {
 		try {
@@ -328,28 +327,32 @@ function SmartRec() {
 					<h2>Results</h2>
 					{results.map((anime) => (
 						<AnimeRecItem key={anime.id} anime={anime}>
-							{isLoggedIn && (
-								userListIds.has(anime.id) || addedIds.has(anime.id) ? (
-									<span className="on-list-badge">On Your List</span>
-								) : (
-									<>
+							{isLoggedIn ? (
+								<>
+									{userListIds.has(anime.id) || addedIds.has(anime.id) ? (
+										<span className="on-list-badge">On Your List</span>
+									) : (
 										<button className="btn-primary" onClick={() => handleAddToList(anime)}>
 											Add to List
 										</button>
-										<button
-											className="feedback-btn feedback-btn-up"
-											onClick={() => feedback.handleThumbsUp(anime, mode, context.trim())}
-										>
-											Thumbs Up
-										</button>
-										<button
-											className="feedback-btn feedback-btn-down"
-											onClick={() => feedback.handleThumbsDown(anime, mode, context.trim())}
-										>
-											Thumbs Down
-										</button>
-									</>
-								)
+									)}
+									<button
+										className={`feedback-btn feedback-btn-up${feedback.getFeedbackSignal(anime.id) === 'THUMBS_UP' ? ' is-active-up' : ''}`}
+										onClick={() => feedback.handleThumbsUp(anime, mode, context.trim())}
+									>
+										<ThumbUpIcon className="feedback-btn-icon" aria-hidden="true" />
+										<span>Thumbs Up</span>
+									</button>
+									<button
+										className={`feedback-btn feedback-btn-down${feedback.getFeedbackSignal(anime.id) === 'THUMBS_DOWN' ? ' is-active-down' : ''}`}
+										onClick={() => feedback.handleThumbsDown(anime, mode, context.trim())}
+									>
+										<ThumbDownIcon className="feedback-btn-icon" aria-hidden="true" />
+										<span>Thumbs Down</span>
+									</button>
+								</>
+							) : (
+								<span className="feedback-login-hint">Login or Register to give feedback on recommendations</span>
 							)}
 						</AnimeRecItem>
 					))}

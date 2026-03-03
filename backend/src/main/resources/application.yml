@@ -117,6 +117,16 @@ recommendations:
   default-list-weight: ${RECOMMENDATIONS_DEFAULT_LIST_WEIGHT:0.20}
   # Default list influence for Similar mode when request listWeight is omitted.
   default-similar-list-weight: ${RECOMMENDATIONS_DEFAULT_SIMILAR_LIST_WEIGHT:0.00}
+  # Feedback-to-taste contribution weights for logged-in personalization.
+  feedback:
+    taste-thumbs-up-weight: ${RECOMMENDATIONS_FEEDBACK_TASTE_THUMBS_UP_WEIGHT:1.50}
+    taste-thumbs-down-weight: ${RECOMMENDATIONS_FEEDBACK_TASTE_THUMBS_DOWN_WEIGHT:1.00}
+    taste-rating-weight: ${RECOMMENDATIONS_FEEDBACK_TASTE_RATING_WEIGHT:0.70}
+    score-adjustment-thumbs-up: ${RECOMMENDATIONS_FEEDBACK_SCORE_ADJUSTMENT_THUMBS_UP:0.04}
+    score-adjustment-thumbs-down: ${RECOMMENDATIONS_FEEDBACK_SCORE_ADJUSTMENT_THUMBS_DOWN:0.06}
+  cf:
+    # Blend CF sidecar score with user taste-vector cosine similarity.
+    taste-vector-weight: ${RECOMMENDATIONS_CF_TASTE_VECTOR_WEIGHT:0.20}
   # Used by POST /api/users/recommendations/custom-embeddings/import when path is omitted
   custom-embeddings-path: ${CUSTOM_EMBEDDINGS_PATH:/app/models/anime_embeddings.jsonl}
   # On startup, import custom embeddings only if source JSONL changed since last import.
