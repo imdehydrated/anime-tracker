@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 function AnimeRecItem({ anime, children }) {
-	const title = anime.title.english || anime.title.romaji;
+	const [coverFailed, setCoverFailed] = useState(false);
+	const title = anime.title?.english || anime.title?.romaji || 'Unknown Title';
 	const detailState = { anime };
 	const coverUrl = typeof anime.coverImage === 'string'
 		? anime.coverImage
 		: anime.coverImage?.large || anime.coverImage?.medium || '';
+	const showCover = !!coverUrl && !coverFailed;
 	const description = anime.description
 		? anime.description.slice(0, 200) + (anime.description.length > 200 ? '...' : '')
 		: 'No description available.';
@@ -13,15 +16,20 @@ function AnimeRecItem({ anime, children }) {
 
 	return (
 		<div className="anime-rec-item">
-			{coverUrl && (
+			{showCover ? (
 				<Link to={`/anime/${anime.id}`} state={detailState} className="anime-rec-item-image">
 					<img
 						src={coverUrl}
-						alt={anime.title.romaji}
+						alt={anime.title?.romaji || title}
 						onError={(e) => {
 							e.currentTarget.style.display = 'none';
+							setCoverFailed(true);
 						}}
 					/>
+				</Link>
+			) : (
+				<Link to={`/anime/${anime.id}`} state={detailState} className="anime-rec-item-image-fallback">
+					<span>No Cover</span>
 				</Link>
 			)}
 

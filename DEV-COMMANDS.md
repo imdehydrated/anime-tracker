@@ -162,10 +162,18 @@ Search by text:
 curl.exe "http://localhost:8080/api/anime/search?q=attack on titan"
 ```
 
+Search metadata quality check (look for missing cover/genres/title gaps in returned rows):
+```powershell
+curl.exe "http://localhost:8080/api/anime/search?q=blue lock"
+```
+
 Fetch by AniList ID:
 ```powershell
 curl.exe http://localhost:8080/api/anime/16498
 ```
+
+Tip:
+- `GET /api/anime/{id}` now triggers AniList fallback when local metadata is incomplete and writes improved metadata back to local storage.
 
 ## 9) Recommendation Endpoint Checks
 
@@ -292,6 +300,42 @@ Tail backend logs for scheduled runs:
 docker-compose logs -f backend | Select-String "AniList sync"
 ```
 
+## 11.2) Population Failure Ledger and Retry
+
+Get failure report:
+```powershell
+curl.exe "http://localhost:8080/api/users/recommendations/custom-embeddings/population-failures?limit=100" `
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Filter report by source/status:
+```powershell
+curl.exe "http://localhost:8080/api/users/recommendations/custom-embeddings/population-failures?source=active_catalog&status=OPEN&limit=100" `
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Retry due failures:
+```powershell
+curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/population-failures/retry?source=active_catalog&limit=50" `
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Status semantics:
+- `OPEN`: retryable failure
+- `DEAD_LETTER`: exceeded retry attempt threshold
+- `RESOLVED`: later sync/retry succeeded
+
+Failure reason semantics (typed):
+- `RATE_LIMIT`
+- `UPSTREAM_5XX`
+- `NETWORK_TIMEOUT`
+- `MISSING_METADATA`
+- `EMBED_FAILURE`
+- `VALIDATION`
+- `UNKNOWN`
+
+Report payload includes `reasonSummary` with stable per-reason counts.
+
 ## 12) Database Commands
 
 Open psql shell:
@@ -376,6 +420,7 @@ python .\notebooks\export_semantic_embeddings.py `
 
 Note:
 - keep `ml-models/anime_embeddings.jsonl` as the canonical runtime artifact for semantic retrieval/import.
+- also keep timestamped snapshots (for rollback/auditing), e.g. `ml-models/anime_embeddings_YYYYMMDDTHHMMSSZ.jsonl`.
 - when popularity/metadata scoring logic changes, regenerate this artifact before import + promotion benchmarks.
 
 ## 16) Evaluation and Promotion Commands
@@ -443,11 +488,17 @@ docker-compose up --build -d
 
 Core runtime:
 - `JWT_SECRET`
-- `ML_SIDECAR_ENABLED`
+- `ML_SIDECAR_ENABLED` (must remain `true` for recommendation features)
 - `ML_SIDECAR_URL`
+- `ML_SIDECAR_STARTUP_HEALTHCHECK_ENABLED`
+- `ML_SIDECAR_STARTUP_HEALTHCHECK_ATTEMPTS`
+- `ML_SIDECAR_STARTUP_HEALTHCHECK_DELAY_MS`
+- `ANILIST_REQUEST_SPACING_MS`
+- `ANILIST_SEARCH_METADATA_HYDRATION_MAX`
 - `RECOMMENDATIONS_USE_CUSTOM_VECTORS`
 - `CUSTOM_EMBEDDINGS_PATH`
 - `AUTO_SYNC_CUSTOM_EMBEDDINGS`
+- `RECOMMENDATIONS_METADATA_FAILURE_POLICY_*` (reason-aware retry/dead-letter tuning)
 
 Semantic/fusion behavior:
 - `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT`

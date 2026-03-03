@@ -1,13 +1,18 @@
 package com.animetracker.service;
 
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -50,6 +55,8 @@ public class AniListService {
     private final AtomicLong rateWindowRetryableFailures = new AtomicLong(0L);
     @Value("${anilist.request-spacing-ms:700}")
     private long requestSpacingMs;
+    @Value("${anilist.search-metadata-hydration-max:2}")
+    private int searchMetadataHydrationMax;
 
     public AniListService(AnimeEmbeddingRepository embeddingRepository) {
         this.embeddingRepository = embeddingRepository;
@@ -239,13 +246,42 @@ public class AniListService {
 
             List<AniListResponse.AnimeInfo> localResults = searchLocalCatalog(normalizedQuery, SEARCH_RESULT_LIMIT);
             if (localResults.size() >= LOCAL_SEARCH_SUFFICIENT_RESULTS) {
+                List<AniListResponse.AnimeInfo> effectiveLocalResults = localResults;
+                if (hasSearchMetadataGaps(localResults)) {
+                    try {
+                        List<AniListResponse.AnimeInfo> fetched = fetchSearchUncached(query);
+                        if (!fetched.isEmpty()) {
+                            effectiveLocalResults = mergeSearchResults(localResults, fetched);
+                            backfillMergedSearchMetadata(localResults, effectiveLocalResults);
+                            log.debug(
+                                    "Local search metadata gaps detected for query='{}'. Merged AniList fallback metadata for {} rows",
+                                    normalizedQuery,
+                                    effectiveLocalResults.size());
+                        }
+                    } catch (AniListRequestException ex) {
+                        log.debug("AniList fallback search unavailable for query='{}': reason={} message={}",
+                                normalizedQuery,
+                                ex.reason(),
+                                ex.getMessage());
+                    }
+                }
+                effectiveLocalResults = hydrateIncompleteSearchRows(effectiveLocalResults);
                 searchCache.put(
                         normalizedQuery,
-                        new CachedSearchResults(copyAnimeList(localResults), now.plus(SEARCH_CACHE_TTL)));
-                return localResults;
+                        new CachedSearchResults(copyAnimeList(effectiveLocalResults), now.plus(SEARCH_CACHE_TTL)));
+                return effectiveLocalResults;
             }
 
-            List<AniListResponse.AnimeInfo> fetched = fetchSearchUncached(query);
+            List<AniListResponse.AnimeInfo> fetched;
+            try {
+                fetched = fetchSearchUncached(query);
+            } catch (AniListRequestException ex) {
+                log.debug("AniList search unavailable for query='{}': reason={} message={}",
+                        normalizedQuery,
+                        ex.reason(),
+                        ex.getMessage());
+                fetched = Collections.emptyList();
+            }
             if (!fetched.isEmpty()) {
                 searchCache.put(
                         normalizedQuery,
@@ -300,17 +336,29 @@ public class AniListService {
 
             AniListResponse.AnimeInfo local = findLocalAnimeById(id);
             if (local != null) {
-                animeByIdCache.put(
-                        id,
-                        new CachedAnimeInfo(copyAnimeInfo(local), now.plus(ANIME_BY_ID_CACHE_TTL)));
-                return local;
+                if (!isAnimeByIdMetadataIncomplete(local)) {
+                    animeByIdCache.put(
+                            id,
+                            new CachedAnimeInfo(copyAnimeInfo(local), now.plus(ANIME_BY_ID_CACHE_TTL)));
+                    return local;
+                }
+                log.debug("Local metadata incomplete for anime id={}; attempting AniList fallback fetch", id);
             }
 
             Map<String, Object> requestBody = Map.of(
                     "query", GET_BY_ID_QUERY,
                     "variables", Map.of("id", id));
 
-            AniListResponse response = executeGraphql(requestBody);
+            AniListResponse response;
+            try {
+                response = executeGraphql(requestBody);
+            } catch (AniListRequestException ex) {
+                log.debug("AniList getAnimeById fallback unavailable for id={}: reason={} message={}",
+                        id,
+                        ex.reason(),
+                        ex.getMessage());
+                response = null;
+            }
             if (response == null || response.getData() == null
                     || response.getData().getPage() == null
                     || response.getData().getPage().getMedia() == null
@@ -323,10 +371,12 @@ public class AniListService {
             }
 
             AniListResponse.AnimeInfo fetched = response.getData().getPage().getMedia().get(0);
+            AniListResponse.AnimeInfo merged = mergeAnimeInfo(local, fetched);
+            persistMetadataIfPresent(merged);
             animeByIdCache.put(
                     id,
-                    new CachedAnimeInfo(copyAnimeInfo(fetched), now.plus(ANIME_BY_ID_CACHE_TTL)));
-            return copyAnimeInfo(fetched);
+                    new CachedAnimeInfo(copyAnimeInfo(merged), now.plus(ANIME_BY_ID_CACHE_TTL)));
+            return copyAnimeInfo(merged);
         }
     }
 
@@ -403,33 +453,90 @@ public class AniListService {
                             MAX_RETRY_ATTEMPTS,
                             retryDelayMs);
                     if (!sleepQuietly(retryDelayMs)) {
-                        return null;
+                        throw new AniListRequestException(
+                                EmbeddingFailureReason.NETWORK_TIMEOUT,
+                                "Interrupted while waiting for AniList retry delay");
                     }
                     continue;
                 }
-                log.warn("AniList request failed: status={} body={}",
-                        status, ex.getResponseBodyAsString());
-                return null;
+                EmbeddingFailureReason reason = classifyHttpFailure(status);
+                String message = String.format(
+                        "AniList request failed: status=%d body=%s",
+                        status,
+                        safeBody(ex.getResponseBodyAsString()));
+                log.warn(message);
+                throw new AniListRequestException(reason, message, ex);
             } catch (Exception ex) {
+                EmbeddingFailureReason reason = classifyTransportFailure(ex);
                 if (attempt < MAX_RETRY_ATTEMPTS) {
                     rateWindowRetryableFailures.incrementAndGet();
                     long retryDelayMs = resolveRetryDelayMs(null, attempt);
                     log.warn(
-                            "AniList request transient error. Retrying attempt {}/{} in {}ms: {}",
+                            "AniList request transient error (reason={}). Retrying attempt {}/{} in {}ms: {}",
+                            reason,
                             attempt + 1,
                             MAX_RETRY_ATTEMPTS,
                             retryDelayMs,
                             ex.getMessage());
                     if (!sleepQuietly(retryDelayMs)) {
-                        return null;
+                        throw new AniListRequestException(
+                                EmbeddingFailureReason.NETWORK_TIMEOUT,
+                                "Interrupted while waiting for AniList retry delay",
+                                ex);
                     }
                     continue;
                 }
-                log.warn("AniList request failed: {}", ex.getMessage());
-                return null;
+                String message = "AniList request failed: " + ex.getMessage();
+                log.warn(message);
+                throw new AniListRequestException(reason, message, ex);
             }
         }
-        return null;
+        throw new AniListRequestException(
+                EmbeddingFailureReason.UNKNOWN,
+                "AniList request failed after retry exhaustion");
+    }
+
+    private EmbeddingFailureReason classifyHttpFailure(int status) {
+        if (status == 429) {
+            return EmbeddingFailureReason.RATE_LIMIT;
+        }
+        if (status >= 500 && status < 600) {
+            return EmbeddingFailureReason.UPSTREAM_5XX;
+        }
+        return EmbeddingFailureReason.VALIDATION;
+    }
+
+    private EmbeddingFailureReason classifyTransportFailure(Throwable throwable) {
+        if (throwable == null) {
+            return EmbeddingFailureReason.UNKNOWN;
+        }
+        if (hasCause(throwable, TimeoutException.class)
+                || hasCause(throwable, SocketTimeoutException.class)) {
+            return EmbeddingFailureReason.NETWORK_TIMEOUT;
+        }
+        if (hasCause(throwable, ConnectException.class)
+                || hasCause(throwable, UnknownHostException.class)) {
+            return EmbeddingFailureReason.NETWORK_TIMEOUT;
+        }
+        return EmbeddingFailureReason.UNKNOWN;
+    }
+
+    private boolean hasCause(Throwable throwable, Class<? extends Throwable> expectedType) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (expectedType.isInstance(cursor)) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
+    private String safeBody(String body) {
+        if (body == null) {
+            return "";
+        }
+        return body.length() <= 512 ? body : body.substring(0, 512);
     }
 
     private void throttleRequestRate() {
@@ -558,6 +665,218 @@ public class AniListService {
             }
         }
         return genres.isEmpty() ? null : genres;
+    }
+
+    private boolean hasSearchMetadataGaps(List<AniListResponse.AnimeInfo> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        for (AniListResponse.AnimeInfo anime : rows) {
+            if (isSearchMetadataIncomplete(anime)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSearchMetadataIncomplete(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return true;
+        }
+        boolean missingCover = anime.getCoverImage() == null
+                || anime.getCoverImage().getLarge() == null
+                || anime.getCoverImage().getLarge().isBlank();
+        boolean missingTitle = anime.getTitle() == null
+                || ((anime.getTitle().getRomaji() == null || anime.getTitle().getRomaji().isBlank())
+                        && (anime.getTitle().getEnglish() == null || anime.getTitle().getEnglish().isBlank()));
+        boolean missingGenres = anime.getGenres() == null || anime.getGenres().isEmpty();
+        boolean missingScore = anime.getAverageScore() == null;
+        boolean missingPopularity = anime.getPopularity() == null;
+        boolean missingEpisodes = anime.getEpisodes() == null;
+        return missingCover || missingTitle || missingGenres || missingScore || missingPopularity || missingEpisodes;
+    }
+
+    private List<AniListResponse.AnimeInfo> mergeSearchResults(
+            List<AniListResponse.AnimeInfo> localResults,
+            List<AniListResponse.AnimeInfo> fetchedResults) {
+        if (localResults == null || localResults.isEmpty()) {
+            return copyAnimeList(fetchedResults);
+        }
+        Map<Integer, AniListResponse.AnimeInfo> fetchedById = new HashMap<>();
+        if (fetchedResults != null) {
+            for (AniListResponse.AnimeInfo fetched : fetchedResults) {
+                if (fetched != null && fetched.getId() != null) {
+                    fetchedById.put(fetched.getId(), fetched);
+                }
+            }
+        }
+
+        List<AniListResponse.AnimeInfo> merged = new ArrayList<>(localResults.size());
+        for (AniListResponse.AnimeInfo local : localResults) {
+            if (local == null) {
+                continue;
+            }
+            AniListResponse.AnimeInfo fetched = local.getId() == null ? null : fetchedById.get(local.getId());
+            merged.add(mergeAnimeInfo(local, fetched));
+        }
+        return merged;
+    }
+
+    private void backfillMergedSearchMetadata(
+            List<AniListResponse.AnimeInfo> localResults,
+            List<AniListResponse.AnimeInfo> mergedResults) {
+        if (localResults == null || mergedResults == null) {
+            return;
+        }
+        Map<Integer, AniListResponse.AnimeInfo> localById = new HashMap<>();
+        for (AniListResponse.AnimeInfo local : localResults) {
+            if (local != null && local.getId() != null) {
+                localById.put(local.getId(), local);
+            }
+        }
+        for (AniListResponse.AnimeInfo merged : mergedResults) {
+            if (merged == null || merged.getId() == null) {
+                continue;
+            }
+            AniListResponse.AnimeInfo local = localById.get(merged.getId());
+            if (local == null || !isSearchMetadataIncomplete(local)) {
+                continue;
+            }
+            persistMetadataIfPresent(merged);
+        }
+    }
+
+    private List<AniListResponse.AnimeInfo> hydrateIncompleteSearchRows(List<AniListResponse.AnimeInfo> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int hydrationBudget = Math.max(0, searchMetadataHydrationMax);
+        if (hydrationBudget <= 0) {
+            return rows;
+        }
+
+        List<AniListResponse.AnimeInfo> hydrated = new ArrayList<>(rows.size());
+        int hydratedCount = 0;
+        for (AniListResponse.AnimeInfo row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (hydratedCount < hydrationBudget && isSearchMetadataIncomplete(row) && row.getId() != null) {
+                AniListResponse.AnimeInfo refreshed = getAnimeById(row.getId());
+                if (refreshed != null) {
+                    hydrated.add(refreshed);
+                    hydratedCount++;
+                    continue;
+                }
+            }
+            hydrated.add(row);
+        }
+        return hydrated;
+    }
+
+    private AniListResponse.AnimeInfo mergeAnimeInfo(
+            AniListResponse.AnimeInfo current,
+            AniListResponse.AnimeInfo fetched) {
+        if (current == null) {
+            return copyAnimeInfo(fetched);
+        }
+        if (fetched == null) {
+            return copyAnimeInfo(current);
+        }
+        AniListResponse.AnimeInfo merged = copyAnimeInfo(current);
+        if (merged.getTitle() == null
+                || ((merged.getTitle().getRomaji() == null || merged.getTitle().getRomaji().isBlank())
+                        && (merged.getTitle().getEnglish() == null || merged.getTitle().getEnglish().isBlank()))) {
+            merged.setTitle(copyTitle(fetched.getTitle()));
+        }
+        if (merged.getCoverImage() == null
+                || merged.getCoverImage().getLarge() == null
+                || merged.getCoverImage().getLarge().isBlank()) {
+            merged.setCoverImage(copyCoverImage(fetched.getCoverImage()));
+        }
+        if (merged.getGenres() == null || merged.getGenres().isEmpty()) {
+            merged.setGenres(fetched.getGenres() == null ? null : new ArrayList<>(fetched.getGenres()));
+        }
+        if (merged.getDescription() == null || merged.getDescription().isBlank()) {
+            merged.setDescription(fetched.getDescription());
+        }
+        if (merged.getAverageScore() == null) {
+            merged.setAverageScore(fetched.getAverageScore());
+        }
+        if (merged.getPopularity() == null) {
+            merged.setPopularity(fetched.getPopularity());
+        }
+        if (merged.getEpisodes() == null) {
+            merged.setEpisodes(fetched.getEpisodes());
+        }
+        if (merged.getStatus() == null || merged.getStatus().isBlank()) {
+            merged.setStatus(fetched.getStatus());
+        }
+        if (merged.getFormat() == null || merged.getFormat().isBlank()) {
+            merged.setFormat(fetched.getFormat());
+        }
+        if (merged.getSeason() == null || merged.getSeason().isBlank()) {
+            merged.setSeason(fetched.getSeason());
+        }
+        if (merged.getSeasonYear() == null) {
+            merged.setSeasonYear(fetched.getSeasonYear());
+        }
+        if (merged.getSynonyms() == null || merged.getSynonyms().isEmpty()) {
+            merged.setSynonyms(fetched.getSynonyms() == null ? null : new ArrayList<>(fetched.getSynonyms()));
+        }
+        return merged;
+    }
+
+    private boolean isAnimeByIdMetadataIncomplete(AniListResponse.AnimeInfo anime) {
+        if (anime == null) {
+            return true;
+        }
+        boolean missingCover = anime.getCoverImage() == null
+                || anime.getCoverImage().getLarge() == null
+                || anime.getCoverImage().getLarge().isBlank();
+        boolean missingTitle = anime.getTitle() == null
+                || ((anime.getTitle().getRomaji() == null || anime.getTitle().getRomaji().isBlank())
+                        && (anime.getTitle().getEnglish() == null || anime.getTitle().getEnglish().isBlank()));
+        boolean missingGenres = anime.getGenres() == null || anime.getGenres().isEmpty();
+        boolean missingDescription = anime.getDescription() == null || anime.getDescription().isBlank();
+        boolean missingScore = anime.getAverageScore() == null;
+        boolean missingPopularity = anime.getPopularity() == null;
+        boolean missingEpisodes = anime.getEpisodes() == null;
+        return missingCover
+                || missingTitle
+                || missingGenres
+                || missingDescription
+                || missingScore
+                || missingPopularity
+                || missingEpisodes;
+    }
+
+    private void persistMetadataIfPresent(AniListResponse.AnimeInfo anime) {
+        if (anime == null || anime.getId() == null) {
+            return;
+        }
+        String coverImage = anime.getCoverImage() == null ? null : anime.getCoverImage().getLarge();
+        String genres = anime.getGenres() == null || anime.getGenres().isEmpty()
+                ? null
+                : String.join(", ", anime.getGenres());
+        String titleRomaji = anime.getTitle() == null ? null : anime.getTitle().getRomaji();
+        String titleEnglish = anime.getTitle() == null ? null : anime.getTitle().getEnglish();
+        try {
+            embeddingRepository.updateMetadataByAnilistId(
+                    anime.getId(),
+                    titleRomaji,
+                    titleEnglish,
+                    coverImage,
+                    genres,
+                    anime.getDescription(),
+                    anime.getAverageScore(),
+                    anime.getPopularity(),
+                    anime.getStatus(),
+                    anime.getEpisodes(),
+                    null);
+        } catch (Exception ex) {
+            log.debug("Failed persisting metadata backfill for anime id={}: {}", anime.getId(), ex.getMessage());
+        }
     }
 
     private AniListResponse.AnimeInfo copyAnimeInfo(AniListResponse.AnimeInfo source) {
@@ -689,5 +1008,23 @@ public class AniListService {
             long requests,
             long status429Responses,
             long retryableFailures) {
+    }
+
+    public static final class AniListRequestException extends RuntimeException {
+        private final EmbeddingFailureReason reason;
+
+        public AniListRequestException(EmbeddingFailureReason reason, String message) {
+            super(message);
+            this.reason = reason == null ? EmbeddingFailureReason.UNKNOWN : reason;
+        }
+
+        public AniListRequestException(EmbeddingFailureReason reason, String message, Throwable cause) {
+            super(message, cause);
+            this.reason = reason == null ? EmbeddingFailureReason.UNKNOWN : reason;
+        }
+
+        public EmbeddingFailureReason reason() {
+            return reason;
+        }
     }
 }

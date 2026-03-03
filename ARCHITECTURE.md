@@ -79,9 +79,11 @@ Owns all AniList GraphQL calls:
 - active-catalog paging
 
 It includes request pacing, retries, and short-lived cache.
+Search also applies a metadata quality gate on local-first results: when critical card fields are missing (for example cover/title/genres), it performs one upstream search fetch, merges missing fields before returning/caching, backfills improved metadata into the local catalog, and applies a bounded per-item ID hydration pass for remaining incomplete rows.
 
 Design reason:
 - external API reliability policy belongs in one integration service, not spread across features.
+- local-first search keeps latency/rate usage low, and one-call fallback merge prevents visibly broken cards without forcing per-item upstream hydration.
 
 ### `AniListMetadataSyncScheduler`
 
@@ -107,6 +109,7 @@ Backend HTTP client for sidecar endpoints:
 Design reason:
 - explicit boundary for sidecar transport, timeout, and fallback behavior.
 - semantic rerank responses can include `query_adherence_score`, allowing backend to keep query adherence as the primary ranking signal while still blending taste/popularity secondarily.
+- sidecar is treated as required runtime infrastructure; startup validates sidecar enablement and health to avoid partial/half-working recommendation behavior.
 
 ### `AnimeEmbeddingPopulatorService`
 
@@ -150,6 +153,8 @@ Recommendations:
 - `DELETE /api/users/recommendations/blacklist/{id}`
 - `POST /api/users/recommendations/custom-embeddings/import`
 - `POST /api/users/recommendations/custom-embeddings/populate-active-catalog`
+- `GET /api/users/recommendations/custom-embeddings/population-failures`
+- `POST /api/users/recommendations/custom-embeddings/population-failures/retry`
 
 Health:
 - `GET /api/health`
@@ -254,6 +259,22 @@ Metadata sync state table: `anilist_sync_state`
 Design reason:
 - sync cursor and adaptive budget must survive restarts and deploys to keep refresh incremental and rate-limit safe.
 
+Population failure ledger table: `embedding_population_failures`
+- `anilist_id`
+- `source`
+- `failure_reason`
+- `last_error`
+- `attempts`
+- `status` (`OPEN`, `DEAD_LETTER`, `RESOLVED`)
+- `last_attempt_at`
+- `next_retry_at`
+- timestamps
+
+Design reason:
+- scheduled/manual population previously logged failures without durable retry visibility.
+- failure ledger enables bounded retries, dead-letter tracking, and operational reporting without brute-force repopulation.
+- failure reasons are typed and stable, enabling reason-aware retry policy tuning and consistent failure reporting.
+
 Canonical artifact:
 - `ml-models/anime_embeddings.jsonl` is rebuilt via `notebooks/export_semantic_embeddings.py`.
 - Export joins `notebooks/data/corpus.jsonl` + `notebooks/data/anilist_anime.jsonl` so runtime import receives score/popularity/alias/tag metadata consistently.
@@ -277,6 +298,7 @@ Structure:
 
 Design reason:
 - API access is centralized to avoid duplicated request logic and simplify auth/header/error behavior.
+- recommendation/search card components include deterministic cover fallbacks so incomplete metadata does not collapse card layout.
 
 ## ML and Notebook Tooling (`notebooks/`)
 

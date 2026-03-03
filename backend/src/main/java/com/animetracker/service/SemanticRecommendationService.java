@@ -1550,6 +1550,16 @@ public class SemanticRecommendationService {
         return out;
     }
 
+    public Map<String, Object> getPopulationFailureReport(String source, String status, int limit) {
+        int safeLimit = Math.max(1, Math.min(500, limit));
+        return populatorService.getFailureReport(source, status, safeLimit);
+    }
+
+    public Map<String, Object> retryPopulationFailures(String source, int limit) {
+        int safeLimit = Math.max(1, Math.min(200, limit));
+        return populatorService.retryFailures(source, safeLimit);
+    }
+
     public void blacklistAnime(String username, Integer anilistId, String title, String coverImage) {
         if (anilistId == null) {
             throw new BadRequestException("anilistId is required");

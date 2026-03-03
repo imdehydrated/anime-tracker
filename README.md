@@ -2,6 +2,7 @@
 
 AniRec is a full-stack anime tracking and recommendation app.
 It combines a Spring Boot API, React frontend, PostgreSQL + pgvector, and a Python ML sidecar for semantic and collaborative recommendations.
+Recommendation features require the ML sidecar to be enabled and healthy at startup.
 
 ## What It Does
 
@@ -14,6 +15,9 @@ It combines a Spring Boot API, React frontend, PostgreSQL + pgvector, and a Pyth
   - For You (collaborative filtering)
 - Recommendation explanations (single-sentence reason text)
 - Recommendation blacklist support
+- Population failure tracking and retry tooling for embedding sync
+- Typed population failure reasons with reason-aware retry/dead-letter backoff policy
+- Local-search metadata quality guardrails and UI cover fallbacks for incomplete AniList rows
 
 ## Architecture at a Glance
 
@@ -43,7 +47,9 @@ For deeper design details, see `ARCHITECTURE.md`.
   - semantic dedupe pass reduces same-franchise season/special clutter in top results
   - per-query score calibration to reduce overconfident outliers
   - metadata freshness is handled by tiered AniList sync jobs (hot popular window, daily active rotation, weekly deep sweep) with persisted cursor state and adaptive page budgets
+  - embedding population failures are tracked with reason codes and retry schedules (`OPEN`, `DEAD_LETTER`, `RESOLVED`)
   - metadata fingerprinting prevents unnecessary re-embedding; vectors are refreshed only when embedding-relevant metadata changes
+  - local metadata search now performs a one-call AniList fallback merge when critical fields are missing, backfills improved metadata, and can run a bounded per-item ID hydration pass for still-incomplete rows
 - CF mode predicts unwatched anime using a trained autoencoder.
 - CF ranking uses a mild popularity attenuation by default (tunable via env vars).
 - Recommendation reason codes and one-sentence explanations are generated from active mode signals (query/seed/taste).
@@ -56,6 +62,7 @@ For deeper design details, see `ARCHITECTURE.md`.
 ```bash
 JWT_SECRET=your-secret
 ML_SIDECAR_ENABLED=true
+ML_SIDECAR_URL=http://ml-sidecar:5000
 RECOMMENDATIONS_USE_CUSTOM_VECTORS=true
 # Optional hosted LLM rewrite for recommendation reasons (OpenAI example)
 RECOMMENDATIONS_EXPLANATIONS_LLM_ENABLED=false

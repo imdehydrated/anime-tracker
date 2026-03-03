@@ -1,23 +1,31 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 function AnimeCard({ anime, children }) {
-	const title = anime.title.english || anime.title.romaji;
+	const [coverFailed, setCoverFailed] = useState(false);
+	const title = anime.title?.english || anime.title?.romaji || 'Unknown Title';
 	const detailState = { anime };
 	const coverUrl = typeof anime.coverImage === 'string'
 		? anime.coverImage
 		: anime.coverImage?.large || anime.coverImage?.medium || '';
+	const showCover = !!coverUrl && !coverFailed;
 
 	return (
 		<div className="anime-card">
-			{coverUrl && (
+			{showCover ? (
 				<Link to={`/anime/${anime.id}`} state={detailState}>
 					<img
 						src={coverUrl}
-						alt={anime.title.romaji}
+						alt={anime.title?.romaji || title}
 						onError={(e) => {
 							e.currentTarget.style.display = 'none';
+							setCoverFailed(true);
 						}}
 					/>
+				</Link>
+			) : (
+				<Link to={`/anime/${anime.id}`} state={detailState} className="anime-card-cover-fallback">
+					<span>No Cover</span>
 				</Link>
 			)}
 

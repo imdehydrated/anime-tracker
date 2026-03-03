@@ -2,6 +2,7 @@ package com.animetracker.service;
 
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.repository.AnimeEmbeddingRepository;
+import com.animetracker.repository.EmbeddingPopulationFailureRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
@@ -32,14 +35,17 @@ public class AnimeEmbeddingPopulatorService {
     private final AniListService aniListService;
     private final MlSidecarService mlSidecarService;
     private final AnimeEmbeddingRepository embeddingRepository;
+    private final EmbeddingPopulationFailureRepository failureRepository;
 
     public AnimeEmbeddingPopulatorService(
             AniListService aniListService,
             MlSidecarService mlSidecarService,
-            AnimeEmbeddingRepository embeddingRepository) {
+            AnimeEmbeddingRepository embeddingRepository,
+            EmbeddingPopulationFailureRepository failureRepository) {
         this.aniListService = aniListService;
         this.mlSidecarService = mlSidecarService;
         this.embeddingRepository = embeddingRepository;
+        this.failureRepository = failureRepository;
     }
 
     /**
@@ -143,6 +149,14 @@ public class AnimeEmbeddingPopulatorService {
             List<AniListResponse.AnimeInfo> animeList;
             try {
                 animeList = fetchPage.apply(page, perPage);
+            } catch (AniListService.AniListRequestException e) {
+                log.error(
+                        "Failed to fetch AniList {} page {}: reason={} message={}",
+                        source,
+                        page,
+                        e.reason(),
+                        e.getMessage());
+                break;
             } catch (Exception e) {
                 log.error("Failed to fetch AniList {} page {}: {}", source, page, e.getMessage());
                 break;
@@ -157,6 +171,11 @@ public class AnimeEmbeddingPopulatorService {
             discovered += animeList.size();
             for (AniListResponse.AnimeInfo anime : animeList) {
                 if (anime == null || anime.getId() == null || anime.getId() <= 0) {
+                    failureRepository.recordFailure(
+                            anime == null ? null : anime.getId(),
+                            source,
+                            EmbeddingFailureReason.VALIDATION,
+                            "missing_or_invalid_anilist_id");
                     failed++;
                     continue;
                 }
@@ -181,6 +200,7 @@ public class AnimeEmbeddingPopulatorService {
                         String existingFingerprint = embeddingRepository.findMetadataFingerprintByAnilistId(anime.getId());
                         if (Boolean.TRUE.equals(hasCustomEmbedding) && Objects.equals(existingFingerprint, metadataFingerprint)) {
                             refreshMetadata(anime, metadataFingerprint);
+                            failureRepository.markResolved(anime.getId(), source);
                             metadataRefreshed++;
                             skipped++;
                             continue;
@@ -188,6 +208,7 @@ public class AnimeEmbeddingPopulatorService {
                         // Metadata exists and custom vector is missing or stale fingerprint changed.
                     }
                     if (upsertEmbeddedAnime(anime, embeddingText, metadataFingerprint)) {
+                        failureRepository.markResolved(anime.getId(), source);
                         embedded++;
                         metadataRefreshed++;
                         if (embedded % 50 == 0) {
@@ -199,9 +220,19 @@ public class AnimeEmbeddingPopulatorService {
                                 failed);
                         }
                     } else {
+                        failureRepository.recordFailure(
+                                anime.getId(),
+                                source,
+                                EmbeddingFailureReason.EMBED_FAILURE,
+                                "sidecar_embedding_empty_or_invalid");
                         failed++;
                     }
                 } catch (Exception e) {
+                    failureRepository.recordFailure(
+                            anime.getId(),
+                            source,
+                            failureReasonFromException(e),
+                            e.getMessage());
                     failed++;
                     log.error(
                             "Failed to embed anime {} ({}) from {}: {}",
@@ -318,6 +349,96 @@ public class AnimeEmbeddingPopulatorService {
             return 0.0d;
         }
         return (double) coveredCount / (double) total;
+    }
+
+    public Map<String, Object> getFailureReport(String source, String status, int limit) {
+        int safeLimit = Math.max(1, Math.min(500, limit));
+        EmbeddingPopulationFailureRepository.FailureSummary summary = failureRepository.summarize(source);
+        List<EmbeddingPopulationFailureRepository.PopulationFailure> failures = failureRepository.findFailures(
+                source,
+                status,
+                safeLimit);
+        Map<EmbeddingFailureReason, Long> reasonSummary = failureRepository.summarizeByReason(source, status);
+        List<Map<String, Object>> rows = failures.stream()
+                .map(this::toFailureRow)
+                .toList();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("source", source);
+        out.put("status", status);
+        out.put("limit", safeLimit);
+        out.put("summary", Map.of(
+                "total", summary.total(),
+                "open", summary.openCount(),
+                "deadLetter", summary.deadLetterCount(),
+                "resolved", summary.resolvedCount()));
+        Map<String, Long> reasonCounts = new LinkedHashMap<>();
+        for (EmbeddingFailureReason reason : EmbeddingFailureReason.values()) {
+            reasonCounts.put(reason.name(), reasonSummary.getOrDefault(reason, 0L));
+        }
+        out.put("reasonSummary", reasonCounts);
+        out.put("items", rows);
+        return out;
+    }
+
+    @Transactional
+    public Map<String, Object> retryFailures(String source, int limit) {
+        int safeLimit = Math.max(1, Math.min(200, limit));
+        List<EmbeddingPopulationFailureRepository.PopulationFailure> retryable = failureRepository.findRetryableFailures(
+                source,
+                safeLimit);
+        int attempted = 0;
+        int recovered = 0;
+        int failed = 0;
+        for (EmbeddingPopulationFailureRepository.PopulationFailure failure : retryable) {
+            attempted++;
+            Integer anilistId = failure.anilistId();
+            try {
+                AniListResponse.AnimeInfo anime = aniListService.getAnimeById(anilistId);
+                if (anime == null || anime.getId() == null || anime.getId() <= 0) {
+                    failureRepository.recordFailure(
+                            anilistId,
+                            failure.source(),
+                            EmbeddingFailureReason.MISSING_METADATA,
+                            "AniList returned no metadata");
+                    failed++;
+                    continue;
+                }
+                String embeddingText = buildEmbeddingText(anime);
+                String metadataFingerprint = computeMetadataFingerprint(embeddingText);
+                if (upsertEmbeddedAnime(anime, embeddingText, metadataFingerprint)) {
+                    refreshMetadata(anime, metadataFingerprint);
+                    failureRepository.markResolved(anilistId, failure.source());
+                    recovered++;
+                } else {
+                    failureRepository.recordFailure(
+                            anilistId,
+                            failure.source(),
+                            EmbeddingFailureReason.EMBED_FAILURE,
+                            "sidecar_embedding_empty_or_invalid");
+                    failed++;
+                }
+            } catch (Exception ex) {
+                failureRepository.recordFailure(
+                        anilistId,
+                        failure.source(),
+                        failureReasonFromException(ex),
+                        ex.getMessage());
+                failed++;
+            }
+        }
+        EmbeddingPopulationFailureRepository.FailureSummary summary = failureRepository.summarize(source);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("source", source);
+        out.put("retryLimit", safeLimit);
+        out.put("attempted", attempted);
+        out.put("recovered", recovered);
+        out.put("failed", failed);
+        out.put("summary", Map.of(
+                "total", summary.total(),
+                "open", summary.openCount(),
+                "deadLetter", summary.deadLetterCount(),
+                "resolved", summary.resolvedCount()));
+        return out;
     }
 
     /**
@@ -443,6 +564,32 @@ public class AnimeEmbeddingPopulatorService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 digest algorithm unavailable", e);
         }
+    }
+
+    private Map<String, Object> toFailureRow(EmbeddingPopulationFailureRepository.PopulationFailure failure) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", failure.id());
+        row.put("anilistId", failure.anilistId());
+        row.put("source", failure.source());
+        row.put("failureReason", failure.failureReason());
+        row.put("lastError", failure.lastError());
+        row.put("attempts", failure.attempts());
+        row.put("status", failure.status());
+        row.put("lastAttemptAt", failure.lastAttemptAt());
+        row.put("nextRetryAt", failure.nextRetryAt());
+        row.put("createdAt", failure.createdAt());
+        row.put("updatedAt", failure.updatedAt());
+        return row;
+    }
+
+    private EmbeddingFailureReason failureReasonFromException(Exception exception) {
+        if (exception == null) {
+            return EmbeddingFailureReason.UNKNOWN;
+        }
+        if (exception instanceof AniListService.AniListRequestException aniListRequestException) {
+            return aniListRequestException.reason();
+        }
+        return EmbeddingFailureReason.UNKNOWN;
     }
 
     public record PopulationStats(

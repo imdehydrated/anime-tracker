@@ -94,12 +94,19 @@ jwt:
 # ML Sidecar Configuration (custom semantic + CF models)
 ml-sidecar:
   base-url: ${ML_SIDECAR_URL:http://ml-sidecar:5000}
-  enabled: ${ML_SIDECAR_ENABLED:false}
+  # Sidecar is a required dependency for semantic/similar/cf recommendation paths.
+  enabled: ${ML_SIDECAR_ENABLED:true}
+  startup-healthcheck-enabled: ${ML_SIDECAR_STARTUP_HEALTHCHECK_ENABLED:true}
+  startup-healthcheck-attempts: ${ML_SIDECAR_STARTUP_HEALTHCHECK_ATTEMPTS:6}
+  startup-healthcheck-delay-ms: ${ML_SIDECAR_STARTUP_HEALTHCHECK_DELAY_MS:2000}
   timeout-ms: 30000
 
 # AniList API pacing to avoid upstream rate limits during interactive usage.
 anilist:
   request-spacing-ms: ${ANILIST_REQUEST_SPACING_MS:700}
+  # Max per-search ID-based metadata hydrations for incomplete local rows.
+  # Keeps mixed-query search cards stable without unbounded upstream calls.
+  search-metadata-hydration-max: ${ANILIST_SEARCH_METADATA_HYDRATION_MAX:2}
 
 # Recommendation vector retrieval configuration
 recommendations:
@@ -185,6 +192,31 @@ recommendations:
     adaptive-budget-enabled: ${RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_BUDGET_ENABLED:true}
     adaptive-rate-limit-threshold: ${RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_RATE_LIMIT_THRESHOLD:3}
     adaptive-retry-threshold: ${RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_RETRY_THRESHOLD:5}
+    # Reason-aware retry/dead-letter policy for embedding population failures.
+    failure-policy:
+      dead-letter-hold-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_DEAD_LETTER_HOLD_MS:86400000}
+      rate-limit-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_RATE_LIMIT_MAX_ATTEMPTS:8}
+      rate-limit-initial-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_RATE_LIMIT_INITIAL_DELAY_MS:900000}
+      rate-limit-max-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_RATE_LIMIT_MAX_DELAY_MS:7200000}
+      rate-limit-backoff-multiplier: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_RATE_LIMIT_BACKOFF_MULTIPLIER:2.0}
+      upstream-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UPSTREAM_MAX_ATTEMPTS:5}
+      upstream-initial-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UPSTREAM_INITIAL_DELAY_MS:300000}
+      upstream-max-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UPSTREAM_MAX_DELAY_MS:3600000}
+      upstream-backoff-multiplier: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UPSTREAM_BACKOFF_MULTIPLIER:2.0}
+      network-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_NETWORK_MAX_ATTEMPTS:5}
+      network-initial-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_NETWORK_INITIAL_DELAY_MS:300000}
+      network-max-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_NETWORK_MAX_DELAY_MS:3600000}
+      network-backoff-multiplier: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_NETWORK_BACKOFF_MULTIPLIER:2.0}
+      embed-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_EMBED_MAX_ATTEMPTS:3}
+      embed-initial-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_EMBED_INITIAL_DELAY_MS:120000}
+      embed-max-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_EMBED_MAX_DELAY_MS:900000}
+      embed-backoff-multiplier: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_EMBED_BACKOFF_MULTIPLIER:2.0}
+      unknown-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UNKNOWN_MAX_ATTEMPTS:4}
+      unknown-initial-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UNKNOWN_INITIAL_DELAY_MS:300000}
+      unknown-max-delay-ms: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UNKNOWN_MAX_DELAY_MS:1800000}
+      unknown-backoff-multiplier: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_UNKNOWN_BACKOFF_MULTIPLIER:2.0}
+      missing-metadata-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_MISSING_METADATA_MAX_ATTEMPTS:1}
+      validation-max-attempts: ${RECOMMENDATIONS_METADATA_FAILURE_POLICY_VALIDATION_MAX_ATTEMPTS:1}
   explanations:
     # Phase 8: add optional CF contributor hint in the one-sentence reason.
     cf-contributors-enabled: ${RECOMMENDATIONS_CF_CONTRIBUTORS_ENABLED:false}

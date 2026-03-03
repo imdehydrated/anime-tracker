@@ -13,13 +13,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Client for the ML sidecar (FastAPI) that serves custom semantic and CF models.
- * Falls back gracefully when the sidecar is unavailable or disabled.
+ * Sidecar is a required runtime dependency for recommendation functionality.
  */
 @Service
 public class MlSidecarService {
@@ -28,15 +29,24 @@ public class MlSidecarService {
 
     private final String baseUrl;
     private final boolean enabled;
+    private final boolean startupHealthCheckEnabled;
+    private final int startupHealthCheckAttempts;
+    private final long startupHealthCheckDelayMs;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public MlSidecarService(
             @Value("${ml-sidecar.base-url:http://ml-sidecar:5000}") String baseUrl,
-            @Value("${ml-sidecar.enabled:false}") boolean enabled,
+            @Value("${ml-sidecar.enabled:true}") boolean enabled,
+            @Value("${ml-sidecar.startup-healthcheck-enabled:true}") boolean startupHealthCheckEnabled,
+            @Value("${ml-sidecar.startup-healthcheck-attempts:6}") int startupHealthCheckAttempts,
+            @Value("${ml-sidecar.startup-healthcheck-delay-ms:2000}") long startupHealthCheckDelayMs,
             @Value("${ml-sidecar.timeout-ms:30000}") int timeoutMs) {
         this.baseUrl = baseUrl;
         this.enabled = enabled;
+        this.startupHealthCheckEnabled = startupHealthCheckEnabled;
+        this.startupHealthCheckAttempts = Math.max(1, startupHealthCheckAttempts);
+        this.startupHealthCheckDelayMs = Math.max(250L, startupHealthCheckDelayMs);
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newBuilder()
                 // Uvicorn does not support HTTP/2 cleartext upgrade (h2c) and can drop request bodies.
@@ -48,6 +58,39 @@ public class MlSidecarService {
         log.info("ML Sidecar client initialized: enabled={}, baseUrl={}", enabled, baseUrl);
     }
 
+    @PostConstruct
+    void validateRequiredSidecarConfig() {
+        if (!enabled) {
+            throw new IllegalStateException(
+                    "ML sidecar is required. Set ML_SIDECAR_ENABLED=true and keep ml-sidecar.enabled enabled.");
+        }
+        if (!startupHealthCheckEnabled) {
+            return;
+        }
+        for (int attempt = 1; attempt <= startupHealthCheckAttempts; attempt++) {
+            if (isHealthy()) {
+                log.info("ML sidecar health verified at startup (attempt {}/{})", attempt, startupHealthCheckAttempts);
+                return;
+            }
+            if (attempt < startupHealthCheckAttempts) {
+                log.warn("ML sidecar health check failed at startup (attempt {}/{}). Retrying in {}ms",
+                        attempt,
+                        startupHealthCheckAttempts,
+                        startupHealthCheckDelayMs);
+                try {
+                    Thread.sleep(startupHealthCheckDelayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for required ML sidecar startup health check", ie);
+                }
+            }
+        }
+        throw new IllegalStateException(String.format(
+                "ML sidecar is required but did not pass startup health check after %d attempts. baseUrl=%s",
+                startupHealthCheckAttempts,
+                baseUrl));
+    }
+
     /** Whether the sidecar integration is enabled. */
     public boolean isEnabled() {
         return enabled;
@@ -55,13 +98,9 @@ public class MlSidecarService {
 
     /**
      * Embed text using the custom fine-tuned anime model (384-dim).
-     * Returns null if sidecar is disabled or unavailable.
+     * Returns null if sidecar is unavailable.
      */
     public float[] embedText(String text) {
-        if (!enabled) {
-            return null;
-        }
-
         try {
             Map<String, Object> body = Map.of("text", text);
             String json = objectMapper.writeValueAsString(body);
@@ -96,17 +135,13 @@ public class MlSidecarService {
 
     /**
      * Rerank pgvector candidates using the fine-tuned semantic model.
-     * Returns null if sidecar is disabled or unavailable.
+     * Returns null if sidecar is unavailable.
      */
     public List<Map<String, Object>> rerank(
             float[] queryEmbedding,
             List<Integer> candidateIds,
             List<Double> candidateScores,
             int topK) {
-        if (!enabled) {
-            return null;
-        }
-
         try {
             List<Float> embeddingList = new ArrayList<>(queryEmbedding.length);
             for (float v : queryEmbedding) {
@@ -146,16 +181,12 @@ public class MlSidecarService {
 
     /**
      * Get CF predictions for a user given their rating history.
-     * Returns null if sidecar is disabled or unavailable.
+     * Returns null if sidecar is unavailable.
      */
     public List<Map<String, Object>> getCfRecommendations(
             Map<Integer, Float> userRatings,
             List<Integer> excludeIds,
             int topK) {
-        if (!enabled) {
-            return null;
-        }
-
         try {
             Map<String, Object> body = Map.of(
                     "user_ratings", userRatings,
@@ -189,10 +220,6 @@ public class MlSidecarService {
 
     /** Health check - returns true if the sidecar is responding. */
     public boolean isHealthy() {
-        if (!enabled) {
-            return false;
-        }
-
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/health"))

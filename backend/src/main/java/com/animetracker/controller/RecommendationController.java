@@ -139,6 +139,37 @@ public class RecommendationController {
                 "stats", stats));
     }
 
+    /**
+     * Inspect embedding population failures and retry backlog.
+     * Requires authentication.
+     */
+    @GetMapping("/custom-embeddings/population-failures")
+    public ResponseEntity<Map<String, Object>> getPopulationFailures(
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "100") int limit) {
+        getCurrentUsernameRequired();
+        Map<String, Object> report = semanticService.getPopulationFailureReport(source, status, limit);
+        return ResponseEntity.ok(Map.of(
+                "message", "Population failure report",
+                "stats", report));
+    }
+
+    /**
+     * Retry open embedding population failures due for retry.
+     * Requires authentication.
+     */
+    @PostMapping("/custom-embeddings/population-failures/retry")
+    public ResponseEntity<Map<String, Object>> retryPopulationFailures(
+            @RequestParam(required = false) String source,
+            @RequestParam(defaultValue = "50") int limit) {
+        getCurrentUsernameRequired();
+        Map<String, Object> stats = semanticService.retryPopulationFailures(source, limit);
+        return ResponseEntity.ok(Map.of(
+                "message", "Population failure retry completed",
+                "stats", stats));
+    }
+
     private String getCurrentUsernameOrNull() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getName())) {

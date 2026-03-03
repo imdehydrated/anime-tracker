@@ -322,6 +322,19 @@ a:hover {
 	display: block;
 }
 
+.anime-card-cover-fallback {
+	width: 100%;
+	height: 280px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: linear-gradient(180deg, #191c2c 0%, #111425 100%);
+	color: var(--text-muted);
+	font-size: 0.85rem;
+	font-weight: 600;
+	text-decoration: none;
+}
+
 .anime-card .card-body {
 	padding: 0.75rem;
 }
@@ -808,6 +821,21 @@ a:hover {
 	object-fit: cover;
 	border-radius: 4px;
 	flex-shrink: 0;
+}
+
+.anime-rec-item-image-fallback {
+	width: 100px;
+	height: 140px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
+	flex-shrink: 0;
+	background: linear-gradient(180deg, #191c2c 0%, #111425 100%);
+	color: var(--text-muted);
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-decoration: none;
 }
 
 .anime-rec-item-content {

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,22 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "ml-models" / "anime_embeddings.jsonl",
         help="Output embedding JSONL path.",
+    )
+    parser.add_argument(
+        "--timestamped-output",
+        action="store_true",
+        help="Write a timestamped snapshot file alongside canonical output.",
+    )
+    parser.add_argument(
+        "--timestamp-tag",
+        type=str,
+        default="",
+        help="Optional explicit timestamp tag (defaults to UTC YYYYMMDDTHHMMSSZ).",
+    )
+    parser.add_argument(
+        "--skip-canonical-latest",
+        action="store_true",
+        help="When timestamped output is enabled, do not overwrite canonical --output-path.",
     )
     parser.add_argument(
         "--batch-size",
@@ -208,17 +225,21 @@ def main() -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    timestamp_tag = args.timestamp_tag.strip() or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamped_path = output_path.with_name(f"{output_path.stem}_{timestamp_tag}{output_path.suffix}")
+    write_path = timestamped_path if args.timestamped_output else output_path
+
     total = 0
     with_score = 0
     with_popularity = 0
     with_tags = 0
     with_aliases = 0
 
-    with output_path.open("w", encoding="utf-8") as f:
+    with write_path.open("w", encoding="utf-8") as f:
         for i, corpus_row in tqdm(
                 enumerate(corpus),
                 total=len(corpus),
-                desc="Writing anime_embeddings.jsonl"):
+                desc=f"Writing {write_path.name}"):
             aid = corpus_row.get("anilist_id")
             if not isinstance(aid, int) or aid <= 0:
                 continue
@@ -235,17 +256,22 @@ def main() -> None:
                 with_tags += 1
             if row.get("synonyms"):
                 with_aliases += 1
-            f.write(json.dumps(row) + "\n")
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
             total += 1
 
-    size_mb = output_path.stat().st_size / 1e6
+    if args.timestamped_output and not args.skip_canonical_latest:
+        output_path.write_text(write_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    size_mb = write_path.stat().st_size / 1e6
     score_cov = 0.0 if total == 0 else with_score / total
     pop_cov = 0.0 if total == 0 else with_popularity / total
     tag_cov = 0.0 if total == 0 else with_tags / total
     alias_cov = 0.0 if total == 0 else with_aliases / total
 
     print("Export complete")
-    print(f"  output: {output_path}")
+    print(f"  output: {write_path}")
+    if args.timestamped_output:
+        print(f"  canonical_latest: {output_path} (updated={not args.skip_canonical_latest})")
     print(f"  rows: {total}")
     print(f"  size_mb: {size_mb:.2f}")
     print(

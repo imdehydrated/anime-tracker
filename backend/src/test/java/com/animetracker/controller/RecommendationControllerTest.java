@@ -1,6 +1,7 @@
 package com.animetracker.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -16,11 +18,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.dto.SemanticRequest;
+import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.service.CustomEmbeddingImportService;
 import com.animetracker.service.SemanticRecommendationService;
 
@@ -104,6 +108,52 @@ class RecommendationControllerTest {
                 anyBoolean(),
                 nullable(Float.class),
                 nullable(String.class));
+    }
+
+    @Test
+    void populationFailureReport_requiresAuth() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        assertThrows(
+                UnauthorizedException.class,
+                () -> controller.getPopulationFailures(null, null, 100));
+    }
+
+    @Test
+    void populationFailureReport_returnsStatsWhenAuthenticated() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
+
+        Map<String, Object> stats = Map.of("summary", Map.of("open", 3));
+        when(semanticService.getPopulationFailureReport(null, "OPEN", 100)).thenReturn(stats);
+
+        ResponseEntity<Map<String, Object>> response = controller.getPopulationFailures(null, "OPEN", 100);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("Population failure report", response.getBody().get("message"));
+        verify(semanticService).getPopulationFailureReport(null, "OPEN", 100);
+    }
+
+    @Test
+    void retryPopulationFailures_requiresAuth() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        assertThrows(
+                UnauthorizedException.class,
+                () -> controller.retryPopulationFailures("active_catalog", 20));
+    }
+
+    @Test
+    void retryPopulationFailures_returnsStatsWhenAuthenticated() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
+
+        Map<String, Object> stats = Map.of("attempted", 5, "recovered", 4);
+        when(semanticService.retryPopulationFailures("active_catalog", 20)).thenReturn(stats);
+
+        ResponseEntity<Map<String, Object>> response = controller.retryPopulationFailures("active_catalog", 20);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("Population failure retry completed", response.getBody().get("message"));
+        verify(semanticService).retryPopulationFailures("active_catalog", 20);
     }
 
     private AniListResponse.AnimeInfo animeInfo(int anilistId) {
