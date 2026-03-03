@@ -1,6 +1,6 @@
 import { api } from './client';
 
-// Recommendation and recommendation-blacklist API contract.
+// Recommendation and recommendation-feedback API contract.
 export async function getSemanticRecommendations(payload) {
 	try {
 		const { data } = await api.post('/api/users/recommendations/semantic/scored', payload);
@@ -31,17 +31,17 @@ function normalizeRecommendationPayload(data) {
 	});
 }
 
-export async function addRecommendationBlacklist(payload) {
-	const { data } = await api.post('/api/users/recommendations/blacklist', payload);
+export async function addRecommendationFeedback(payload) {
+	const { data } = await api.post('/api/users/recommendations/feedback', payload);
 	return data;
 }
 
-export async function getRecommendationBlacklist() {
-	const { data } = await api.get('/api/users/recommendations/blacklist');
+export async function getRecommendationFeedback() {
+	const { data } = await api.get('/api/users/recommendations/feedback');
 	return data;
 }
 
-export async function removeRecommendationBlacklist(id) {
-	const { data } = await api.delete(`/api/users/recommendations/blacklist/${id}`);
+export async function removeRecommendationFeedback(id) {
+	const { data } = await api.delete(`/api/users/recommendations/feedback/${id}`);
 	return data;
 }

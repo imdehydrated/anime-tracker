@@ -24,18 +24,21 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.exception.BadRequestException;
 import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.SemanticRequest;
 import com.animetracker.entity.AnimeListEntry;
+import com.animetracker.entity.RecommendationFeedback;
 import com.animetracker.entity.User;
 import com.animetracker.repository.AnimeEmbeddingRepository;
 import com.animetracker.repository.CustomEmbeddingImportStateRepository;
-import com.animetracker.repository.RecommendationBlacklistRepository;
+import com.animetracker.repository.RecommendationFeedbackRepository;
 import com.animetracker.repository.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,7 +50,7 @@ class SemanticRecommendationServiceTest {
     @Mock
     private AnimeListEntryService animeListEntryService;
     @Mock
-    private RecommendationBlacklistRepository blacklistRepository;
+    private RecommendationFeedbackRepository feedbackRepository;
     @Mock
     private UserRepository userRepository;
     @Mock
@@ -66,7 +69,7 @@ class SemanticRecommendationServiceTest {
         service = new SemanticRecommendationService(
                 embeddingRepository,
                 animeListEntryService,
-                blacklistRepository,
+                feedbackRepository,
                 userRepository,
                 aniListService,
                 populatorService,
@@ -333,7 +336,6 @@ class SemanticRecommendationServiceTest {
         when(mlSidecarService.isEnabled()).thenReturn(true);
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
         when(animeListEntryService.getUserList("alice")).thenReturn(List.of(watched));
-        when(blacklistRepository.findByUser(user)).thenReturn(List.of());
         when(mlSidecarService.getCfRecommendations(anyMap(), anyList(), anyInt())).thenReturn(List.of(cfPrediction));
         when(embeddingRepository.findMetadataByAnilistIds(List.of(123))).thenReturn(java.util.Collections.singletonList(new Object[] {
                 123,
@@ -352,6 +354,69 @@ class SemanticRecommendationServiceTest {
 
         verify(aniListService, never()).getAnimeById(123);
         org.junit.jupiter.api.Assertions.assertEquals(1, results.size());
+    }
+
+    @Test
+    void recordFeedback_persistsNormalizedSignalAndMode() {
+        User user = new User();
+        user.setId(22L);
+        user.setUsername("alice");
+
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(feedbackRepository.findByUserAndAnilistId(user, 16498)).thenReturn(Optional.empty());
+
+        RecommendationFeedbackRequest request = new RecommendationFeedbackRequest(
+                16498,
+                "thumbs_down",
+                "semantic",
+                "sports anime",
+                "Haikyuu!!",
+                "https://img.test/haikyuu.jpg");
+
+        service.recordFeedback("alice", request);
+
+        ArgumentCaptor<RecommendationFeedback> captor = ArgumentCaptor.forClass(RecommendationFeedback.class);
+        verify(feedbackRepository).save(captor.capture());
+        RecommendationFeedback saved = captor.getValue();
+        assertEquals(16498, saved.getAnilistId());
+        assertEquals(RecommendationFeedback.SIGNAL_THUMBS_DOWN, saved.getSignal());
+        assertEquals("semantic", saved.getSourceMode());
+        assertTrue(saved.getQueryHash() != null && !saved.getQueryHash().isBlank());
+    }
+
+    @Test
+    void buildExcludeIds_includesThumbsDownFeedback() throws Exception {
+        User user = new User();
+        user.setId(22L);
+        user.setUsername("alice");
+
+        AnimeListEntry listEntry = new AnimeListEntry();
+        listEntry.setAnilistId(111);
+
+        RecommendationFeedback down = new RecommendationFeedback(
+                user,
+                222,
+                RecommendationFeedback.SIGNAL_THUMBS_DOWN,
+                "semantic",
+                null,
+                "Disliked Show",
+                null);
+
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(animeListEntryService.getUserList("alice")).thenReturn(List.of(listEntry));
+        when(feedbackRepository.findByUserAndSignal(user, RecommendationFeedback.SIGNAL_THUMBS_DOWN))
+                .thenReturn(List.of(down));
+
+        @SuppressWarnings("unchecked")
+        List<Integer> excluded = (List<Integer>) invokePrivate(
+                "buildExcludeIds",
+                new Class<?>[] { String.class, List.class },
+                "alice",
+                List.of(333));
+
+        assertTrue(excluded.contains(333));
+        assertTrue(excluded.contains(111));
+        assertTrue(excluded.contains(222));
     }
 
     @Test

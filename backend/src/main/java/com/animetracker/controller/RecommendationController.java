@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.RecommendationResponse;
-import com.animetracker.dto.RecommendationBlacklistRequest;
+import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.dto.SemanticRequest;
 import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.service.CustomEmbeddingImportService;
@@ -28,7 +28,7 @@ import jakarta.validation.Valid;
 /**
  * Recommendation endpoints:
  * - semantic recommendations
- * - recommendation blacklist management
+ * - recommendation feedback
  */
 @RestController
 @RequestMapping("/api/users/recommendations")
@@ -79,25 +79,22 @@ public class RecommendationController {
         return ResponseEntity.ok(results);
     }
 
-    @PostMapping("/blacklist")
-    public ResponseEntity<Map<String, String>> blacklistAnime(@Valid @RequestBody RecommendationBlacklistRequest request) {
-        semanticService.blacklistAnime(
-                getCurrentUsernameRequired(),
-                request.anilistId(),
-                request.title(),
-                request.coverImage());
-        return ResponseEntity.ok(Map.of("message", "Anime hidden from recommendations"));
+    @PostMapping("/feedback")
+    public ResponseEntity<Map<String, String>> recordFeedback(
+            @Valid @RequestBody RecommendationFeedbackRequest request) {
+        semanticService.recordFeedback(getCurrentUsernameRequired(), request);
+        return ResponseEntity.ok(Map.of("message", "Feedback recorded"));
     }
 
-    @GetMapping("/blacklist")
-    public ResponseEntity<List<Map<String, Object>>> getBlacklist() {
-        return ResponseEntity.ok(semanticService.getBlacklist(getCurrentUsernameRequired()));
+    @GetMapping("/feedback")
+    public ResponseEntity<List<Map<String, Object>>> getFeedback() {
+        return ResponseEntity.ok(semanticService.getFeedback(getCurrentUsernameRequired()));
     }
 
-    @DeleteMapping("/blacklist/{id}")
-    public ResponseEntity<Map<String, String>> removeFromBlacklist(@PathVariable Long id) {
-        semanticService.removeFromBlacklist(getCurrentUsernameRequired(), id);
-        return ResponseEntity.ok(Map.of("message", "Removed from blacklist"));
+    @DeleteMapping("/feedback/{id}")
+    public ResponseEntity<Map<String, String>> removeFeedback(@PathVariable Long id) {
+        semanticService.removeFeedback(getCurrentUsernameRequired(), id);
+        return ResponseEntity.ok(Map.of("message", "Feedback removed"));
     }
 
     /**

@@ -98,7 +98,7 @@ a:hover {
 .search-form input,
 .list-filters input,
 .list-filters select,
-.blacklist-search,
+.feedback-modal-search,
 .mal-table select,
 .mal-table input[type="number"] {
 	background-color: var(--bg-card);
@@ -112,7 +112,7 @@ a:hover {
 .search-form input:focus,
 .list-filters input:focus,
 .list-filters select:focus,
-.blacklist-search:focus,
+.feedback-modal-search:focus,
 .mal-table select:focus,
 .mal-table input[type="number"]:focus {
 	outline: none;
@@ -618,29 +618,6 @@ a:hover {
 	text-align: center;
 }
 
-/* Blacklist / Not Interested button */
-.blacklist-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	padding: 0.5rem 1.25rem;
-	border-radius: 4px;
-	font-family: inherit;
-	font-weight: 600;
-	font-size: 0.9rem;
-	line-height: 1.2;
-	cursor: pointer;
-	background-color: transparent;
-	border: 1px solid #555;
-	color: var(--text-muted);
-	transition: all 0.2s;
-}
-
-.blacklist-btn:hover {
-	border-color: var(--danger);
-	color: var(--danger);
-}
-
 /* Refresh button */
 .refresh-btn {
 	padding: 0.5rem 1.25rem;
@@ -757,21 +734,21 @@ a:hover {
 	margin: 0;
 }
 
-.blacklist-search {
+.feedback-modal-search {
 	width: 100%;
 	padding: 0.5rem 0.75rem;
 	background-color: var(--bg-primary);
 	margin-bottom: 1rem;
 }
 
-/* Blacklist cards inside modal */
-.blacklist-cards {
+/* Feedback cards inside modal */
+.feedback-modal-cards {
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
 }
 
-.blacklist-card {
+.feedback-modal-card {
 	display: flex;
 	align-items: center;
 	gap: 1rem;
@@ -781,7 +758,7 @@ a:hover {
 	padding: 0.75rem;
 }
 
-.blacklist-card img {
+.feedback-modal-card img {
 	width: 50px;
 	height: 70px;
 	object-fit: cover;
@@ -789,7 +766,7 @@ a:hover {
 	flex-shrink: 0;
 }
 
-.blacklist-card-info {
+.feedback-modal-card-info {
 	flex: 1;
 	display: flex;
 	justify-content: space-between;
@@ -797,7 +774,7 @@ a:hover {
 	gap: 0.5rem;
 }
 
-.blacklist-card-info h3 {
+.feedback-modal-card-info h3 {
 	margin: 0;
 	font-size: 0.95rem;
 	color: var(--text);
@@ -883,9 +860,35 @@ a:hover {
 	font-size: 0.85rem;
 }
 
-.anime-rec-item-actions .blacklist-btn {
-	padding: 0.4rem 1rem;
-	font-size: 0.85rem;
+.feedback-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.4rem 0.85rem;
+	border-radius: 4px;
+	font-family: inherit;
+	font-size: 0.82rem;
+	font-weight: 600;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--text-dim);
+	cursor: pointer;
+	transition: all 0.2s;
+}
+
+.feedback-btn:hover {
+	border-color: #6f7382;
+	color: #fff;
+}
+
+.feedback-btn-up:hover {
+	border-color: #4caf50;
+	color: #4caf50;
+}
+
+.feedback-btn-down:hover {
+	border-color: var(--danger);
+	color: var(--danger);
 }
 
 /* =====================

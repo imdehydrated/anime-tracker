@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import AnimeRecItem from '../components/AnimeRecItem';
-import BlacklistModal from '../components/BlacklistModal';
+import FeedbackModal from '../components/FeedbackModal';
 import { useAuth } from '../context/AuthContext';
 import { getApiError } from '../api/client';
 import { getUserList } from '../api/listApi';
 import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useDebounceSearch } from '../hooks/useDebounceSearch';
-import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
+import { useRecommendationFeedback } from '../hooks/useRecommendationFeedback';
 import FilterControlPanel from '../components/FilterControlPanel';
 
 const MAX_SEEDS = 5;
@@ -26,7 +26,7 @@ const DEFAULT_GLOBAL_FILTERS = {
  * SmartRec page:
  * - Query-driven semantic search
  * - Optional list influence blending
- * - Shared blacklist modal/actions
+ * - Shared feedback modal/actions
  */
 const MODES = [
 	{ key: 'semantic', label: 'Smart Search' },
@@ -57,7 +57,7 @@ function SmartRec() {
 	} = useDebounceSearch(300, 2);
 
 	const [userListIds, setUserListIds] = useState(new Set());
-	const blacklist = useRecommendationBlacklist(
+	const feedback = useRecommendationFeedback(
 		setError,
 		(animeId) => setResults((prev) => prev.filter((item) => item.id !== animeId))
 	);
@@ -314,8 +314,8 @@ function SmartRec() {
 					{searching ? 'Searching...' : isCfMode ? 'Get Predictions' : isSimilarMode ? 'Find Similar' : 'Find Recommendations'}
 				</button>
 				{isLoggedIn && (
-					<button className="refresh-btn" onClick={blacklist.openBlacklist}>
-						Manage Blacklist
+					<button className="refresh-btn" onClick={feedback.openFeedback}>
+						Manage Feedback
 					</button>
 				)}
 			</div>
@@ -336,8 +336,17 @@ function SmartRec() {
 										<button className="btn-primary" onClick={() => handleAddToList(anime)}>
 											Add to List
 										</button>
-										<button className="blacklist-btn" onClick={() => blacklist.handleBlacklist(anime)}>
-											Not Interested
+										<button
+											className="feedback-btn feedback-btn-up"
+											onClick={() => feedback.handleThumbsUp(anime, mode, context.trim())}
+										>
+											Thumbs Up
+										</button>
+										<button
+											className="feedback-btn feedback-btn-down"
+											onClick={() => feedback.handleThumbsDown(anime, mode, context.trim())}
+										>
+											Thumbs Down
 										</button>
 									</>
 								)
@@ -347,13 +356,16 @@ function SmartRec() {
 				</div>
 			)}
 
-			<BlacklistModal
-				show={blacklist.showBlacklist}
-				blacklist={blacklist.blacklist}
-				search={blacklist.blacklistSearch}
-				onSearchChange={blacklist.setBlacklistSearch}
-				onClose={blacklist.closeBlacklist}
-				onRemove={blacklist.handleRemoveFromBlacklist}
+			<FeedbackModal
+				show={feedback.showFeedbackModal}
+				feedbackEntries={feedback.feedbackItems}
+				search={feedback.feedbackSearch}
+				onSearchChange={feedback.setFeedbackSearch}
+				onClose={feedback.closeFeedback}
+				onRemove={feedback.handleRemoveFeedback}
+				title="Recommendation Feedback"
+				emptyText="No feedback entries yet."
+				searchPlaceholder="Search feedback..."
 			/>
 		</div>
 	);

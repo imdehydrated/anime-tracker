@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import BlacklistModal from '../components/BlacklistModal';
+import FeedbackModal from '../components/FeedbackModal';
 import AnimeRecItem from '../components/AnimeRecItem';
 import { useAuth } from '../context/AuthContext';
 import { getApiError } from '../api/client';
 import { getSemanticRecommendations } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
-import { useRecommendationBlacklist } from '../hooks/useRecommendationBlacklist';
+import { useRecommendationFeedback } from '../hooks/useRecommendationFeedback';
 import FilterControlPanel from '../components/FilterControlPanel';
 
 const RECOMMENDATIONS_STATE_KEY = 'recommendations_page_state_v1';
@@ -22,7 +22,7 @@ const DEFAULT_GLOBAL_FILTERS = {
 /**
  * "For You" recommendations page:
  * - List-only semantic recommendations for logged-in users
- * - Add-to-list actions and blacklist management
+ * - Add-to-list actions and feedback management
  */
 function Recommendations() {
 	const [recommendations, setRecommendations] = useState([]);
@@ -34,7 +34,7 @@ function Recommendations() {
 
 	const { isLoggedIn } = useAuth();
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
-	const blacklist = useRecommendationBlacklist(
+	const feedback = useRecommendationFeedback(
 		setError,
 		(animeId) => setRecommendations((prev) => prev.filter((item) => item.id !== animeId))
 	);
@@ -122,8 +122,8 @@ function Recommendations() {
 				<button onClick={fetchRecommendations} className="refresh-btn">
 					Refresh
 				</button>
-				<button className="refresh-btn" onClick={blacklist.openBlacklist}>
-					Manage Blacklist
+				<button className="refresh-btn" onClick={feedback.openFeedback}>
+					Manage Feedback
 				</button>
 			</div>
 
@@ -154,8 +154,17 @@ function Recommendations() {
 									<button className="btn-primary" onClick={() => handleAddToList(anime)}>
 										Add to List
 									</button>
-									<button className="blacklist-btn" onClick={() => blacklist.handleBlacklist(anime)}>
-										Not Interested
+									<button
+										className="feedback-btn feedback-btn-up"
+										onClick={() => feedback.handleThumbsUp(anime, 'cf', null)}
+									>
+										Thumbs Up
+									</button>
+									<button
+										className="feedback-btn feedback-btn-down"
+										onClick={() => feedback.handleThumbsDown(anime, 'cf', null)}
+									>
+										Thumbs Down
 									</button>
 								</>
 							)}
@@ -164,13 +173,16 @@ function Recommendations() {
 				</div>
 			)}
 
-			<BlacklistModal
-				show={blacklist.showBlacklist}
-				blacklist={blacklist.blacklist}
-				search={blacklist.blacklistSearch}
-				onSearchChange={blacklist.setBlacklistSearch}
-				onClose={blacklist.closeBlacklist}
-				onRemove={blacklist.handleRemoveFromBlacklist}
+			<FeedbackModal
+				show={feedback.showFeedbackModal}
+				feedbackEntries={feedback.feedbackItems}
+				search={feedback.feedbackSearch}
+				onSearchChange={feedback.setFeedbackSearch}
+				onClose={feedback.closeFeedback}
+				onRemove={feedback.handleRemoveFeedback}
+				title="Recommendation Feedback"
+				emptyText="No feedback entries yet."
+				searchPlaceholder="Search feedback..."
 			/>
 		</div>
 	);

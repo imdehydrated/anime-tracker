@@ -222,25 +222,33 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored
   -d "{\"mode\":\"cf\",\"limit\":10}"
 ```
 
-## 10) Recommendation Blacklist
+## 10) Recommendation Feedback (Thumbs)
 
-Add to blacklist:
+Submit thumbs-down feedback:
 ```powershell
-curl.exe -X POST http://localhost:8080/api/users/recommendations/blacklist `
+curl.exe -X POST http://localhost:8080/api/users/recommendations/feedback `
   -H "Authorization: Bearer $TOKEN" `
   -H "Content-Type: application/json" `
-  -d "{\"anilistId\":16498,\"title\":\"Attack on Titan\"}"
+  -d "{\"anilistId\":16498,\"signal\":\"thumbs_down\",\"sourceMode\":\"semantic\",\"queryContext\":\"sports anime\",\"title\":\"Haikyuu!!\"}"
 ```
 
-Get blacklist:
+Submit thumbs-up feedback:
 ```powershell
-curl.exe http://localhost:8080/api/users/recommendations/blacklist `
+curl.exe -X POST http://localhost:8080/api/users/recommendations/feedback `
+  -H "Authorization: Bearer $TOKEN" `
+  -H "Content-Type: application/json" `
+  -d "{\"anilistId\":16498,\"signal\":\"thumbs_up\",\"sourceMode\":\"similar\",\"title\":\"Haikyuu!!\"}"
+```
+
+List feedback:
+```powershell
+curl.exe http://localhost:8080/api/users/recommendations/feedback `
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Remove blacklist entry:
+Remove feedback entry:
 ```powershell
-curl.exe -X DELETE http://localhost:8080/api/users/recommendations/blacklist/1 `
+curl.exe -X DELETE http://localhost:8080/api/users/recommendations/feedback/1 `
   -H "Authorization: Bearer $TOKEN"
 ```
 

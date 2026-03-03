@@ -149,9 +149,9 @@ Anime lookup:
 Recommendations:
 - `POST /api/users/recommendations/semantic` (legacy payload shape)
 - `POST /api/users/recommendations/semantic/scored` (scored payload)
-- `POST /api/users/recommendations/blacklist`
-- `GET /api/users/recommendations/blacklist`
-- `DELETE /api/users/recommendations/blacklist/{id}`
+- `POST /api/users/recommendations/feedback`
+- `GET /api/users/recommendations/feedback`
+- `DELETE /api/users/recommendations/feedback/{id}`
 - `POST /api/users/recommendations/custom-embeddings/import`
 - `POST /api/users/recommendations/custom-embeddings/populate-active-catalog`
 - `GET /api/users/recommendations/custom-embeddings/population-failures`
@@ -163,6 +163,7 @@ Health:
 Contract choice:
 - both legacy and scored recommendation endpoints are kept to avoid breaking existing frontend/backward callers during iterative ranking upgrades.
 - recommendation payloads may include optional scoring diagnostics (for example query relevance, taste overlap score, popularity prior, and guardrail flag) without breaking existing clients.
+- feedback signals are backend-owned and persisted; frontend acts as a thin signal client.
 - request payload can include additive global controls under `filters`:
   - `includeExtraSeasons`
   - `includeMovies`
@@ -220,6 +221,15 @@ Collaborative filtering only:
 
 Design reason:
 - pure behavior mode simplifies debugging CF quality independent of semantic retrieval.
+
+### Feedback Signals (Thumbs)
+
+Thumbs feedback is stored in backend (`recommendation_feedback`) and consumed server-side:
+- thumbs-down is treated as immediate exclusion signal in candidate filtering.
+- thumbs-up is stored for later rerank/personalization feature use.
+
+Design reason:
+- keeping feedback in backend avoids client-only state drift, supports multi-device consistency, and enables scalable downstream use (analytics/training features) without frontend coupling.
 
 ## Hybrid Scoring and Guardrails
 
@@ -304,10 +314,10 @@ Design reason:
 Structure:
 - `src/api/`: backend client modules (`authApi`, `animeApi`, `listApi`, `recommendationsApi`)
 - `src/context/AuthContext.js`: auth state
-- `src/components/`: reusable UI (`RequireAuth`, cards, rec item, blacklist modal)
+- `src/components/`: reusable UI (`RequireAuth`, cards, rec item, feedback modal)
 - `src/components/FilterControlPanel.js`: shared Sprout-style filter toggle UI for recommendation/search pages
   - recommendation pages use the same component to render a dedicated advanced popularity-attenuation selector with explanatory helper text
-- `src/hooks/`: reusable state flows (`useDebounceSearch`, blacklist/add-to-list hooks)
+- `src/hooks/`: reusable state flows (`useDebounceSearch`, feedback/add-to-list hooks)
 - `src/pages/`: route pages (`Home`, `Search`, `MyList`, `SmartRec`, etc.)
 
 Design reason:

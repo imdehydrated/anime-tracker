@@ -7,6 +7,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -27,17 +28,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.dto.SemanticRequest;
 import com.animetracker.entity.AnimeListEntry;
-import com.animetracker.entity.RecommendationBlacklist;
+import com.animetracker.entity.RecommendationFeedback;
 import com.animetracker.entity.User;
 import com.animetracker.exception.BadRequestException;
 import com.animetracker.exception.NotFoundException;
 import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.repository.AnimeEmbeddingRepository;
 import com.animetracker.repository.CustomEmbeddingImportStateRepository;
-import com.animetracker.repository.RecommendationBlacklistRepository;
+import com.animetracker.repository.RecommendationFeedbackRepository;
 import com.animetracker.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,7 +78,7 @@ public class SemanticRecommendationService {
 
     private final AnimeEmbeddingRepository embeddingRepository;
     private final AnimeListEntryService animeListEntryService;
-    private final RecommendationBlacklistRepository blacklistRepository;
+    private final RecommendationFeedbackRepository feedbackRepository;
     private final UserRepository userRepository;
     private final AniListService aniListService;
     private final AnimeEmbeddingPopulatorService populatorService;
@@ -253,7 +255,7 @@ public class SemanticRecommendationService {
 
     public SemanticRecommendationService(AnimeEmbeddingRepository embeddingRepository,
             AnimeListEntryService animeListEntryService,
-            RecommendationBlacklistRepository blacklistRepository,
+            RecommendationFeedbackRepository feedbackRepository,
             UserRepository userRepository,
             AniListService aniListService,
             AnimeEmbeddingPopulatorService populatorService,
@@ -261,7 +263,7 @@ public class SemanticRecommendationService {
             CustomEmbeddingImportStateRepository customEmbeddingImportStateRepository) {
         this.embeddingRepository = embeddingRepository;
         this.animeListEntryService = animeListEntryService;
-        this.blacklistRepository = blacklistRepository;
+        this.feedbackRepository = feedbackRepository;
         this.userRepository = userRepository;
         this.aniListService = aniListService;
         this.populatorService = populatorService;
@@ -1923,43 +1925,98 @@ public class SemanticRecommendationService {
         return populatorService.retryFailures(source, safeLimit);
     }
 
-    public void blacklistAnime(String username, Integer anilistId, String title, String coverImage) {
-        if (anilistId == null) {
+    public void recordFeedback(String username, RecommendationFeedbackRequest request) {
+        if (request == null || request.anilistId() == null) {
             throw new BadRequestException("anilistId is required");
         }
+        String normalizedSignal = normalizeFeedbackSignal(request.signal());
         User user = getUser(username);
-        if (!blacklistRepository.existsByUserAndAnilistId(user, anilistId)) {
-            blacklistRepository.save(new RecommendationBlacklist(user, anilistId, title, coverImage));
+        String queryHash = hashFeedbackQuery(request.queryContext());
+        RecommendationFeedback entry = feedbackRepository.findByUserAndAnilistId(user, request.anilistId())
+                .orElseGet(() -> new RecommendationFeedback(
+                        user,
+                        request.anilistId(),
+                        normalizedSignal,
+                        normalizeSourceMode(request.sourceMode()),
+                        queryHash,
+                        request.title(),
+                        request.coverImage()));
+
+        entry.setSignal(normalizedSignal);
+        entry.setSourceMode(normalizeSourceMode(request.sourceMode()));
+        entry.setQueryHash(queryHash);
+        if (request.title() != null && !request.title().isBlank()) {
+            entry.setTitle(request.title());
         }
+        if (request.coverImage() != null && !request.coverImage().isBlank()) {
+            entry.setCoverImage(request.coverImage());
+        }
+        entry.setUpdatedAt(LocalDateTime.now());
+        feedbackRepository.save(entry);
     }
 
-    public List<Map<String, Object>> getBlacklist(String username) {
+    public List<Map<String, Object>> getFeedback(String username) {
         User user = getUser(username);
-        return blacklistRepository.findByUser(user).stream().map(entry -> {
-            Map<String, Object> item = new HashMap<>();
-            item.put("id", entry.getId());
-            item.put("anilistId", entry.getAnilistId());
-            item.put("title", entry.getTitle());
-            item.put("coverImage", entry.getCoverImage());
-            item.put("createdAt", entry.getCreatedAt());
-            return item;
-        }).toList();
+        return feedbackRepository.findByUserOrderByUpdatedAtDesc(user)
+                .stream()
+                .map(entry -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("id", entry.getId());
+                    item.put("anilistId", entry.getAnilistId());
+                    item.put("signal", entry.getSignal());
+                    item.put("sourceMode", entry.getSourceMode());
+                    item.put("title", entry.getTitle());
+                    item.put("coverImage", entry.getCoverImage());
+                    item.put("updatedAt", entry.getUpdatedAt());
+                    item.put("createdAt", entry.getCreatedAt());
+                    return item;
+                })
+                .toList();
     }
 
-    public void removeFromBlacklist(String username, Long id) {
+    public void removeFeedback(String username, Long id) {
         User user = getUser(username);
-        RecommendationBlacklist entry = blacklistRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Blacklist entry not found"));
-
+        RecommendationFeedback entry = feedbackRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Feedback entry not found"));
         if (!entry.getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("Not your blacklist entry");
+            throw new UnauthorizedException("Not your feedback entry");
         }
-        blacklistRepository.delete(entry);
+        feedbackRepository.delete(entry);
     }
 
     private User getUser(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
+    }
+
+    private String normalizeFeedbackSignal(String signal) {
+        if (signal == null || signal.isBlank()) {
+            throw new BadRequestException("signal is required");
+        }
+        String normalized = signal.trim().toUpperCase().replace('-', '_');
+        return switch (normalized) {
+            case "THUMBS_UP" -> RecommendationFeedback.SIGNAL_THUMBS_UP;
+            case "THUMBS_DOWN" -> RecommendationFeedback.SIGNAL_THUMBS_DOWN;
+            default -> throw new BadRequestException("signal must be thumbs_up or thumbs_down");
+        };
+    }
+
+    private String normalizeSourceMode(String sourceMode) {
+        if (sourceMode == null || sourceMode.isBlank()) {
+            return null;
+        }
+        String normalized = sourceMode.trim().toLowerCase();
+        if (!Set.of("semantic", "similar", "cf").contains(normalized)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private String hashFeedbackQuery(String queryContext) {
+        if (queryContext == null || queryContext.isBlank()) {
+            return null;
+        }
+        return computeMetadataFingerprint(queryContext);
     }
 
     private List<Integer> buildExcludeIds(String username, List<Integer> seedIds) {
@@ -1971,7 +2028,7 @@ public class SemanticRecommendationService {
             for (AnimeListEntry entry : userList) {
                 excluded.add(entry.getAnilistId());
             }
-            blacklistRepository.findByUser(user)
+            feedbackRepository.findByUserAndSignal(user, RecommendationFeedback.SIGNAL_THUMBS_DOWN)
                     .forEach(entry -> excluded.add(entry.getAnilistId()));
         }
 
@@ -3658,5 +3715,3 @@ public class SemanticRecommendationService {
         }
     }
 }
-
-

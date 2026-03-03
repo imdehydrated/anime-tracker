@@ -15,7 +15,7 @@ Recommendation features require the ML sidecar to be enabled and healthy at star
   - Similar Shows (seed-based similarity)
   - For You (collaborative filtering)
 - Recommendation explanations (single-sentence reason text)
-- Recommendation blacklist support
+- Recommendation feedback support (thumbs up / thumbs down) with backend persistence
 - Population failure tracking and retry tooling for embedding sync
 - Typed population failure reasons with reason-aware retry/dead-letter backoff policy
 - Local-search metadata quality guardrails and UI cover fallbacks for incomplete AniList rows

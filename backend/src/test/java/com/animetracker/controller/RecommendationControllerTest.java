@@ -23,6 +23,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.RecommendationResponse;
+import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.dto.SemanticRequest;
 import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.service.CustomEmbeddingImportService;
@@ -158,6 +159,53 @@ class RecommendationControllerTest {
         assertEquals(200, response.getStatusCode().value());
         assertEquals("Population failure retry completed", response.getBody().get("message"));
         verify(semanticService).retryPopulationFailures("active_catalog", 20);
+    }
+
+    @Test
+    void feedbackEndpoints_requireAuth() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        RecommendationFeedbackRequest request = new RecommendationFeedbackRequest(
+                16498,
+                "thumbs_down",
+                "semantic",
+                "sports anime",
+                "Haikyuu!!",
+                "https://img.test/haikyuu.jpg");
+
+        assertThrows(UnauthorizedException.class, () -> controller.recordFeedback(request));
+        assertThrows(UnauthorizedException.class, controller::getFeedback);
+        assertThrows(UnauthorizedException.class, () -> controller.removeFeedback(1L));
+    }
+
+    @Test
+    void feedbackEndpoints_forwardToServiceWhenAuthenticated() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
+
+        RecommendationFeedbackRequest request = new RecommendationFeedbackRequest(
+                16498,
+                "thumbs_up",
+                "similar",
+                null,
+                "Haikyuu!!",
+                "https://img.test/haikyuu.jpg");
+
+        when(semanticService.getFeedback("tester")).thenReturn(List.of(Map.of("id", 1L, "signal", "THUMBS_UP")));
+
+        ResponseEntity<Map<String, String>> post = controller.recordFeedback(request);
+        ResponseEntity<List<Map<String, Object>>> get = controller.getFeedback();
+        ResponseEntity<Map<String, String>> delete = controller.removeFeedback(1L);
+
+        assertEquals(200, post.getStatusCode().value());
+        assertEquals("Feedback recorded", post.getBody().get("message"));
+        assertEquals(200, get.getStatusCode().value());
+        assertEquals(1, get.getBody().size());
+        assertEquals(200, delete.getStatusCode().value());
+        assertEquals("Feedback removed", delete.getBody().get("message"));
+
+        verify(semanticService).recordFeedback("tester", request);
+        verify(semanticService).getFeedback("tester");
+        verify(semanticService).removeFeedback("tester", 1L);
     }
 
     private AniListResponse.AnimeInfo animeInfo(int anilistId) {
