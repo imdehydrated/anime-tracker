@@ -20,11 +20,13 @@ RUN npm install
 # Copy the rest of the source code
 COPY public ./public
 COPY src ./src
+COPY index.html ./index.html
+COPY vite.config.mjs ./vite.config.mjs
 
-# Expose port 3000 (React dev server default port)
+# Expose port 3000 (Vite dev server)
 # This is documentation - tells Docker "this app uses port 3000"
 EXPOSE 3000
 
 # Start the development server
-# "npm start" runs "react-scripts start" from package.json
+# "npm start" runs Vite with host/port from package.json
 CMD ["npm", "start"]

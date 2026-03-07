@@ -20,3 +20,17 @@ export async function deleteListEntry(entryId) {
 	const { data } = await api.delete(`/api/users/list/${entryId}`);
 	return data;
 }
+
+export async function importAniListByUsername(username, dryRun = false) {
+	const { data } = await api.post('/api/users/list/import/anilist', null, {
+		params: { username, dryRun },
+	});
+	return data;
+}
+
+export async function importMalByUsername(username, dryRun = false) {
+	const { data } = await api.post('/api/users/list/import/mal', null, {
+		params: { username, dryRun },
+	});
+	return data;
+}

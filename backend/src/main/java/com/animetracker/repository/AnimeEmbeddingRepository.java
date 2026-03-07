@@ -110,11 +110,13 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	@Query(value = """
 			INSERT INTO anime_embeddings
 			    (anilist_id, title_romaji, title_english, cover_image, genres,
-			     description, average_score, status, episodes, anilist_popularity, embedding_text,
+			     description, average_score, status, episodes, anilist_popularity,
+			     format, season, season_year, is_adult, metadata_json, embedding_text,
 			     embedding, metadata_refreshed_at, metadata_fingerprint, created_at, updated_at)
 			VALUES
 			    (:anilistId, :titleRomaji, :titleEnglish, :coverImage, :genres,
-			     :description, :averageScore, :status, :episodes, :anilistPopularity, :embeddingText,
+			     :description, :averageScore, :status, :episodes, :anilistPopularity,
+			     :format, :season, :seasonYear, :isAdult, :metadataJson, :embeddingText,
 			     CAST(:embedding AS vector), NOW(), :metadataFingerprint, NOW(), NOW())
 			ON CONFLICT (anilist_id) DO UPDATE SET
 			    title_romaji = EXCLUDED.title_romaji,
@@ -126,6 +128,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			    status = EXCLUDED.status,
 			    episodes = EXCLUDED.episodes,
 			    anilist_popularity = EXCLUDED.anilist_popularity,
+			    format = COALESCE(EXCLUDED.format, anime_embeddings.format),
+			    season = COALESCE(EXCLUDED.season, anime_embeddings.season),
+			    season_year = COALESCE(EXCLUDED.season_year, anime_embeddings.season_year),
+			    is_adult = COALESCE(EXCLUDED.is_adult, anime_embeddings.is_adult),
+			    metadata_json = COALESCE(EXCLUDED.metadata_json, anime_embeddings.metadata_json),
 			    embedding_text = EXCLUDED.embedding_text,
 			    embedding = EXCLUDED.embedding,
 			    metadata_refreshed_at = NOW(),
@@ -143,6 +150,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("status") String status,
 			@Param("episodes") Integer episodes,
 			@Param("anilistPopularity") Integer anilistPopularity,
+			@Param("format") String format,
+			@Param("season") String season,
+			@Param("seasonYear") Integer seasonYear,
+			@Param("isAdult") Boolean isAdult,
+			@Param("metadataJson") String metadataJson,
 			@Param("embeddingText") String embeddingText,
 			@Param("metadataFingerprint") String metadataFingerprint,
 			@Param("embedding") String embedding);
@@ -175,12 +187,15 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	@Query(value = """
 			INSERT INTO anime_embeddings
 			    (anilist_id, title_romaji, title_english, cover_image, genres,
-			     description, average_score, status, episodes, anilist_popularity, embedding_text, embedding_custom,
+			     description, average_score, status, episodes, anilist_popularity,
+			     format, season, season_year, is_adult, metadata_json,
+			     embedding_text, embedding_custom,
 			     metadata_refreshed_at, metadata_fingerprint,
 			     created_at, updated_at)
 			VALUES
 			    (:anilistId, :titleRomaji, :titleEnglish, :coverImage, :genres,
-			     :description, :averageScore, :status, :episodes, :anilistPopularity, :embeddingText,
+			     :description, :averageScore, :status, :episodes, :anilistPopularity,
+			     :format, :season, :seasonYear, :isAdult, :metadataJson, :embeddingText,
 			     CAST(:embeddingCustom AS vector), NOW(), :metadataFingerprint, NOW(), NOW())
 			ON CONFLICT (anilist_id) DO UPDATE SET
 			    title_romaji = COALESCE(EXCLUDED.title_romaji, anime_embeddings.title_romaji),
@@ -192,6 +207,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			    status = COALESCE(EXCLUDED.status, anime_embeddings.status),
 			    episodes = COALESCE(EXCLUDED.episodes, anime_embeddings.episodes),
 			    anilist_popularity = COALESCE(EXCLUDED.anilist_popularity, anime_embeddings.anilist_popularity),
+			    format = COALESCE(EXCLUDED.format, anime_embeddings.format),
+			    season = COALESCE(EXCLUDED.season, anime_embeddings.season),
+			    season_year = COALESCE(EXCLUDED.season_year, anime_embeddings.season_year),
+			    is_adult = COALESCE(EXCLUDED.is_adult, anime_embeddings.is_adult),
+			    metadata_json = COALESCE(EXCLUDED.metadata_json, anime_embeddings.metadata_json),
 			    embedding_text = COALESCE(EXCLUDED.embedding_text, anime_embeddings.embedding_text),
 			    embedding_custom = EXCLUDED.embedding_custom,
 			    metadata_refreshed_at = NOW(),
@@ -209,6 +229,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("status") String status,
 			@Param("episodes") Integer episodes,
 			@Param("anilistPopularity") Integer anilistPopularity,
+			@Param("format") String format,
+			@Param("season") String season,
+			@Param("seasonYear") Integer seasonYear,
+			@Param("isAdult") Boolean isAdult,
+			@Param("metadataJson") String metadataJson,
 			@Param("embeddingText") String embeddingText,
 			@Param("metadataFingerprint") String metadataFingerprint,
 			@Param("embeddingCustom") String embeddingCustom);
@@ -226,6 +251,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			    anilist_popularity = COALESCE(:anilistPopularity, anilist_popularity),
 			    status = COALESCE(:status, status),
 			    episodes = COALESCE(:episodes, episodes),
+			    format = COALESCE(:format, format),
+			    season = COALESCE(:season, season),
+			    season_year = COALESCE(:seasonYear, season_year),
+			    is_adult = COALESCE(:isAdult, is_adult),
+			    metadata_json = COALESCE(:metadataJson, metadata_json),
 			    metadata_refreshed_at = NOW(),
 			    metadata_fingerprint = COALESCE(:metadataFingerprint, metadata_fingerprint),
 			    updated_at = NOW()
@@ -242,6 +272,11 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 			@Param("anilistPopularity") Integer anilistPopularity,
 			@Param("status") String status,
 			@Param("episodes") Integer episodes,
+			@Param("format") String format,
+			@Param("season") String season,
+			@Param("seasonYear") Integer seasonYear,
+			@Param("isAdult") Boolean isAdult,
+			@Param("metadataJson") String metadataJson,
 			@Param("metadataFingerprint") String metadataFingerprint);
 
 	@Query(value = """
@@ -276,11 +311,31 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 */
 	@Query(value = """
 			SELECT anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes, anilist_popularity
+			       genres, description, average_score, status, episodes, anilist_popularity,
+			       format, season, season_year, is_adult, metadata_json
 			FROM anime_embeddings
 			WHERE anilist_id IN (:anilistIds)
 			""", nativeQuery = true)
 	List<Object[]> findMetadataByAnilistIds(@Param("anilistIds") List<Integer> anilistIds);
+
+	/**
+	 * Popularity-ordered local metadata candidates for CF cold-start fallback.
+	 */
+	@Query(value = """
+			SELECT anilist_id, title_romaji, title_english, cover_image,
+			       genres, description, average_score, status, episodes, anilist_popularity,
+			       format, season, season_year, is_adult, metadata_json
+			FROM anime_embeddings
+			WHERE anilist_id NOT IN (:excludeIds)
+			  AND COALESCE(status, '') <> 'CANCELLED'
+			ORDER BY COALESCE(anilist_popularity, 0) DESC,
+			         COALESCE(average_score, 0) DESC,
+			         anilist_id ASC
+			LIMIT :limit
+			""", nativeQuery = true)
+	List<Object[]> findTopPopularMetadataExcluding(
+			@Param("excludeIds") List<Integer> excludeIds,
+			@Param("limit") int limit);
 
 	/**
 	 * Local text search over embedded catalog metadata.
@@ -288,7 +343,8 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	 */
 	@Query(value = """
 			SELECT anilist_id, title_romaji, title_english, cover_image,
-			       genres, description, average_score, status, episodes, anilist_popularity
+			       genres, description, average_score, status, episodes, anilist_popularity,
+			       format, season, season_year, is_adult, metadata_json
 			FROM anime_embeddings
 			WHERE
 			    ts_rank_cd(
@@ -330,6 +386,13 @@ public interface AnimeEmbeddingRepository extends JpaRepository<AnimeEmbedding, 
 	List<Object[]> searchLocalMetadata(
 			@Param("queryText") String queryText,
 			@Param("limit") int limit);
+
+	@Query(value = """
+			SELECT metadata_json
+			FROM anime_embeddings
+			WHERE anilist_id = :anilistId
+			""", nativeQuery = true)
+	String findMetadataJsonByAnilistId(@Param("anilistId") Integer anilistId);
 
 	@Query(value = """
 			SELECT CASE WHEN embedding_custom IS NULL THEN FALSE ELSE TRUE END

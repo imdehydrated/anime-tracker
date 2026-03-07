@@ -2,14 +2,24 @@ import { api } from './client';
 
 // Recommendation and recommendation-feedback API contract.
 export async function getSemanticRecommendations(payload) {
+	const { data } = await api.post('/api/users/recommendations/semantic/scored', payload);
+	return normalizeRecommendationPayload(data);
+}
+
+export async function getSemanticRecommendationsPaged(payload) {
 	try {
-		const { data } = await api.post('/api/users/recommendations/semantic/scored', payload);
-		return normalizeRecommendationPayload(data);
+		const { data } = await api.post('/api/users/recommendations/semantic/scored/paged', payload);
+		return normalizeRecommendationPagePayload(data);
 	} catch (err) {
-		// Compatibility fallback while backend rollout is in progress.
+		// Backward-compatible fallback for environments without paged endpoint.
 		if (err?.response?.status === 404) {
-			const { data } = await api.post('/api/users/recommendations/semantic', payload);
-			return normalizeRecommendationPayload(data);
+			const items = await getSemanticRecommendations(payload);
+			return {
+				items,
+				nextCursor: null,
+				hasMore: false,
+				diagnostics: { fallback: true },
+			};
 		}
 		throw err;
 	}
@@ -29,6 +39,19 @@ function normalizeRecommendationPayload(data) {
 		}
 		return item;
 	});
+}
+
+function normalizeRecommendationPagePayload(data) {
+	if (!data || typeof data !== 'object') {
+		return { items: [], nextCursor: null, hasMore: false, diagnostics: null };
+	}
+	const items = normalizeRecommendationPayload(Array.isArray(data.items) ? data.items : []);
+	return {
+		items,
+		nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : null,
+		hasMore: Boolean(data.hasMore),
+		diagnostics: data.diagnostics ?? null,
+	};
 }
 
 export async function addRecommendationFeedback(payload) {

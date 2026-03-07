@@ -151,6 +151,12 @@ a:hover {
 	gap: 1.5rem;
 }
 
+.navbar-user {
+	color: var(--text-muted);
+	font-size: 0.88rem;
+	font-weight: 600;
+}
+
 .navbar-links a {
 	color: var(--text-dim);
 	font-size: 0.9rem;
@@ -395,6 +401,95 @@ a:hover {
 	font-size: 0.9rem;
 }
 
+.list-import-panel {
+	margin: 1rem 0 1.25rem;
+	padding: 0.9rem;
+	background: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+
+.list-import-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 0.75rem;
+}
+
+.list-import-header h2 {
+	margin: 0;
+	font-size: 1rem;
+}
+
+.list-import-note {
+	font-size: 0.8rem;
+	color: var(--text-muted);
+}
+
+.list-import-controls {
+	display: flex;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+	align-items: stretch;
+}
+
+.list-import-provider-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(92px, 1fr));
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	overflow: hidden;
+	min-height: 40px;
+}
+
+.list-import-provider {
+	background: transparent;
+	color: var(--text-dim);
+	border: none;
+	border-right: 1px solid var(--border);
+	padding: 0.55rem 0.9rem;
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.list-import-provider:last-child {
+	border-right: none;
+}
+
+.list-import-provider:hover {
+	background: var(--bg-hover);
+	color: #fff;
+}
+
+.list-import-provider.is-active {
+	background: var(--bg-hover);
+	color: #fff;
+	box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.list-import-controls input {
+	flex: 1;
+	min-width: 200px;
+}
+
+.list-import-result {
+	margin-top: 0.75rem;
+	color: var(--text-dim);
+	font-size: 0.88rem;
+}
+
+.list-import-result-title {
+	margin: 0 0 0.35rem;
+	color: #fff;
+	font-weight: 600;
+}
+
+.list-import-failures {
+	margin: 0;
+	color: var(--text-muted);
+}
+
 /* ===== MAL-STYLE TABLE ===== */
 .mal-table {
 	width: 100%;
@@ -555,31 +650,96 @@ a:hover {
 
 /* ===== HOME PAGE ===== */
 .home {
-	text-align: center;
-	padding-top: 4rem;
+	padding-top: 1.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.15rem;
+}
+
+.home-hero {
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background:
+		radial-gradient(1200px 280px at 20% -40%, rgba(233, 69, 96, 0.28), transparent 55%),
+		radial-gradient(1000px 280px at 85% -65%, rgba(22, 33, 62, 0.52), transparent 60%),
+		linear-gradient(180deg, rgba(26, 26, 46, 0.96), rgba(17, 18, 31, 0.96));
+	padding: 1.5rem 1.35rem;
+}
+
+.home-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.28rem 0.6rem;
+	border: 1px solid rgba(233, 69, 96, 0.45);
+	border-radius: 999px;
+	font-size: 0.76rem;
+	letter-spacing: 0.02em;
+	color: #ffd6de;
+	background: rgba(233, 69, 96, 0.11);
+	margin-bottom: 0.75rem;
 }
 
 .home h1 {
-	font-size: 2.5rem;
+	font-size: 2.4rem;
 	color: #fff;
-	margin-bottom: 0.5rem;
+	margin: 0;
+	letter-spacing: 0.01em;
 }
 
-.home p {
-	color: var(--text-muted);
-	font-size: 1.1rem;
-	margin-bottom: 2rem;
+.home-subtitle {
+	color: #cfd3de;
+	font-size: 1.05rem;
+	line-height: 1.6;
+	margin: 0.65rem 0 0;
+	max-width: 68ch;
 }
 
 .home-links {
 	display: flex;
-	gap: 1rem;
-	justify-content: center;
+	gap: 0.75rem;
+	margin-top: 1rem;
+	flex-wrap: wrap;
 }
 
 .home-links .btn-primary,
 .home-links .btn-outline {
-	padding: 0.75rem 2rem;
+	padding: 0.72rem 1.25rem;
+}
+
+.home-quick-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.75rem;
+}
+
+.home-quick-card {
+	display: block;
+	padding: 0.95rem 1rem;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: linear-gradient(180deg, rgba(26, 26, 46, 0.95), rgba(15, 16, 28, 0.95));
+	text-decoration: none;
+	transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.home-quick-card:hover {
+	text-decoration: none;
+	border-color: rgba(233, 69, 96, 0.55);
+	transform: translateY(-2px);
+	box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+}
+
+.home-quick-card h3 {
+	margin: 0;
+	font-size: 1rem;
+	color: #f7f8fb;
+}
+
+.home-quick-card p {
+	margin: 0.45rem 0 0;
+	font-size: 0.9rem;
+	line-height: 1.5;
+	color: #bfc4d3;
 }
 
 /* ===== UTILITY ===== */
@@ -591,6 +751,12 @@ a:hover {
 
 .empty-state a {
 	color: var(--accent);
+}
+
+.search-result-count {
+	margin: 0.3rem 0 1rem;
+	color: var(--text-muted);
+	font-size: 0.9rem;
 }
 
 .loading {
@@ -677,14 +843,113 @@ a:hover {
 	margin-top: 1rem;
 	color: var(--text-dim);
 	line-height: 1.7;
-	max-height: 300px;
-	overflow-y: auto;
-	padding-right: 0.5rem;
+}
+
+.anime-description p {
+	margin: 0 0 0.75rem 0;
+}
+
+.anime-description p:last-child {
+	margin-bottom: 0;
 }
 
 .anime-description br {
 	display: block;
 	margin: 0.5rem 0;
+}
+
+.anime-description-block {
+	margin-top: 1rem;
+}
+
+.detail-inline-link {
+	margin-top: 0.75rem;
+	background: none;
+	border: none;
+	color: var(--accent);
+	cursor: pointer;
+	font-size: 0.9rem;
+	padding: 0;
+}
+
+.detail-inline-link:hover {
+	text-decoration: underline;
+}
+
+.series-panel {
+	margin-top: 1.25rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--border);
+}
+
+.series-panel h3 {
+	margin: 0 0 0.75rem 0;
+	font-size: 1rem;
+	color: #fff;
+}
+
+.series-chip-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.series-chip {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	padding: 0.45rem 0.65rem;
+	border-radius: 8px;
+	border: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.02);
+	color: inherit;
+	text-decoration: none;
+	text-align: left;
+	min-width: 170px;
+}
+
+.series-chip:hover {
+	border-color: var(--accent);
+}
+
+.series-chip-button {
+	font: inherit;
+	cursor: pointer;
+}
+
+.series-chip-type {
+	font-size: 0.72rem;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.series-chip-title {
+	font-size: 0.9rem;
+	color: var(--text-dim);
+}
+
+.series-note {
+	margin: 0 0 0.75rem 0;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+
+@media (max-width: 900px) {
+	.anime-detail {
+		flex-direction: column;
+		padding: 1.25rem;
+	}
+
+	.anime-detail img {
+		width: 100%;
+		max-width: 320px;
+		height: auto;
+	}
+
+	.series-chip {
+		min-width: 140px;
+	}
 }
 
 /* ===== LIST FILTERS ===== */
@@ -838,7 +1103,7 @@ a:hover {
 	font-size: 0.9rem;
 	color: var(--text-dim);
 	line-height: 1.5;
-	margin: 0.25rem 0;
+	margin: 0.25rem 0 0;
 }
 
 .anime-rec-item-reason {
@@ -846,6 +1111,20 @@ a:hover {
 	color: var(--accent);
 	font-weight: 600;
 	margin: 0.2rem 0;
+}
+
+.anime-rec-item-desc-toggle {
+	align-self: flex-start;
+	background: none;
+	border: none;
+	color: var(--accent);
+	font-size: 0.85rem;
+	padding: 0;
+	cursor: pointer;
+}
+
+.anime-rec-item-desc-toggle:hover {
+	text-decoration: underline;
 }
 
 .anime-rec-item-actions {
@@ -1057,6 +1336,16 @@ a:hover {
 	margin-bottom: 0.55rem;
 }
 
+.filter-advanced-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(220px, 1fr));
+	gap: 0.9rem;
+}
+
+.filter-advanced-grid.single {
+	grid-template-columns: 1fr;
+}
+
 .filter-advanced-field {
 	display: flex;
 	flex-direction: column;
@@ -1112,6 +1401,14 @@ a:hover {
 	color: #c0c4d2;
 	font-size: 0.86rem;
 	line-height: 1.35;
+}
+
+.filter-advanced-checkbox-field {
+	padding: 0.2rem 0 0;
+}
+
+.filter-advanced-switch-row {
+	margin-top: 0.1rem;
 }
 
 /* Similar mode seed chips */
@@ -1262,6 +1559,9 @@ a:hover {
 /* Results list */
 .smart-rec-results h2 {
 	margin-bottom: 1rem;
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
 }
 
 .smart-rec-results {
@@ -1270,7 +1570,45 @@ a:hover {
 	gap: 0.75rem;
 }
 
+.result-count-chip {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.2rem 0.55rem;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	font-size: 0.82rem;
+	font-weight: 600;
+	color: var(--text-muted);
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.smart-rec-helper {
+	padding: 0.5rem 0 1rem;
+	text-align: left;
+}
+
 @media (max-width: 900px) {
+	.home {
+		padding-top: 0.75rem;
+	}
+
+	.home-hero {
+		padding: 1.1rem 1rem;
+	}
+
+	.home h1 {
+		font-size: 2rem;
+	}
+
+	.home-subtitle {
+		font-size: 0.98rem;
+	}
+
+	.home-quick-grid {
+		grid-template-columns: 1fr;
+	}
+
 	.filter-toggle-grid {
 		grid-template-columns: repeat(2, minmax(130px, 1fr));
 	}
@@ -1286,5 +1624,9 @@ a:hover {
 
 	.filter-advanced-select {
 		font-size: 1.4rem;
+	}
+
+	.filter-advanced-grid {
+		grid-template-columns: 1fr;
 	}
 }

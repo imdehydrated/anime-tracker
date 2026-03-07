@@ -1,9 +1,13 @@
 import { api } from './client';
 
 // Public anime search/detail API contract.
-export async function searchAnime(query, filters = null) {
+export async function searchAnimePaged(query, filters = null, cursor = null, pageSize = 20) {
 	const params = new URLSearchParams();
 	params.set('q', query);
+	params.set('pageSize', String(Math.min(50, Math.max(1, Number.isFinite(pageSize) ? pageSize : 20))));
+	if (typeof cursor === 'string' && cursor.length > 0) {
+		params.set('cursor', cursor);
+	}
 
 	if (filters && typeof filters === 'object') {
 		const boolKeys = [
@@ -20,8 +24,13 @@ export async function searchAnime(query, filters = null) {
 		});
 	}
 
-	const { data } = await api.get(`/api/anime/search?${params.toString()}`);
-	return data;
+	const { data } = await api.get(`/api/anime/search/paged?${params.toString()}`);
+	return {
+		items: Array.isArray(data?.items) ? data.items : [],
+		nextCursor: typeof data?.nextCursor === 'string' ? data.nextCursor : null,
+		hasMore: Boolean(data?.hasMore),
+		diagnostics: data?.diagnostics || null,
+	};
 }
 
 export async function getAnimeById(id) {

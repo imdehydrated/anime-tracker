@@ -32,6 +32,7 @@ yarn-error.log*
 STUDY-GUIDE.md
 SUGGESTIONS.md
 EXECUTION-PLAN.md
+DEPLOYMENT.md
 
 # Scripts for development
 scripts/
@@ -56,6 +57,12 @@ notebooks/checkpoints/
 ml-models/
 references/
 notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
+
+# Local-only deployment artifacts (do not commit)
+infra/
+frontend/Dockerfile.prod
+frontend/nginx.conf
+ml-sidecar/Dockerfile.prod
 
 # Test JSON files for curl commands
 *.json

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.AnimeSearchPageResponse;
 import com.animetracker.exception.BadRequestException;
 import com.animetracker.exception.NotFoundException;
 import com.animetracker.service.AniListService;
@@ -34,7 +35,9 @@ public class AnimeSearchController {
             @RequestParam(required = false) Boolean includeMovies,
             @RequestParam(required = false) Boolean includeOnasOvasSpecials,
             @RequestParam(required = false) Boolean includeMusic,
-            @RequestParam(required = false) Boolean includeAdult) {
+            @RequestParam(required = false) Boolean includeAdult,
+            @RequestParam(required = false) Integer offset,
+            @RequestParam(required = false) Integer pageSize) {
         if (q == null || q.trim().isEmpty()) {
             throw new BadRequestException("Search query cannot be empty");
         }
@@ -44,12 +47,34 @@ public class AnimeSearchController {
                 includeOnasOvasSpecials,
                 includeMusic,
                 includeAdult);
-        return ResponseEntity.ok(aniListService.searchAnime(q.trim(), filters));
+        return ResponseEntity.ok(aniListService.searchAnime(q.trim(), filters, offset, pageSize));
+    }
+
+    @GetMapping("/search/paged")
+    public ResponseEntity<AnimeSearchPageResponse> searchAnimePaged(
+            @RequestParam String q,
+            @RequestParam(required = false) Boolean includeExtraSeasons,
+            @RequestParam(required = false) Boolean includeMovies,
+            @RequestParam(required = false) Boolean includeOnasOvasSpecials,
+            @RequestParam(required = false) Boolean includeMusic,
+            @RequestParam(required = false) Boolean includeAdult,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer pageSize) {
+        if (q == null || q.trim().isEmpty()) {
+            throw new BadRequestException("Search query cannot be empty");
+        }
+        AniListService.SearchFilters filters = AniListService.SearchFilters.fromNullable(
+                includeExtraSeasons,
+                includeMovies,
+                includeOnasOvasSpecials,
+                includeMusic,
+                includeAdult);
+        return ResponseEntity.ok(aniListService.searchAnimePaged(q.trim(), filters, cursor, pageSize));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<AniListResponse.AnimeInfo> getAnimeById(@PathVariable Integer id) {
-        AniListResponse.AnimeInfo anime = aniListService.getAnimeById(id);
+        AniListResponse.AnimeInfo anime = aniListService.getAnimeByIdWithRelations(id);
         if (anime == null) {
             throw new NotFoundException("Anime not found");
         }

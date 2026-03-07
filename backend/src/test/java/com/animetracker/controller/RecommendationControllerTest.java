@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Map;
+import java.lang.reflect.Field;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -22,9 +23,11 @@ import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.RecommendationPageResponse;
 import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.dto.SemanticRequest;
+import com.animetracker.exception.NotFoundException;
 import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.service.CustomEmbeddingImportService;
 import com.animetracker.service.SemanticRecommendationService;
@@ -40,42 +43,6 @@ class RecommendationControllerTest {
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
-    }
-
-    @Test
-    void semanticEndpoint_returnsLegacyAnimeShape() {
-        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
-        SemanticRequest request = new SemanticRequest();
-        request.setMode("semantic");
-        request.setLimit(5);
-
-        AniListResponse.AnimeInfo anime = animeInfo(101);
-        RecommendationResponse scored = new RecommendationResponse(anime, 0.82, List.of(RecommendationResponse.MATCHES_QUERY));
-        when(semanticService.recommend(
-                isNull(),
-                nullable(List.class),
-                nullable(String.class),
-                anyInt(),
-                anyBoolean(),
-                nullable(Float.class),
-                nullable(String.class),
-                nullable(SemanticRequest.Filters.class)))
-                .thenReturn(List.of(scored));
-
-        ResponseEntity<List<AniListResponse.AnimeInfo>> response = controller.getSemanticRecommendations(request);
-
-        assertEquals(200, response.getStatusCode().value());
-        assertEquals(1, response.getBody().size());
-        assertEquals(101, response.getBody().get(0).getId());
-        verify(semanticService).recommend(
-                isNull(),
-                nullable(List.class),
-                nullable(String.class),
-                anyInt(),
-                anyBoolean(),
-                nullable(Float.class),
-                nullable(String.class),
-                nullable(SemanticRequest.Filters.class));
     }
 
     @Test
@@ -116,16 +83,90 @@ class RecommendationControllerTest {
     }
 
     @Test
-    void populationFailureReport_requiresAuth() {
+    void semanticScoredPagedEndpoint_returnsPagedShape() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        SemanticRequest request = new SemanticRequest();
+        request.setMode("semantic");
+        request.setLimit(20);
+        request.setPageSize(10);
+        request.setCursor(null);
+
+        AniListResponse.AnimeInfo anime = animeInfo(303);
+        RecommendationResponse scored = new RecommendationResponse(anime, 0.74, List.of(RecommendationResponse.MATCHES_QUERY));
+        RecommendationPageResponse page = new RecommendationPageResponse(
+                List.of(scored),
+                "next-cursor",
+                true,
+                Map.of("offset", 0));
+        when(semanticService.recommendPaged(
+                isNull(),
+                nullable(List.class),
+                nullable(String.class),
+                nullable(Integer.class),
+                anyBoolean(),
+                nullable(Float.class),
+                nullable(String.class),
+                nullable(SemanticRequest.Filters.class),
+                nullable(String.class),
+                nullable(Integer.class)))
+                .thenReturn(page);
+
+        ResponseEntity<RecommendationPageResponse> response = controller.getSemanticRecommendationsScoredPaged(request);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(1, response.getBody().getItems().size());
+        assertEquals(303, response.getBody().getItems().get(0).getAnime().getId());
+        assertEquals("next-cursor", response.getBody().getNextCursor());
+        assertEquals(true, response.getBody().isHasMore());
+        verify(semanticService).recommendPaged(
+                isNull(),
+                nullable(List.class),
+                nullable(String.class),
+                nullable(Integer.class),
+                anyBoolean(),
+                nullable(Float.class),
+                nullable(String.class),
+                nullable(SemanticRequest.Filters.class),
+                nullable(String.class),
+                nullable(Integer.class));
+    }
+
+    @Test
+    void populateFullCatalogEmbeddings_blockedWhenOpsDisabled() {
         RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
         assertThrows(
-                UnauthorizedException.class,
+                NotFoundException.class,
+                () -> controller.populateFullCatalogEmbeddings(10, 50));
+    }
+
+    @Test
+    void populateFullCatalogEmbeddings_returnsStatsWhenAuthenticated() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        enableManualOpsEndpoints(controller);
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
+
+        Map<String, Object> stats = Map.of("embedded", 100, "failed", 0);
+        when(semanticService.populateFullCatalogEmbeddings(10, 50)).thenReturn(stats);
+
+        ResponseEntity<Map<String, Object>> response = controller.populateFullCatalogEmbeddings(10, 50);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("Full catalog embedding population completed", response.getBody().get("message"));
+        verify(semanticService).populateFullCatalogEmbeddings(10, 50);
+    }
+
+    @Test
+    void populationFailureReport_blockedWhenOpsDisabled() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        assertThrows(
+                NotFoundException.class,
                 () -> controller.getPopulationFailures(null, null, 100));
     }
 
     @Test
     void populationFailureReport_returnsStatsWhenAuthenticated() {
         RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        enableManualOpsEndpoints(controller);
         SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
 
         Map<String, Object> stats = Map.of("summary", Map.of("open", 3));
@@ -139,16 +180,17 @@ class RecommendationControllerTest {
     }
 
     @Test
-    void retryPopulationFailures_requiresAuth() {
+    void retryPopulationFailures_blockedWhenOpsDisabled() {
         RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
         assertThrows(
-                UnauthorizedException.class,
+                NotFoundException.class,
                 () -> controller.retryPopulationFailures("active_catalog", 20));
     }
 
     @Test
     void retryPopulationFailures_returnsStatsWhenAuthenticated() {
         RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        enableManualOpsEndpoints(controller);
         SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
 
         Map<String, Object> stats = Map.of("attempted", 5, "recovered", 4);
@@ -159,6 +201,30 @@ class RecommendationControllerTest {
         assertEquals(200, response.getStatusCode().value());
         assertEquals("Population failure retry completed", response.getBody().get("message"));
         verify(semanticService).retryPopulationFailures("active_catalog", 20);
+    }
+
+    @Test
+    void rebuildRelationGraph_blockedWhenOpsDisabled() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        assertThrows(
+                NotFoundException.class,
+                controller::rebuildRelationGraph);
+    }
+
+    @Test
+    void rebuildRelationGraph_returnsStatsWhenAuthenticated() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        enableManualOpsEndpoints(controller);
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("tester", "pw", "ROLE_USER"));
+
+        Map<String, Object> stats = Map.of("edgesBefore", 1000, "edgesAfter", 2000, "inserted", 2000, "animeWithEdges", 800);
+        when(semanticService.rebuildRelationGraphFromCatalog()).thenReturn(stats);
+
+        ResponseEntity<Map<String, Object>> response = controller.rebuildRelationGraph();
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("Relation graph rebuild completed", response.getBody().get("message"));
+        verify(semanticService).rebuildRelationGraphFromCatalog();
     }
 
     @Test
@@ -215,5 +281,15 @@ class RecommendationControllerTest {
         title.setRomaji("Anime " + anilistId);
         anime.setTitle(title);
         return anime;
+    }
+
+    private void enableManualOpsEndpoints(RecommendationController controller) {
+        try {
+            Field field = RecommendationController.class.getDeclaredField("manualOpsEndpointsEnabled");
+            field.setAccessible(true);
+            field.set(controller, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

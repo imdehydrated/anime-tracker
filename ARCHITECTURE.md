@@ -8,7 +8,7 @@ This document explains how AniRec is structured, why it is structured this way, 
 
 AniRec is a four-service system:
 
-1. `frontend/` (React SPA)
+1. `frontend/` (React SPA with Vite tooling)
 2. `backend/` (Spring Boot API)
 3. `db/` (PostgreSQL + pgvector)
 4. `ml-sidecar/` (FastAPI model-serving runtime)
@@ -18,6 +18,8 @@ The separation is intentional:
 - Sidecar owns model inference concerns (embedding/rerank/CF prediction).
 - Database owns durable state and vector/lexical retrieval indexes.
 - Frontend owns user interaction and view-state behavior.
+  - frontend `AuthContext` decodes JWT `sub` for lightweight username personalization without extra profile round-trips.
+  - recommendation/search pages use request-sequence guards so stale async responses cannot overwrite newer user-triggered results.
 
 This keeps model iteration decoupled from core API lifecycle and allows independent scaling/failure handling.
 
@@ -25,7 +27,7 @@ This keeps model iteration decoupled from core API lifecycle and allows independ
 
 Top-level:
 - `backend/`: Spring Boot code and DB migrations
-- `frontend/`: React app
+- `frontend/`: React app (Vite-powered dev/build)
 - `ml-sidecar/`: FastAPI semantic + CF model serving
 - `ml-models/`: exported model artifacts mounted into sidecar
 - `notebooks/`: data prep, training, export, eval, promotion gate tooling
@@ -79,8 +81,10 @@ Owns all AniList GraphQL calls:
 - active-catalog paging
 
 It includes request pacing, retries, and short-lived cache.
+AniList media queries are intentionally broad and include extra metadata fields not currently used by ranking so the catalog can be future-proofed without rescraping narrow payloads.
 Search also applies a metadata quality gate on local-first results: when critical card fields are missing (for example cover/title/genres), it performs one upstream search fetch, merges missing fields before returning/caching, backfills improved metadata into the local catalog, and applies a bounded per-item ID hydration pass for remaining incomplete rows.
 `/api/anime/search` additionally applies the same format/safety controls used by recommendation filtering (`includeExtraSeasons`, `includeMovies`, `includeOnasOvasSpecials`, `includeMusic`, `includeAdult`), and cache keys include both query and filter fingerprint so toggles do not reuse stale cached result sets.
+Detail relation payloads are catalog-scoped: related entries not present in `anime_catalog` (for example manga-only adaptation nodes) are filtered out before response serialization.
 
 Design reason:
 - external API reliability policy belongs in one integration service, not spread across features.
@@ -92,6 +96,8 @@ Runs tiered metadata refresh jobs:
 - hot popular window (6h cadence)
 - daily active-catalog rotation (cursor-based)
 - weekly deep sweep (resume-safe)
+- optional weekly full-catalog rolling refresh (cursor-based, page-budgeted)
+- optional weekly relation-graph rebuild from local catalog metadata (no AniList calls)
 
 State is persisted in `anilist_sync_state` so jobs resume across restarts and avoid restarting from page 1 each run.
 Scheduler adjusts page budgets downward when AniList rate-limit pressure is detected (429/retry-heavy windows), then recovers gradually on clean runs.
@@ -114,9 +120,16 @@ Design reason:
 
 ### `AnimeEmbeddingPopulatorService`
 
-Generates embeddings by pulling AniList metadata and calling sidecar embedding:
-- legacy popularity-based population
-- active-catalog population by format filters
+Syncs canonical catalog metadata and then generates embeddings:
+- single full-catalog population path for deployment bootstrap and refresh (`populate-full-catalog`)
+  - manual and scheduled runs share one cursor via `anilist_sync_state` source `catalog_populate`
+  - full-catalog path supports early stop after consecutive unchanged pages to avoid unnecessary full rescans
+
+Each refresh persists:
+- canonical metadata row in `anime_catalog`
+- full media payload JSON (`metadata_json`) for future-proof fields
+- relation edges in `anime_relation_graph`
+- vector artifacts in `anime_embeddings` (only as embedding layer)
 
 Design reason:
 - long-running embedding expansion workflow stays out of request path and remains operationally triggerable.
@@ -141,29 +154,43 @@ Anime list:
 - `POST /api/users/list`
 - `PUT /api/users/list/{id}`
 - `DELETE /api/users/list/{id}`
+- `POST /api/users/list/import/anilist?username=...&dryRun=...`
+- `POST /api/users/list/import/mal?username=...&dryRun=...`
 
 Anime lookup:
 - `GET /api/anime/search`
 - `GET /api/anime/{id}`
 
 Recommendations:
-- `POST /api/users/recommendations/semantic` (legacy payload shape)
 - `POST /api/users/recommendations/semantic/scored` (scored payload)
+- `POST /api/users/recommendations/semantic/scored/paged`
 - `POST /api/users/recommendations/feedback`
 - `GET /api/users/recommendations/feedback`
 - `DELETE /api/users/recommendations/feedback/{id}`
 - `POST /api/users/recommendations/custom-embeddings/import`
 - `POST /api/users/recommendations/custom-embeddings/populate-active-catalog`
+- `POST /api/users/recommendations/custom-embeddings/populate-full-catalog`
 - `GET /api/users/recommendations/custom-embeddings/population-failures`
 - `POST /api/users/recommendations/custom-embeddings/population-failures/retry`
+- `POST /api/users/recommendations/custom-embeddings/rebuild-relation-graph`
 
 Health:
 - `GET /api/health`
 
 Contract choice:
-- both legacy and scored recommendation endpoints are kept to avoid breaking existing frontend/backward callers during iterative ranking upgrades.
+- `/semantic/scored` is the primary recommendation endpoint for frontend/runtime use.
+- `/semantic/scored/paged` is the lazy-loading contract and supports a capped ranked window of 100 items per request context.
 - recommendation payloads may include optional scoring diagnostics (for example query relevance, taste overlap score, popularity prior, and guardrail flag) without breaking existing clients.
 - feedback signals are backend-owned and persisted; frontend acts as a thin signal client.
+- username import endpoints are authenticated and additive:
+  - AniList import maps AniList list entries directly by `anilist_id`
+  - MAL import uses official MAL v2 API (`api.myanimelist.net/v2`) with `X-MAL-CLIENT-ID` and resolves `mal_id -> anilist_id` through local `anime_catalog`
+  - import is add-only: existing user rows are skipped (not overwritten)
+  - imported rows include normalized source score/progress/status where available
+  - dry-run mode reports import deltas without mutating user list rows
+- manual ops endpoints (import/populate/failure-retry) are gated for operational use:
+  - disabled by default (`RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=false`)
+  - optional `X-Ops-Token` second factor (`RECOMMENDATIONS_OPS_TOKEN`)
 - request payload can include additive global controls under `filters`:
   - `includeExtraSeasons`
   - `includeMovies`
@@ -181,23 +208,42 @@ All recommendation requests use the same DTO with `mode`.
 Query-first semantic retrieval pipeline:
 1. Normalize query text and expand shorthand terms.
 2. Embed query through sidecar custom model.
-3. Retrieve vector candidates from pgvector (`default pool=140`).
-4. Retrieve lexical candidates from full-text + trigram indexes (`default pool=60`).
-5. Merge candidates with reciprocal-rank-fusion (`default merged pool=140`).
-6. Optionally rerank top candidates in sidecar.
-7. Optionally run deterministic second-pass lexical expansion for broad/ambiguous queries (RAG-lite).
-8. Apply score calibration.
-9. Apply explicit semantic score blend:
+3. If early candidate pools are too small, run bounded local-catalog seeding (embed missing local catalog matches on-demand, no AniList HTTP calls).
+4. Retrieve vector candidates from pgvector (`default pool=140`).
+5. Retrieve lexical candidates from full-text + trigram indexes (`default pool=60`).
+6. Merge candidates with reciprocal-rank-fusion (`default merged pool=140`).
+7. Optionally rerank top candidates in sidecar.
+8. Optionally run deterministic second-pass lexical expansion for broad/ambiguous queries (RAG-lite).
+9. Apply score calibration.
+10. Apply explicit semantic score blend:
    - logged-in: `0.70*query + 0.20*taste + 0.10*popularity`
    - logged-out: `0.85*query + 0.15*popularity`
-10. Apply relevance guardrail (suppress taste and cap popularity for low-relevance hits).
-11. Apply global controls filter pass (adult safety + format controls + popularity attenuation).
+   - Smart Search UI can disable list blending per request (`listWeight=0.0`) via advanced `Use List Personalization` switch.
+11. Apply relevance guardrail (suppress taste and cap popularity for low-relevance hits).
+12. Apply semantic quality gate for low-signal catalog rows:
+   - default gate suppresses rows with weak metadata/quality (`score`, `popularity`) unless query relevance clears high-confidence override.
+13. Apply global controls filter pass (adult safety + format controls + popularity attenuation).
     - candidate pool sizing is automatically overfetched when restrictive controls are active.
     - if default controls underfill results, backend applies a safe fallback that relaxes format filters only (adult safety remains enforced).
-12. Apply franchise/special dedupe.
-13. Build explanation metadata.
-14. Cache successful semantic responses in backend in-memory LRU (6h TTL) using a fingerprinted key:
+14. Apply franchise/special dedupe.
+15. Build deterministic explanation metadata for every item:
+   - mode-aware template path (`semantic`, `similar`, `cf`)
+   - evidence slots from available signals:
+     - query theme matches
+     - seed/title anchors
+     - taste-genre overlap
+     - audience-signal fallback when evidence is sparse
+   - similar-mode explanation anchors are franchise-filtered to avoid tautological lines like recommending `Haikyuu!!` because of `Haikyuu!!`.
+   - optional LLM rewrite layer is best-effort only; deterministic sentence is the baseline.
+16. Cache successful semantic responses in backend in-memory LRU (6h TTL) using a fingerprinted key:
    - mode, normalized query, limit, top-k, auth state, user profile fingerprint, model fingerprint, embeddings fingerprint.
+17. Lazy-loaded pages keep metadata complete through local catalog-first hydration (`anime_catalog` before legacy embedding-row fallback), so later pages do not regress to sparse card fields.
+
+Filter logic consistency:
+- filter heuristics (adult/movie/ONA-OVA-special/music) are centralized in `AnimeFilterPolicy`.
+- extra-season detection uses relation graph signals (`anime_relation_graph` prequel/parent edges) rather than title-pattern matching.
+- entrypoint remap for excluded sequel/special candidates is graph-only (`resolveEntrypoint`), so remap behavior is deterministic and tied to catalog graph freshness instead of per-row relation fallback traversal.
+- candidate sizing is centralized in `RecommendationCandidateTuning` so search/recommendation pools are tuned from one config source.
    - controls fingerprint (prevents stale cached responses when filter toggles change).
 
 Design reason:
@@ -207,7 +253,8 @@ Design reason:
 
 Seed-first similarity retrieval:
 - build centroid from seed embeddings
-- optional user-taste scoring contribution (no CF overlap blend)
+- if pool underfills, run bounded local-catalog seeding from seed-title lookups to embed missing local candidates (no AniList HTTP calls)
+- optional user-taste scoring contribution (no CF overlap blend), controlled by advanced `Use List Personalization` switch in Similar Shows UI
 - retrieve + rerank similar items
 
 Design reason:
@@ -218,6 +265,7 @@ Design reason:
 Collaborative filtering only:
 - sidecar predicts scores for unseen items from user ratings
 - backend hydrates metadata
+- for cold-start users (or empty sidecar CF response), backend falls back to popularity-ranked local catalog candidates and still applies standard recommendation controls/explanations
 
 Design reason:
 - pure behavior mode simplifies debugging CF quality independent of semantic retrieval.
@@ -244,6 +292,7 @@ Semantic scoring uses a lightweight hybrid blend rather than graph/PageRank:
 4. Guardrails reduce or suppress taste/popularity boosts when query relevance is low.
 5. Query expansion stage is deterministic and bounded (token caps + confidence gate), not LLM-dependent.
 6. Semantic and similar paths do not blend with CF overlap in the current runtime policy.
+7. Runtime recommendation/search traffic is local-DB only; AniList HTTP calls are reserved for explicit population/sync paths.
 
 Design reason:
 - this keeps ranking transparent and tunable while avoiding heavy graph artifact dependencies.
@@ -264,12 +313,17 @@ Design reason:
 
 ## Data Layer and Indexing
 
-Main semantic table: `anime_embeddings`
-- metadata fields (title/genres/description/etc.)
-- `anilist_popularity` used by popularity prior
+Canonical catalog table: `anime_catalog`
+- full AniList-backed metadata row per `anilist_id`
+- `metadata_json` stores broad upstream payload for forward compatibility
+- `metadata_refreshed_at` and `metadata_fingerprint` track catalog freshness
+
+Embedding artifact table: `anime_embeddings`
+- vector-serving layer for retrieval/rerank
 - `embedding` (legacy 1536-dim)
 - `embedding_custom` (authoritative 384-dim custom vector)
-- `metadata_refreshed_at` and `metadata_fingerprint` drive idempotent metadata refresh and selective re-embedding
+- carries denormalized card fields for serving efficiency, but source of truth is `anime_catalog`
+- `metadata_fingerprint` drives selective re-embedding instead of full rewrites
 
 Metadata sync state table: `anilist_sync_state`
 - `source_key`
@@ -303,6 +357,7 @@ Canonical artifact:
 - Export joins `notebooks/data/corpus.jsonl` + `notebooks/data/anilist_anime.jsonl` so runtime import receives score/popularity/alias/tag metadata consistently.
 
 Indexes:
+- trigram + full-text indexes on `anime_catalog` for local-first search without runtime AniList calls
 - pgvector IVF for nearest-neighbor retrieval
 - trigram index for title fuzzy matching
 - full-text GIN index over title + genres + description
@@ -314,12 +369,16 @@ Design reason:
 
 Structure:
 - `src/api/`: backend client modules (`authApi`, `animeApi`, `listApi`, `recommendationsApi`)
+  - client base-url resolution supports both `VITE_API_URL` (primary) and legacy `REACT_APP_API_URL` (compat fallback)
 - `src/context/AuthContext.js`: auth state
 - `src/components/`: reusable UI (`RequireAuth`, cards, rec item, feedback modal)
 - `src/components/FilterControlPanel.js`: shared Sprout-style filter toggle UI for recommendation/search pages
   - recommendation pages use the same component to render a dedicated advanced popularity-attenuation selector with explanatory helper text
 - `src/hooks/`: reusable state flows (`useDebounceSearch`, feedback/add-to-list hooks)
 - `src/pages/`: route pages (`Home`, `Search`, `MyList`, `SmartRec`, etc.)
+  - `Home` provides quick-entry routing into Smart Search, Similar, and For You flows.
+  - `AnimeDetail` renders normalized text descriptions and relation-driven series navigation links (with local relation-graph hydration + search-cluster fallback when explicit relations are missing)
+  - recommendation list cards render collapsed descriptions with per-card expand/collapse controls
 
 Design reason:
 - API access is centralized to avoid duplicated request logic and simplify auth/header/error behavior.
@@ -365,7 +424,7 @@ Config sources:
 Important knobs:
 - semantic retrieval fusion and rerank toggles
 - semantic query/taste/popularity blend weights and guardrail thresholds
-- explanation provider controls
+- explanation provider controls + deterministic explanation quality defaults
 - startup custom embedding auto-sync
 
 Design reason:
@@ -377,8 +436,35 @@ Key decisions:
 - AniList retries + pacing + caches to reduce external API fragility.
 - sidecar communication forced to HTTP/1.1 for stability.
 - metadata hydration deferred to final list where possible.
+- control filtering now uses an adaptive per-response metadata-hydration budget (with config floor/hard-cap) for format/adult/relation checks so movie/special/season toggles remain reliable on sparse rows and larger candidate pools.
+- CF mode uses a stricter dedicated hydration cap and a per-request failure circuit breaker to reduce AniList 429 bursts during repeated For You requests.
 - semantic dedupe to reduce low-value near-duplicate franchise results.
 - popularity prior is guardrailed so query intent remains primary.
+
+## AWS Production Topology (Container-First)
+
+Deployment baseline is container-first and mirrors local service boundaries:
+
+1. `animetracker-api` ECS/Fargate service:
+   - one task with `backend` + `ml-sidecar`
+   - `ml-sidecar` is private and accessed from backend via `http://127.0.0.1:5000`
+2. `animetracker-web` ECS/Fargate service:
+   - one task serving React build via Nginx
+3. ALB path routing:
+   - `/api/*` -> API target group (backend)
+   - default route -> web target group (frontend)
+4. RDS PostgreSQL in private subnets
+5. ECR registries for backend/frontend/sidecar images
+
+Security hardening defaults:
+
+- TLS-only ingress (ACM cert + HTTP->HTTPS redirect)
+- private ECS task networking and private RDS
+- least-privilege IAM for deploy/runtime roles
+- OIDC-based GitHub Actions authentication (no static AWS keys)
+- Secrets Manager for sensitive runtime values (`JWT_SECRET`, DB creds, ops token, MAL/OpenAI secrets)
+- ECR scan-on-push + CI Trivy fail-on-critical gate
+- production default `RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=false`; temporary enabling should require ops token and network restriction
 
 ## How to Extend Safely
 

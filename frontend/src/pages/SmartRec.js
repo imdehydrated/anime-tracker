@@ -1,27 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import AnimeRecItem from '../components/AnimeRecItem';
 import FeedbackModal from '../components/FeedbackModal';
 import { useAuth } from '../context/AuthContext';
 import { getApiError } from '../api/client';
 import { getUserList } from '../api/listApi';
-import { getSemanticRecommendations } from '../api/recommendationsApi';
+import { getSemanticRecommendationsPaged } from '../api/recommendationsApi';
 import { useAddToList } from '../hooks/useAddToList';
 import { useDebounceSearch } from '../hooks/useDebounceSearch';
 import { useRecommendationFeedback } from '../hooks/useRecommendationFeedback';
+import {
+	useRecommendationFilters,
+	RECOMMENDATION_FILTER_DEFAULTS,
+} from '../hooks/useRecommendationFilters';
 import FilterControlPanel from '../components/FilterControlPanel';
-import { ReactComponent as ThumbUpIcon } from '../assets/thumb-up.svg';
-import { ReactComponent as ThumbDownIcon } from '../assets/thumb-down.svg';
+import ThumbUpIcon from '../assets/thumb-up.svg?react';
+import ThumbDownIcon from '../assets/thumb-down.svg?react';
+import { useLocation } from 'react-router-dom';
 
 const MAX_SEEDS = 5;
-const SMART_REC_STATE_KEY = 'smart_rec_page_state_v2';
+const PAGE_SIZE = 15;
+const MAX_RESULTS = 100;
+const SMART_REC_STATE_KEY = 'smart_rec_page_state_v5';
 const SIMILAR_LIST_WEIGHT_WHEN_ENABLED = 0.25;
-const DEFAULT_GLOBAL_FILTERS = {
-	includeExtraSeasons: false,
-	includeMovies: false,
-	includeOnasOvasSpecials: false,
-	includeMusic: false,
+const SEED_SEARCH_FILTERS = {
+	includeExtraSeasons: true,
+	includeMovies: true,
+	includeOnasOvasSpecials: true,
+	includeMusic: true,
 	includeAdult: false,
-	popularityAttenuation: 'medium',
 };
 
 /**
@@ -37,16 +43,24 @@ const MODES = [
 ];
 
 function SmartRec() {
+	const location = useLocation();
 	const [mode, setMode] = useState('semantic');
 	const [seeds, setSeeds] = useState([]);
 	const [context, setContext] = useState('');
+	const [semanticUseList, setSemanticUseList] = useState(true);
 	const [similarUseList, setSimilarUseList] = useState(false);
-	const [filters, setFilters] = useState(DEFAULT_GLOBAL_FILTERS);
+	const { filters, setFilters, hydrateFilters, refreshNonce } = useRecommendationFilters(RECOMMENDATION_FILTER_DEFAULTS);
 	const [results, setResults] = useState([]);
+	const [hasRequested, setHasRequested] = useState(false);
 	const [searching, setSearching] = useState(false);
+	const [loadingMore, setLoadingMore] = useState(false);
 	const [searchError, setSearchError] = useState('');
+	const [nextCursor, setNextCursor] = useState(null);
+	const [hasMore, setHasMore] = useState(false);
 	const [addedIds, setAddedIds] = useState(new Set());
 	const [hydrated, setHydrated] = useState(false);
+	const requestSeqRef = useRef(0);
+	const activeRequestSeqRef = useRef(0);
 
 	const { isLoggedIn } = useAuth();
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
@@ -56,10 +70,23 @@ function SmartRec() {
 		results: suggestions,
 		loading: suggestionsLoading,
 		clearResults,
-	} = useDebounceSearch(300, 2);
+	} = useDebounceSearch(220, 2, 12, SEED_SEARCH_FILTERS);
 
 	const [userListIds, setUserListIds] = useState(new Set());
 	const feedback = useRecommendationFeedback(setError, isLoggedIn);
+
+	const issueRequestSeq = useCallback(() => {
+		const nextSeq = requestSeqRef.current + 1;
+		requestSeqRef.current = nextSeq;
+		activeRequestSeqRef.current = nextSeq;
+		return nextSeq;
+	}, []);
+
+	const invalidatePendingRequests = useCallback(() => {
+		const nextSeq = requestSeqRef.current + 1;
+		requestSeqRef.current = nextSeq;
+		activeRequestSeqRef.current = nextSeq;
+	}, []);
 
 	useEffect(() => {
 		try {
@@ -69,19 +96,48 @@ function SmartRec() {
 			if (parsed.mode) setMode(parsed.mode);
 			if (Array.isArray(parsed.seeds)) setSeeds(parsed.seeds);
 			if (typeof parsed.context === 'string') setContext(parsed.context);
+			if (typeof parsed.semanticUseList === 'boolean') setSemanticUseList(parsed.semanticUseList);
 			if (typeof parsed.similarUseList === 'boolean') setSimilarUseList(parsed.similarUseList);
 			if (parsed.filters && typeof parsed.filters === 'object') {
-				setFilters((prev) => ({ ...prev, ...parsed.filters }));
+				hydrateFilters(parsed.filters);
 			}
 			if (Array.isArray(parsed.results)) setResults(parsed.results);
 			if (Array.isArray(parsed.addedIds)) setAddedIds(new Set(parsed.addedIds));
 			if (typeof parsed.searchError === 'string') setSearchError(parsed.searchError);
+			if (typeof parsed.nextCursor === 'string') setNextCursor(parsed.nextCursor);
+			if (typeof parsed.hasMore === 'boolean') setHasMore(parsed.hasMore);
 		} catch {
 			// Ignore corrupted cache and continue with defaults.
 		} finally {
 			setHydrated(true);
 		}
-	}, []);
+	}, [hydrateFilters]);
+
+	useEffect(() => {
+		const prefillMode = location.state?.prefillMode;
+		const prefillContext = location.state?.prefillContext;
+		let modeChanged = false;
+		if (typeof prefillMode === 'string' && ['semantic', 'similar', 'cf'].includes(prefillMode)) {
+			if (!(prefillMode === 'cf' && !isLoggedIn)) {
+				setMode(prefillMode);
+				modeChanged = true;
+			}
+		}
+		if (typeof prefillContext === 'string' && prefillContext.trim().length > 0) {
+			setContext(prefillContext.trim());
+			modeChanged = true;
+		}
+			if (modeChanged) {
+				invalidatePendingRequests();
+				setResults([]);
+				setHasRequested(false);
+				setSearching(false);
+				setLoadingMore(false);
+				setSearchError('');
+				setNextCursor(null);
+				setHasMore(false);
+			}
+		}, [location.state, isLoggedIn, invalidatePendingRequests]);
 
 	useEffect(() => {
 		if (!hydrated) return;
@@ -89,9 +145,12 @@ function SmartRec() {
 			mode,
 			seeds,
 			context,
+			semanticUseList,
 			similarUseList,
 			filters,
 			results,
+			nextCursor,
+			hasMore,
 			addedIds: Array.from(addedIds),
 			searchError,
 		}));
@@ -100,19 +159,27 @@ function SmartRec() {
 		mode,
 		seeds,
 		context,
+		semanticUseList,
 		similarUseList,
 		filters,
 		results,
+		nextCursor,
+		hasMore,
 		addedIds,
 		searchError
 	]);
 
 	useEffect(() => {
 		if (!isLoggedIn && mode === 'cf') {
+			invalidatePendingRequests();
 			setMode('semantic');
 			setResults([]);
+			setSearching(false);
+			setLoadingMore(false);
+			setNextCursor(null);
+			setHasMore(false);
 		}
-	}, [isLoggedIn, mode]);
+	}, [isLoggedIn, mode, invalidatePendingRequests]);
 
 	useEffect(() => {
 		if (isLoggedIn) {
@@ -140,38 +207,98 @@ function SmartRec() {
 		: isSimilarMode
 			? seeds.length > 0
 			: context.trim().length > 0;
+	const readinessHint = isCfMode
+		? ''
+		: isSimilarMode
+			? 'Add at least 1 seed anime to run Similar Shows.'
+			: 'Describe what you want to run Smart Search.';
+
+	const buildSearchBody = (cursorValue = null) => {
+		const body = { mode, pageSize: PAGE_SIZE, cursor: cursorValue, limit: MAX_RESULTS };
+		if (isSimilarMode) {
+			body.seedIds = seeds.map((seed) => seed.id);
+			if (isLoggedIn && similarUseList) {
+				body.listWeight = SIMILAR_LIST_WEIGHT_WHEN_ENABLED;
+			}
+		} else if (!isCfMode) {
+			body.query = context.trim() || null;
+			if (isLoggedIn && !semanticUseList) {
+				body.listWeight = 0.0;
+			}
+		}
+		if (isCfMode) {
+			body.useListOnly = true;
+		}
+		body.filters = filters;
+		return body;
+	};
 
 	const handleSearch = async () => {
 		if (!canSearch) return;
+		const requestSeq = issueRequestSeq();
 
+		setHasRequested(true);
 		setSearching(true);
+		setLoadingMore(false);
 		setSearchError('');
 		clearMessages();
+		setNextCursor(null);
+		setHasMore(false);
 
 		try {
-			const body = { limit: 15, mode };
-
-			if (isSimilarMode) {
-				body.seedIds = seeds.map((seed) => seed.id);
-				if (isLoggedIn && similarUseList) {
-					body.listWeight = SIMILAR_LIST_WEIGHT_WHEN_ENABLED;
-				}
-			} else if (!isCfMode) {
-				body.query = context.trim() || null;
-			}
-			if (isCfMode) {
-				body.useListOnly = true;
-			}
-			body.filters = filters;
-
-			const data = await getSemanticRecommendations(body);
-			setResults(data);
+			const page = await getSemanticRecommendationsPaged(buildSearchBody(null));
+			if (activeRequestSeqRef.current !== requestSeq) return;
+			setResults(Array.isArray(page.items) ? page.items : []);
+			setNextCursor(page.nextCursor || null);
+			setHasMore(Boolean(page.hasMore));
 		} catch (err) {
+			if (activeRequestSeqRef.current !== requestSeq) return;
 			setSearchError(getApiError(err, 'Search failed. Try again.'));
 		} finally {
+			if (activeRequestSeqRef.current !== requestSeq) return;
 			setSearching(false);
 		}
 	};
+
+	const handleLoadMore = async () => {
+		if (!canSearch || !nextCursor || loadingMore || results.length >= MAX_RESULTS) return;
+		const requestSeq = issueRequestSeq();
+
+		setLoadingMore(true);
+		setSearchError('');
+		try {
+			const page = await getSemanticRecommendationsPaged(buildSearchBody(nextCursor));
+			if (activeRequestSeqRef.current !== requestSeq) return;
+			const newItems = Array.isArray(page.items) ? page.items : [];
+			setResults((prev) => {
+				const byId = new Map(prev.map((item) => [item.id, item]));
+				newItems.forEach((item) => byId.set(item.id, item));
+				return Array.from(byId.values());
+			});
+			setNextCursor(page.nextCursor || null);
+			setHasMore(Boolean(page.hasMore));
+		} catch (err) {
+			if (activeRequestSeqRef.current !== requestSeq) return;
+			setSearchError(getApiError(err, 'Failed to load more results.'));
+		} finally {
+			if (activeRequestSeqRef.current !== requestSeq) return;
+			setLoadingMore(false);
+		}
+	};
+
+	useEffect(() => {
+		if (!hydrated) return;
+		if (refreshNonce === 0) return;
+		if (!canSearch) {
+			invalidatePendingRequests();
+			setResults([]);
+			setSearching(false);
+			setLoadingMore(false);
+			return;
+		}
+		handleSearch();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [refreshNonce]);
 
 	const handleAddToList = async (anime) => {
 		const success = await addToList(anime);
@@ -198,11 +325,17 @@ function SmartRec() {
 						<button
 							key={key}
 							className={`smart-rec-mode-tab${mode === key ? ' active' : ''}`}
-							onClick={() => {
-								setMode(key);
-								setResults([]);
-								setSearchError('');
-							}}
+								onClick={() => {
+									invalidatePendingRequests();
+									setMode(key);
+									setResults([]);
+									setHasRequested(false);
+									setSearching(false);
+									setLoadingMore(false);
+									setNextCursor(null);
+									setHasMore(false);
+									setSearchError('');
+								}}
 						>
 							{label}
 						</button>
@@ -233,7 +366,9 @@ function SmartRec() {
 							value={query}
 							onChange={(e) => setQuery(e.target.value)}
 						/>
-						{suggestionsLoading && <div className="seed-dropdown-loading">Searching...</div>}
+						{suggestionsLoading && suggestions.length === 0 && (
+							<div className="seed-dropdown-loading">Searching...</div>
+						)}
 						{suggestions.length > 0 && (
 							<div className="seed-dropdown">
 								{suggestions.map((anime) => {
@@ -280,35 +415,28 @@ function SmartRec() {
 			</div>
 			)}
 
-			{isLoggedIn && isSimilarMode && (
-				<div className="smart-rec-section">
-					<label className="smart-rec-label">
-						<input
-							type="checkbox"
-							checked={similarUseList}
-							onChange={(e) => setSimilarUseList(e.target.checked)}
-						/>{' '}
-						Use shows on my list to personalize
-					</label>
-					<p className="smart-rec-slider-hint">
-						When enabled, Similar Shows blends your seed picks with your list profile at a fixed personalization strength.
-					</p>
-				</div>
-			)}
-
 			<FilterControlPanel
 				title="Global Recommendation Filters"
 				filters={filters}
 				setFilters={setFilters}
 				showPopularityAttenuation={true}
 				showAdultToggle={true}
+				showPersonalizationToggle={Boolean(isLoggedIn && !isCfMode)}
+				personalizationEnabled={isSimilarMode ? similarUseList : semanticUseList}
+				onPersonalizationChange={isSimilarMode ? setSimilarUseList : setSemanticUseList}
+				personalizationLabel="Use List Personalization"
+				personalizationHelp={
+					isSimilarMode
+						? 'When off, Similar Shows is seed-only and does not blend your list taste profile.'
+						: 'When off, Smart Search is query-only and does not apply your list-based personalization.'
+				}
 			/>
 
 			<div className="smart-rec-actions">
 				<button
 					className="btn-primary smart-rec-btn"
 					onClick={handleSearch}
-					disabled={searching || !canSearch}
+					disabled={searching || loadingMore || !canSearch}
 				>
 					{searching ? 'Searching...' : isCfMode ? 'Get Predictions' : isSimilarMode ? 'Find Similar' : 'Find Recommendations'}
 				</button>
@@ -318,13 +446,22 @@ function SmartRec() {
 					</button>
 				)}
 			</div>
+			{!canSearch && (
+				<p className="empty-state smart-rec-helper">{readinessHint}</p>
+			)}
 
 			{(searchError || error) && <p className="error-message">{searchError || error}</p>}
 			{message && <p className="success-message">{message}</p>}
+			{hasRequested && canSearch && !searchError && !searching && results.length === 0 && (
+				<p className="empty-state smart-rec-helper">No recommendations found. Try relaxing filters or changing your query/seeds.</p>
+			)}
 
 			{results.length > 0 && (
 				<div className="smart-rec-results">
-					<h2>Results</h2>
+					<h2>
+						Results
+						<span className="result-count-chip">{results.length}/{MAX_RESULTS}</span>
+					</h2>
 					{results.map((anime) => (
 						<AnimeRecItem key={anime.id} anime={anime}>
 							{isLoggedIn ? (
@@ -356,6 +493,20 @@ function SmartRec() {
 							)}
 						</AnimeRecItem>
 					))}
+					{hasMore && (
+						<div className="smart-rec-actions">
+							<button
+								className="refresh-btn"
+								onClick={handleLoadMore}
+								disabled={loadingMore || searching || results.length >= MAX_RESULTS}
+							>
+								{loadingMore ? 'Loading...' : 'Load More'}
+							</button>
+						</div>
+					)}
+					{results.length >= MAX_RESULTS && (
+						<p className="empty-state smart-rec-helper">Reached max of {MAX_RESULTS} results for this request.</p>
+					)}
 				</div>
 			)}
 

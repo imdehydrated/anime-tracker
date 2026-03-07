@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.animetracker.exception.BadRequestException;
+import com.animetracker.repository.AnimeCatalogRepository;
 import com.animetracker.repository.AnimeEmbeddingRepository;
 import com.animetracker.repository.CustomEmbeddingImportStateRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -37,15 +38,18 @@ public class CustomEmbeddingImportService {
     private static final int EXPECTED_CUSTOM_DIMENSIONS = 384;
 
     private final AnimeEmbeddingRepository embeddingRepository;
+    private final AnimeCatalogRepository catalogRepository;
     private final CustomEmbeddingImportStateRepository importStateRepository;
     private final ObjectMapper objectMapper;
     private final String defaultImportPath;
 
     public CustomEmbeddingImportService(
             AnimeEmbeddingRepository embeddingRepository,
+            AnimeCatalogRepository catalogRepository,
             CustomEmbeddingImportStateRepository importStateRepository,
             @Value("${recommendations.custom-embeddings-path:/app/models/anime_embeddings.jsonl}") String defaultImportPath) {
         this.embeddingRepository = embeddingRepository;
+        this.catalogRepository = catalogRepository;
         this.importStateRepository = importStateRepository;
         this.objectMapper = new ObjectMapper();
         this.defaultImportPath = defaultImportPath;
@@ -132,6 +136,7 @@ public class CustomEmbeddingImportService {
                         titleRomaji = title;
                     }
                     String titleEnglish = readString(node, "title_english", "titleEnglish");
+                    String titleNative = readString(node, "title_native", "titleNative");
                     if ((titleEnglish == null || titleEnglish.isBlank()) && title != null && !title.isBlank()) {
                         titleEnglish = title;
                     }
@@ -140,10 +145,15 @@ public class CustomEmbeddingImportService {
                     String tags = readTags(node.path("tags"));
                     String aliases = readAliases(node);
                     String description = stripHtml(readString(node, "description"));
+                    Integer malId = readInteger(node, "mal_id", "malId", "idMal");
                     Integer averageScore = readInteger(node, "average_score", "averageScore");
                     Integer anilistPopularity = readInteger(node, "anilist_popularity", "anilistPopularity", "popularity");
                     String status = readString(node, "status");
                     Integer episodes = readInteger(node, "episodes");
+                    String format = readString(node, "format");
+                    String season = readString(node, "season");
+                    Integer seasonYear = readInteger(node, "season_year", "seasonYear");
+                    Boolean isAdult = readBoolean(node, "is_adult", "isAdult");
                     String embeddingText = readString(node, "embedding_text", "embeddingText");
                     if (embeddingText == null || embeddingText.isBlank()) {
                         embeddingText = buildEmbeddingText(
@@ -158,6 +168,26 @@ public class CustomEmbeddingImportService {
                     if (metadataFingerprint == null || metadataFingerprint.isBlank()) {
                         metadataFingerprint = computeMetadataFingerprint(embeddingText);
                     }
+                    String metadataJson = node.isObject() ? node.toString() : null;
+                    catalogRepository.upsertCatalogEntry(
+                            anilistId,
+                            malId,
+                            titleRomaji,
+                            titleEnglish,
+                            titleNative,
+                            coverImage,
+                            genres,
+                            description,
+                            averageScore,
+                            anilistPopularity,
+                            status,
+                            episodes,
+                            format,
+                            season,
+                            seasonYear,
+                            isAdult,
+                            metadataJson,
+                            metadataFingerprint);
 
                     embeddingRepository.upsertCustomEmbedding(
                             anilistId,
@@ -170,6 +200,11 @@ public class CustomEmbeddingImportService {
                             status,
                             episodes,
                             anilistPopularity,
+                            format,
+                            season,
+                            seasonYear,
+                            isAdult,
+                            metadataJson,
                             embeddingText,
                             metadataFingerprint,
                             EmbeddingService.toVectorString(vector));
@@ -330,6 +365,16 @@ public class CustomEmbeddingImportService {
             JsonNode value = node.path(key);
             if (!value.isMissingNode() && !value.isNull()) {
                 return value.asInt();
+            }
+        }
+        return null;
+    }
+
+    private Boolean readBoolean(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node.path(key);
+            if (!value.isMissingNode() && !value.isNull()) {
+                return value.asBoolean();
             }
         }
         return null;

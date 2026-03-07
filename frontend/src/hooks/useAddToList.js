@@ -3,7 +3,7 @@ import { getApiError } from '../api/client';
 import { addAnimeToUserList } from '../api/listApi';
 
 // Shared hook for adding anime to the user's list
-// Used by Search.js, Recommendations.js, and AnimeDetail.js
+// Used by Search.js, SmartRec.js, and AnimeDetail.js
 export function useAddToList() {
 	const [message, setMessage] = useState('');
 	const [error, setError] = useState('');

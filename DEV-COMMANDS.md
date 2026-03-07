@@ -155,6 +155,30 @@ curl.exe -X DELETE http://localhost:8080/api/users/list/1 `
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Username import (dry-run first):
+```powershell
+curl.exe -X POST "http://localhost:8080/api/users/list/import/anilist?username=<ANILIST_USERNAME>&dryRun=true" `
+  -H "Authorization: Bearer $TOKEN"
+curl.exe -X POST "http://localhost:8080/api/users/list/import/mal?username=<MAL_USERNAME>&dryRun=true" `
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Run actual import:
+```powershell
+curl.exe -X POST "http://localhost:8080/api/users/list/import/anilist?username=<ANILIST_USERNAME>" `
+  -H "Authorization: Bearer $TOKEN"
+curl.exe -X POST "http://localhost:8080/api/users/list/import/mal?username=<MAL_USERNAME>" `
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Import response includes:
+- `discovered`, `imported`, `updated`, `skipped`, `failed`
+- bounded `failureSamples` for unmapped/invalid entries
+- import is add-only (existing list rows are skipped, not overwritten)
+- new imported rows carry normalized source `status`, `score`, and `progress`
+- MAL import requires official MAL v2 client credentials (`MAL_CLIENT_ID` at minimum).
+- `MAL_CLIENT_SECRET` is optional for future OAuth flows, but not required for username list reads.
+
 ## 8) Anime Search Endpoints
 
 Search by text:
@@ -171,6 +195,7 @@ UI sanity check:
 - open `Smart Recommendations`, `Recommended For You`, and `Search`
 - confirm filter controls render as toggle cards and toggling updates results
 - in recommendation pages, confirm the `Popularity Attenuation Factor` advanced selector renders as a full-width styled dropdown with helper text
+- in Smart Search and Similar Shows (logged-in), confirm advanced `Use List Personalization` switch appears to the right of popularity attenuation and changes result mix when switched
 
 Search metadata quality check (look for missing cover/genres/title gaps in returned rows):
 ```powershell
@@ -183,7 +208,12 @@ curl.exe http://localhost:8080/api/anime/16498
 ```
 
 Tip:
-- `GET /api/anime/{id}` now triggers AniList fallback when local metadata is incomplete and writes improved metadata back to local storage.
+- `GET /api/anime/{id}` is local-catalog first; detail UI sanitizes description text client-side and shows relation-driven series links when available.
+- detail relation links are filtered to anime present in local catalog; manga-only adaptation nodes are excluded from series navigation.
+- if series links are unexpectedly empty for known franchises after a full populate, rebuild the local graph once:
+```powershell
+curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/rebuild-relation-graph" -H "X-Ops-Token: <OPS_TOKEN>"
+```
 
 ## 9) Recommendation Endpoint Checks
 
@@ -200,12 +230,12 @@ Inspect query-adherence diagnostics in scored payload:
 - `user_taste_score`
 - `popularity_prior_score`
 
-Semantic legacy endpoint:
-```powershell
-curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic `
-  -H "Content-Type: application/json" `
-  -d "{\"mode\":\"semantic\",\"query\":\"healing anime about camping and nature\",\"limit\":10}"
-```
+Inspect explanation quality fields in scored payload:
+- `recommendationReason` should be present for each returned item.
+- `reasonCodes` should align with mode (`MATCHES_QUERY`, `SIMILAR_TO_SEED`, `MATCHES_TASTE_PROFILE`, `CF_SIGNAL`).
+
+Note:
+- `/semantic/scored` is the required semantic recommendation endpoint for app and test traffic.
 
 Similar mode:
 ```powershell
@@ -221,6 +251,25 @@ curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored
   -H "Content-Type: application/json" `
   -d "{\"mode\":\"cf\",\"limit\":10}"
 ```
+
+CF mode with strict format controls (movie/special exclusion check):
+```powershell
+curl.exe -X POST http://localhost:8080/api/users/recommendations/semantic/scored `
+  -H "Authorization: Bearer $TOKEN" `
+  -H "Content-Type: application/json" `
+  -d "{\"mode\":\"cf\",\"limit\":15,\"filters\":{\"includeExtraSeasons\":false,\"includeMovies\":false,\"includeOnasOvasSpecials\":false,\"includeMusic\":false,\"includeAdult\":false,\"popularityAttenuation\":\"medium\"}}"
+```
+
+Notes:
+- CF cold-start fallback now returns popularity-ranked local catalog titles when rated-history is below threshold or sidecar CF returns empty.
+- control filtering now uses an adaptive metadata-hydration budget per response, so strict format toggles remain effective even when CF overfetches candidates.
+- `RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_MAX_HYDRATIONS` is a base floor; runtime may increase it for strict-filter requests.
+- `RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_MAX_HYDRATIONS_CF` caps AniList relation hydration in `mode=cf` to reduce 429 risk under frequent For You refreshes.
+- `RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_FAILURE_CIRCUIT_THRESHOLD` opens a per-request bypass circuit after repeated hydration failures to avoid repeated upstream calls.
+- `RECOMMENDATIONS_SEMANTIC_CATALOG_SEEDING_ENABLED` enables bounded local-catalog embedding seeding for semantic underfill.
+- `RECOMMENDATIONS_SEMANTIC_CATALOG_SEEDING_MAX_PER_QUERY` caps how many missing catalog items semantic can embed on-demand per request.
+- `RECOMMENDATIONS_SIMILAR_CATALOG_SEEDING_MAX_PER_REQUEST` caps on-demand catalog embedding seeding for seed-driven similar requests.
+- paged semantic/scored flow now supports up to 100 total ranked items per request context (`limit`/`pageSize` max 100).
 
 ## 10) Recommendation Feedback (Thumbs)
 
@@ -262,28 +311,53 @@ Behavior:
 
 ## 11) Embedding Operations
 
+Manual maintenance endpoints are disabled by default.
+
+Enable for controlled ops session:
+```powershell
+$env:RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED = "true"
+```
+
+Optional second-factor token (recommended in shared/prod-like environments):
+```powershell
+$env:RECOMMENDATIONS_OPS_TOKEN = "set-a-strong-random-token"
+```
+
 Manual import from default path:
 ```powershell
 curl.exe -X POST http://localhost:8080/api/users/recommendations/custom-embeddings/import `
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
 ```
 
 Manual import from explicit path:
 ```powershell
 curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/import?path=C:\models\anime_embeddings.jsonl" `
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
 ```
 
-Populate active catalog embeddings:
+Populate catalog embeddings (single resumable full-catalog path):
 ```powershell
-curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/populate-active-catalog?maxPages=200&perPage=50" `
-  -H "Authorization: Bearer $TOKEN"
+curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/populate-full-catalog?maxPages=3000&perPage=10" `
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
 ```
+
+Note:
+- these manual ops endpoints do not require JWT login.
+- they are still blocked unless `RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=true`.
+- set `RECOMMENDATIONS_OPS_TOKEN` in shared/prod-like environments and send it as `X-Ops-Token`.
+
+Notes:
+- this path stores expanded AniList media payload into `anime_embeddings.metadata_json` (not only currently-used card fields).
+- relation edges are refreshed into `anime_relation_graph` during the same run.
+- full-catalog page size is intentionally capped at `10` for stability with broad AniList payloads.
+- all manual/scheduled catalog repopulates share one cursor (`catalog_populate` in `anilist_sync_state`) and continue from `nextPageHint`.
+- full-catalog runs can stop early after consecutive unchanged pages (`stableStopReached=true`) to avoid scanning the entire catalog on routine repop runs.
 
 Coverage tracking:
 - use response stats:
   - `discovered`
   - `embedded`
+  - `catalogSynced`
   - `metadataRefreshed`
   - `activeCatalogCoverage`
   - `scoreCoverage`
@@ -292,6 +366,14 @@ Coverage tracking:
   - `aliasCoverage`
 - compute:
   - `active_catalog_coverage = embedded / discovered`
+
+Catalog validation after full scrape:
+```powershell
+docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT COUNT(*) AS catalog_rows FROM anime_catalog;"
+docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT COUNT(*) AS embedded_rows FROM anime_embeddings WHERE embedding_custom IS NOT NULL;"
+```
+
+Runtime recommendation/search traffic is local-DB only by default.
 
 ## 11.1) Metadata Sync Scheduler (Tiered AniList Refresh)
 
@@ -305,8 +387,17 @@ Key knobs:
 - `RECOMMENDATIONS_METADATA_SYNC_HOT_POPULAR_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_DAILY_ACTIVE_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_DEEP_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_UNCHANGED_STOP_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_PER_PAGE`
 - `RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_BUDGET_ENABLED`
+
+Notes:
+- weekly full-catalog sync is cursor-resumable and uses the same adaptive budget policy.
+- weekly graph rebuild uses local `anime_catalog.metadata_json` only (no AniList calls).
 
 Inspect persisted sync state:
 
@@ -331,20 +422,30 @@ docker-compose logs -f backend | Select-String "AniList sync"
 Get failure report:
 ```powershell
 curl.exe "http://localhost:8080/api/users/recommendations/custom-embeddings/population-failures?limit=100" `
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
 ```
 
 Filter report by source/status:
 ```powershell
 curl.exe "http://localhost:8080/api/users/recommendations/custom-embeddings/population-failures?source=active_catalog&status=OPEN&limit=100" `
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
 ```
 
 Retry due failures:
 ```powershell
 curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/population-failures/retry?source=active_catalog&limit=50" `
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
 ```
+
+Rebuild relation graph from local catalog metadata (no AniList calls):
+```powershell
+curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddings/rebuild-relation-graph" `
+  -H "X-Ops-Token: $env:RECOMMENDATIONS_OPS_TOKEN"
+```
+
+Note:
+- season/special exclusion and entrypoint remap in recommendation/search filtering are graph-driven.
+- if graph edges are stale or sparse, run the rebuild command above before debugging filter quality.
 
 Status semantics:
 - `OPEN`: retryable failure
@@ -418,6 +519,30 @@ pip install pytest
 
 ## 15) Notebook and Model Pipeline Commands
 
+Export reproducible catalog snapshot (GP11 source-of-truth input):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\export_catalog_snapshot.ps1
+```
+
+Note:
+- writes timestamped snapshot under `notebooks/data/catalog_snapshots/catalog_snapshot_<timestamp>/`
+- emits:
+  - `anime_catalog.jsonl`
+  - `anime_relation_graph.jsonl`
+  - `snapshot_manifest.json` (row counts + max updated_at + sha256 fingerprints)
+
+Materialize notebook metadata from snapshot (SP11 canonical bridge):
+```powershell
+python .\notebooks\materialize_snapshot_metadata.py `
+  --snapshot-dir .\notebooks\data\catalog_snapshots\catalog_snapshot_<timestamp> `
+  --output-path .\notebooks\data\anilist_anime.jsonl `
+  --fingerprint-output .\notebooks\data\catalog_snapshot_fingerprint.json
+```
+
+Note:
+- this keeps Notebook 02/05 input path stable while sourcing metadata from the catalog snapshot.
+- fingerprint output is used to trace model artifacts back to a specific snapshot.
+
 Prepare canonical dataset:
 ```powershell
 python .\notebooks\prepare_dataset.py --source .\data\raw-kaggle --output .\data\kaggle
@@ -440,6 +565,7 @@ python .\notebooks\export_semantic_embeddings.py `
   --model-path .\ml-models\semantic `
   --corpus-path .\notebooks\data\corpus.jsonl `
   --metadata-path .\notebooks\data\anilist_anime.jsonl `
+  --metadata-fingerprint-path .\notebooks\data\catalog_snapshot_fingerprint.json `
   --output-path .\ml-models\anime_embeddings.jsonl `
   --batch-size 64
 ```
@@ -448,6 +574,7 @@ Note:
 - keep `ml-models/anime_embeddings.jsonl` as the canonical runtime artifact for semantic retrieval/import.
 - also keep timestamped snapshots (for rollback/auditing), e.g. `ml-models/anime_embeddings_YYYYMMDDTHHMMSSZ.jsonl`.
 - when popularity/metadata scoring logic changes, regenerate this artifact before import + promotion benchmarks.
+- export now also writes `<output>_manifest.json` with input/output sha256s and optional snapshot fingerprint payload.
 
 ## 16) Evaluation and Promotion Commands
 
@@ -463,7 +590,7 @@ python .\notebooks\semantic_query_tests.py `
 Production-path semantic benchmark:
 ```powershell
 python .\notebooks\semantic_query_api_tests.py `
-  --endpoint http://localhost:8080/api/users/recommendations/semantic `
+  --endpoint http://localhost:8080/api/users/recommendations/semantic/scored `
   --test-set-path .\notebooks\eval\semantic_query_testset.json `
   --embeddings-path .\ml-models\anime_embeddings.jsonl `
   --top-k 10 `
@@ -525,6 +652,10 @@ Core runtime:
 - `CUSTOM_EMBEDDINGS_PATH`
 - `AUTO_SYNC_CUSTOM_EMBEDDINGS`
 - `RECOMMENDATIONS_METADATA_FAILURE_POLICY_*` (reason-aware retry/dead-letter tuning)
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED`
 
 Semantic/fusion behavior:
 - `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT`
@@ -543,6 +674,11 @@ Semantic/fusion behavior:
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_MAX_ADDED_TOKENS`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_TRIGGER_MAX_QUERY_TOKENS`
 - `RECOMMENDATIONS_SEMANTIC_SECOND_PASS_SKIP_TOP_RELEVANCE_THRESHOLD`
+- `RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_ENABLED`
+- `RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_MIN_SCORE`
+- `RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_MIN_POPULARITY`
+- `RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_HIGH_RELEVANCE_OVERRIDE`
+- `RECOMMENDATIONS_SEMANTIC_SPARSE_METADATA_RELEVANCE_FLOOR`
 - `RECOMMENDATIONS_SEMANTIC_CACHE_ENABLED`
 - `RECOMMENDATIONS_SEMANTIC_CACHE_SIZE`
 - `RECOMMENDATIONS_SEMANTIC_CACHE_TTL_HOURS`
@@ -562,5 +698,68 @@ CF popularity attenuation:
 - `RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_LOW`
 - `RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_MEDIUM`
 - `RECOMMENDATIONS_CF_POPULARITY_ATTENUATION_HIGH`
+- `RECOMMENDATIONS_CF_POPULAR_FALLBACK_ENABLED`
+- `RECOMMENDATIONS_CF_POPULAR_FALLBACK_MIN_RATED_ITEMS`
+- `RECOMMENDATIONS_CF_POPULAR_FALLBACK_CANDIDATE_LIMIT`
 - `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_RATIO`
 - `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_FLOOR`
+
+## 24) Container-First AWS Deployment Templates
+
+Deployment templates are intentionally stored under `infra/` and not activated in `.github/workflows` by default.
+
+Template files:
+- `infra/github-actions/deploy-api.yml.template`
+- `infra/github-actions/deploy-web.yml.template`
+- `infra/github-actions/security-scan.yml.template`
+- `infra/ecs/taskdef.api.json`
+- `infra/ecs/taskdef.web.json`
+- `infra/iam/github-oidc-trust-policy.json`
+- `infra/iam/github-actions-deploy-policy.json`
+- `infra/iam/ecs-task-runtime-policy.json`
+- `infra/alb/listener-rules.md`
+
+When ready to enable CI/CD:
+
+```powershell
+New-Item -ItemType Directory -Force .github\workflows | Out-Null
+Copy-Item infra\github-actions\deploy-api.yml.template .github\workflows\deploy-api.yml
+Copy-Item infra\github-actions\deploy-web.yml.template .github\workflows\deploy-web.yml
+Copy-Item infra\github-actions\security-scan.yml.template .github\workflows\security-scan.yml
+```
+
+Then replace placeholders in `infra/ecs/*.json` and `infra/iam/*.json`:
+- `<AWS_ACCOUNT_ID>`
+- `<AWS_REGION>`
+- `<RDS_HOST>`
+- `<SECRETS_PREFIX>`
+- `<MODEL_ARTIFACT_BUCKET>`
+
+Recommended pre-deploy smoke command after ECS rollout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\infra\scripts\smoke-test.ps1 -BaseUrl "https://<your-domain>"
+```
+
+## 25) Frontend Vite Migration Maintenance
+
+Frontend tooling now uses Vite instead of `react-scripts`.
+
+Common recovery flow when lock/dependency state is out of sync:
+
+```powershell
+Remove-Item .\frontend\node_modules -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item .\frontend\package-lock.json -Force -ErrorAction SilentlyContinue
+npm --prefix frontend install
+npm --prefix frontend run build
+```
+
+If Docker production build fails on frontend dependency sync, rebuild with:
+
+```powershell
+docker build --no-cache -f frontend/Dockerfile.prod -t <frontend-image-tag> .
+```
+
+Frontend API base-url env behavior:
+- Primary: `VITE_API_URL`
+- Compatibility fallback: `REACT_APP_API_URL`

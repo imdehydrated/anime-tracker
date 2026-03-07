@@ -8,7 +8,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function NavBar() {
-  const { isLoggedIn, logout } = useAuth();
+  const { isLoggedIn, logout, username } = useAuth();
   const location = useLocation();
 
   // Helper to add "active" class to current page link
@@ -25,6 +25,7 @@ function NavBar() {
         {isLoggedIn ? (
           <>
             <Link to="/mylist" className={linkClass('/mylist')}>My List</Link>
+            <span className="navbar-user">Hi, {username || 'User'}</span>
             <button onClick={logout}>Logout</button>
           </>
         ) : (

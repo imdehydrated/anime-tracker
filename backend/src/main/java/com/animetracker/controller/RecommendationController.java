@@ -3,9 +3,13 @@ package com.animetracker.controller;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,10 +19,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.animetracker.dto.AniListResponse;
+import com.animetracker.dto.RecommendationPageResponse;
 import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.dto.SemanticRequest;
+import com.animetracker.exception.NotFoundException;
 import com.animetracker.exception.UnauthorizedException;
 import com.animetracker.service.CustomEmbeddingImportService;
 import com.animetracker.service.SemanticRecommendationService;
@@ -33,34 +38,18 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/users/recommendations")
 public class RecommendationController {
-
     private final SemanticRecommendationService semanticService;
     private final CustomEmbeddingImportService customEmbeddingImportService;
+    @Value("${recommendations.ops.manual-endpoints-enabled:false}")
+    private boolean manualOpsEndpointsEnabled;
+    @Value("${recommendations.ops.token:}")
+    private String opsToken;
 
     public RecommendationController(
             SemanticRecommendationService semanticService,
             CustomEmbeddingImportService customEmbeddingImportService) {
         this.semanticService = semanticService;
         this.customEmbeddingImportService = customEmbeddingImportService;
-    }
-
-    @PostMapping("/semantic")
-    public ResponseEntity<List<AniListResponse.AnimeInfo>> getSemanticRecommendations(
-            @Valid @RequestBody SemanticRequest request) {
-        String username = getCurrentUsernameOrNull();
-        List<RecommendationResponse> scored = semanticService.recommend(
-                username,
-                request.getSeedIds(),
-                request.getQuery(),
-                request.getLimit(),
-                Boolean.TRUE.equals(request.getUseListOnly()),
-                request.getListWeight(),
-                request.getMode(),
-                request.getFilters());
-        List<AniListResponse.AnimeInfo> legacy = scored.stream()
-                .map(RecommendationResponse::getAnime)
-                .toList();
-        return ResponseEntity.ok(legacy);
     }
 
     @PostMapping("/semantic/scored")
@@ -77,6 +66,24 @@ public class RecommendationController {
                 request.getMode(),
                 request.getFilters());
         return ResponseEntity.ok(results);
+    }
+
+    @PostMapping("/semantic/scored/paged")
+    public ResponseEntity<RecommendationPageResponse> getSemanticRecommendationsScoredPaged(
+            @Valid @RequestBody SemanticRequest request) {
+        String username = getCurrentUsernameOrNull();
+        RecommendationPageResponse page = semanticService.recommendPaged(
+                username,
+                request.getSeedIds(),
+                request.getQuery(),
+                request.getLimit(),
+                Boolean.TRUE.equals(request.getUseListOnly()),
+                request.getListWeight(),
+                request.getMode(),
+                request.getFilters(),
+                request.getCursor(),
+                request.getPageSize());
+        return ResponseEntity.ok(page);
     }
 
     @PostMapping("/feedback")
@@ -99,12 +106,12 @@ public class RecommendationController {
 
     /**
      * Manual import endpoint for custom 384-dim embeddings.
-     * Requires authentication. Uses default path unless overridden by request param.
+     * Requires manual ops access. Uses default path unless overridden by request param.
      */
     @PostMapping("/custom-embeddings/import")
     public ResponseEntity<Map<String, Object>> importCustomEmbeddings(
             @RequestParam(required = false) String path) {
-        getCurrentUsernameRequired();
+        ensureManualOpsAccess();
 
         CustomEmbeddingImportService.ImportStats stats = (path == null || path.isBlank())
                 ? customEmbeddingImportService.importFromDefaultPath()
@@ -124,30 +131,45 @@ public class RecommendationController {
     }
 
     /**
-     * Manual population endpoint for active-catalog embeddings.
-     * Requires authentication and calls AniList full-catalog paging with active format filters.
+     * Manual population endpoint (legacy alias) for catalog embeddings.
+     * Requires manual ops access and uses shared full-catalog cursor state.
      */
     @PostMapping("/custom-embeddings/populate-active-catalog")
     public ResponseEntity<Map<String, Object>> populateActiveCatalogEmbeddings(
-            @RequestParam(defaultValue = "200") int maxPages,
-            @RequestParam(defaultValue = "50") int perPage) {
-        getCurrentUsernameRequired();
+            @RequestParam(defaultValue = "3000") int maxPages,
+            @RequestParam(defaultValue = "10") int perPage) {
+        ensureManualOpsAccess();
         Map<String, Object> stats = semanticService.populateActiveCatalogEmbeddings(maxPages, perPage);
         return ResponseEntity.ok(Map.of(
-                "message", "Active catalog embedding population completed",
+                "message", "Catalog embedding population completed",
+                "stats", stats));
+    }
+
+    /**
+     * Manual population endpoint for full-catalog embeddings.
+     * Requires manual ops access and uses shared full-catalog cursor state.
+     */
+    @PostMapping("/custom-embeddings/populate-full-catalog")
+    public ResponseEntity<Map<String, Object>> populateFullCatalogEmbeddings(
+            @RequestParam(defaultValue = "3000") int maxPages,
+            @RequestParam(defaultValue = "10") int perPage) {
+        ensureManualOpsAccess();
+        Map<String, Object> stats = semanticService.populateFullCatalogEmbeddings(maxPages, perPage);
+        return ResponseEntity.ok(Map.of(
+                "message", "Full catalog embedding population completed",
                 "stats", stats));
     }
 
     /**
      * Inspect embedding population failures and retry backlog.
-     * Requires authentication.
+     * Requires manual ops access.
      */
     @GetMapping("/custom-embeddings/population-failures")
     public ResponseEntity<Map<String, Object>> getPopulationFailures(
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "100") int limit) {
-        getCurrentUsernameRequired();
+        ensureManualOpsAccess();
         Map<String, Object> report = semanticService.getPopulationFailureReport(source, status, limit);
         return ResponseEntity.ok(Map.of(
                 "message", "Population failure report",
@@ -156,17 +178,46 @@ public class RecommendationController {
 
     /**
      * Retry open embedding population failures due for retry.
-     * Requires authentication.
+     * Requires manual ops access.
      */
     @PostMapping("/custom-embeddings/population-failures/retry")
     public ResponseEntity<Map<String, Object>> retryPopulationFailures(
             @RequestParam(required = false) String source,
             @RequestParam(defaultValue = "50") int limit) {
-        getCurrentUsernameRequired();
+        ensureManualOpsAccess();
         Map<String, Object> stats = semanticService.retryPopulationFailures(source, limit);
         return ResponseEntity.ok(Map.of(
                 "message", "Population failure retry completed",
                 "stats", stats));
+    }
+
+    /**
+     * Rebuild relation graph edges from local catalog metadata_json.
+     * Requires manual ops access.
+     */
+    @PostMapping("/custom-embeddings/rebuild-relation-graph")
+    public ResponseEntity<Map<String, Object>> rebuildRelationGraph() {
+        ensureManualOpsAccess();
+        Map<String, Object> stats = semanticService.rebuildRelationGraphFromCatalog();
+        return ResponseEntity.ok(Map.of(
+                "message", "Relation graph rebuild completed",
+                "stats", stats));
+    }
+
+    private void ensureManualOpsAccess() {
+        if (!manualOpsEndpointsEnabled) {
+            throw new NotFoundException("Not found");
+        }
+        if (opsToken == null || opsToken.isBlank()) {
+            return;
+        }
+        ServletRequestAttributes attrs =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        HttpServletRequest request = attrs == null ? null : attrs.getRequest();
+        String header = request == null ? null : request.getHeader("X-Ops-Token");
+        if (header == null || !opsToken.equals(header)) {
+            throw new UnauthorizedException("Invalid ops token");
+        }
     }
 
     private String getCurrentUsernameOrNull() {

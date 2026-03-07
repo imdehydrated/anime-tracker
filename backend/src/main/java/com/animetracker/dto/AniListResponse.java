@@ -2,8 +2,12 @@ package com.animetracker.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 // Top-level wrapper: matches { "data": { "Page": { ... } } }
 public class AniListResponse {
@@ -59,6 +63,7 @@ public class AniListResponse {
     public static class AnimeInfo {
 
         private Integer id;
+        private Integer idMal;
         private AnimeTitle title;
         private Integer episodes;
         private Integer averageScore;
@@ -83,6 +88,7 @@ public class AniListResponse {
         private Double userTasteScore;
         private Double popularityPriorScore;
         private Boolean guardrailApplied;
+        private Map<String, Object> extraFields;
 
         public Integer getId() {
             return id;
@@ -90,6 +96,16 @@ public class AniListResponse {
 
         public void setId(Integer id) {
             this.id = id;
+        }
+
+        @JsonProperty("idMal")
+        public Integer getIdMal() {
+            return idMal;
+        }
+
+        @JsonProperty("idMal")
+        public void setIdMal(Integer idMal) {
+            this.idMal = idMal;
         }
 
         public AnimeTitle getTitle() {
@@ -321,6 +337,26 @@ public class AniListResponse {
         @JsonProperty("guardrail_applied")
         public void setGuardrailApplied(Boolean guardrailApplied) {
             this.guardrailApplied = guardrailApplied;
+        }
+
+        @JsonAnySetter
+        public void putExtraField(String key, Object value) {
+            if (key == null || key.isBlank()) {
+                return;
+            }
+            if (this.extraFields == null) {
+                this.extraFields = new LinkedHashMap<>();
+            }
+            this.extraFields.put(key, value);
+        }
+
+        @JsonAnyGetter
+        public Map<String, Object> getExtraFields() {
+            return extraFields;
+        }
+
+        public void setExtraFields(Map<String, Object> extraFields) {
+            this.extraFields = extraFields;
         }
     }
 

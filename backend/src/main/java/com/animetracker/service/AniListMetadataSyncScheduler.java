@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.animetracker.repository.AnimeRelationGraphRepository;
 import com.animetracker.repository.AniListSyncStateRepository;
 import com.animetracker.repository.AniListSyncStateRepository.SyncState;
 
@@ -20,31 +21,27 @@ import com.animetracker.repository.AniListSyncStateRepository.SyncState;
 public class AniListMetadataSyncScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(AniListMetadataSyncScheduler.class);
-    private static final String SOURCE_HOT_POPULAR = "hot_popular";
-    private static final String SOURCE_DAILY_ACTIVE = "daily_active_catalog";
-    private static final String SOURCE_WEEKLY_DEEP = "weekly_deep_catalog";
+    private static final String SOURCE_CATALOG_POPULATE = "catalog_populate";
+    private static final String SOURCE_WEEKLY_GRAPH_REBUILD = "weekly_relation_graph_rebuild";
 
     private final AnimeEmbeddingPopulatorService populatorService;
     private final AniListService aniListService;
+    private final AnimeRelationGraphRepository relationGraphRepository;
     private final AniListSyncStateRepository syncStateRepository;
-    private final ReentrantLock hotPopularLock = new ReentrantLock();
-    private final ReentrantLock dailyActiveLock = new ReentrantLock();
-    private final ReentrantLock weeklyDeepLock = new ReentrantLock();
+    private final ReentrantLock weeklyFullLock = new ReentrantLock();
+    private final ReentrantLock weeklyGraphLock = new ReentrantLock();
 
     @Value("${recommendations.metadata-sync.enabled:false}")
     private boolean metadataSyncEnabled;
 
-    @Value("${recommendations.metadata-sync.per-page:50}")
-    private int syncPerPage;
-
-    @Value("${recommendations.metadata-sync.hot-popular-pages:20}")
-    private int hotPopularPages;
-
-    @Value("${recommendations.metadata-sync.daily-active-pages:20}")
-    private int dailyActivePages;
-
-    @Value("${recommendations.metadata-sync.weekly-deep-pages:120}")
-    private int weeklyDeepPages;
+    @Value("${recommendations.metadata-sync.weekly-full-catalog-enabled:true}")
+    private boolean weeklyFullCatalogEnabled;
+    @Value("${recommendations.metadata-sync.weekly-full-catalog-pages:120}")
+    private int weeklyFullCatalogPages;
+    @Value("${recommendations.metadata-sync.full-catalog-per-page:10}")
+    private int fullCatalogPerPage;
+    @Value("${recommendations.metadata-sync.weekly-graph-rebuild-enabled:true}")
+    private boolean weeklyGraphRebuildEnabled;
 
     @Value("${recommendations.metadata-sync.adaptive-budget-enabled:true}")
     private boolean adaptiveBudgetEnabled;
@@ -58,102 +55,99 @@ public class AniListMetadataSyncScheduler {
     public AniListMetadataSyncScheduler(
             AnimeEmbeddingPopulatorService populatorService,
             AniListService aniListService,
+            AnimeRelationGraphRepository relationGraphRepository,
             AniListSyncStateRepository syncStateRepository) {
         this.populatorService = populatorService;
         this.aniListService = aniListService;
+        this.relationGraphRepository = relationGraphRepository;
         this.syncStateRepository = syncStateRepository;
     }
 
     @Scheduled(
-            fixedDelayString = "${recommendations.metadata-sync.hot-popular-fixed-delay-ms:21600000}",
+            fixedDelayString = "${recommendations.metadata-sync.weekly-full-catalog-fixed-delay-ms:604800000}",
             initialDelayString = "${recommendations.metadata-sync.initial-delay-ms:120000}")
-    public void runHotPopularSync() {
-        if (!metadataSyncEnabled) {
+    public void runWeeklyFullCatalogSync() {
+        if (!metadataSyncEnabled || !weeklyFullCatalogEnabled) {
             return;
         }
-        if (!hotPopularLock.tryLock()) {
-            log.debug("Skipping hot popular sync: previous run still active");
+        if (!weeklyFullLock.tryLock()) {
+            log.debug("Skipping weekly full catalog sync: previous run still active");
             return;
         }
         try {
             runWindowedSync(
-                    SOURCE_HOT_POPULAR,
+                    SOURCE_CATALOG_POPULATE,
                     1,
-                    hotPopularPages,
-                    true);
+                    weeklyFullCatalogPages);
         } finally {
-            hotPopularLock.unlock();
+            weeklyFullLock.unlock();
         }
     }
 
     @Scheduled(
-            fixedDelayString = "${recommendations.metadata-sync.daily-active-fixed-delay-ms:86400000}",
+            fixedDelayString = "${recommendations.metadata-sync.weekly-graph-rebuild-fixed-delay-ms:604800000}",
             initialDelayString = "${recommendations.metadata-sync.initial-delay-ms:120000}")
-    public void runDailyActiveCatalogSync() {
-        if (!metadataSyncEnabled) {
+    public void runWeeklyRelationGraphRebuild() {
+        if (!metadataSyncEnabled || !weeklyGraphRebuildEnabled) {
             return;
         }
-        if (!dailyActiveLock.tryLock()) {
-            log.debug("Skipping daily active catalog sync: previous run still active");
+        if (!weeklyGraphLock.tryLock()) {
+            log.debug("Skipping weekly relation graph rebuild: previous run still active");
             return;
         }
         try {
-            runWindowedSync(
-                    SOURCE_DAILY_ACTIVE,
+            AnimeRelationGraphRepository.RelationGraphRebuildStats stats =
+                    relationGraphRepository.rebuildFromCatalogMetadata();
+            syncStateRepository.markSuccess(
+                    SOURCE_WEEKLY_GRAPH_REBUILD,
                     1,
-                    dailyActivePages,
-                    false);
-        } finally {
-            dailyActiveLock.unlock();
-        }
-    }
-
-    @Scheduled(
-            fixedDelayString = "${recommendations.metadata-sync.weekly-deep-fixed-delay-ms:604800000}",
-            initialDelayString = "${recommendations.metadata-sync.initial-delay-ms:120000}")
-    public void runWeeklyDeepCatalogSync() {
-        if (!metadataSyncEnabled) {
-            return;
-        }
-        if (!weeklyDeepLock.tryLock()) {
-            log.debug("Skipping weekly deep catalog sync: previous run still active");
-            return;
-        }
-        try {
-            runWindowedSync(
-                    SOURCE_WEEKLY_DEEP,
+                    Long.toString(Math.max(0L, stats.edgesAfter())),
+                    Instant.now());
+            log.info(
+                    "AniList sync '{}' complete: edges_before={} inserted={} edges_after={} anime_with_edges={}",
+                    SOURCE_WEEKLY_GRAPH_REBUILD,
+                    stats.edgesBefore(),
+                    stats.inserted(),
+                    stats.edgesAfter(),
+                    stats.animeWithEdges());
+        } catch (Exception ex) {
+            syncStateRepository.markFailure(
+                    SOURCE_WEEKLY_GRAPH_REBUILD,
                     1,
-                    weeklyDeepPages,
-                    false);
+                    ex.getMessage(),
+                    null,
+                    Instant.now());
+            log.warn(
+                    "AniList sync '{}' failed: error={}",
+                    SOURCE_WEEKLY_GRAPH_REBUILD,
+                    ex.getMessage());
         } finally {
-            weeklyDeepLock.unlock();
+            weeklyGraphLock.unlock();
         }
     }
 
     private void runWindowedSync(
             String sourceKey,
             int defaultStartPage,
-            int configuredMaxPages,
-            boolean forceStartAtPageOne) {
+            int configuredMaxPages) {
         int safeConfiguredPages = Math.max(1, configuredMaxPages);
-        int safePerPage = Math.max(1, Math.min(50, syncPerPage));
+        int safePerPage = Math.max(1, Math.min(10, fullCatalogPerPage));
         SyncState state = syncStateRepository.findOrCreate(
                 sourceKey,
                 Math.max(1, defaultStartPage),
                 Integer.toString(safeConfiguredPages));
         int currentBudgetPages = resolveBudgetPages(state.budgetState(), safeConfiguredPages);
-        int startPage = forceStartAtPageOne ? 1 : Math.max(1, state.nextPage());
+        int startPage = Math.max(1, state.nextPage());
         int windowPages = Math.max(1, Math.min(safeConfiguredPages, currentBudgetPages));
         Instant startedAt = Instant.now();
         aniListService.resetRateLimitWindow();
 
         try {
-            AnimeEmbeddingPopulatorService.PopulationStats stats = forceStartAtPageOne
-                    ? populatorService.populatePopularRange(startPage, windowPages, safePerPage)
-                    : populatorService.populateActiveCatalogRange(startPage, windowPages, safePerPage);
+            AnimeEmbeddingPopulatorService.PopulationStats stats =
+                    populatorService.populateFullCatalogRange(startPage, windowPages, safePerPage);
             AniListService.RateLimitWindow rateWindow = aniListService.consumeRateLimitWindow();
             int nextBudgetPages = computeNextBudget(windowPages, safeConfiguredPages, rateWindow);
-            int nextPage = forceStartAtPageOne ? 1 : Math.max(1, stats.nextPageHint());
+            int nextPage = Math.max(1, stats.nextPageHint());
             syncStateRepository.markSuccess(
                     sourceKey,
                     nextPage,
@@ -228,4 +222,5 @@ public class AniListMetadataSyncScheduler {
         }
         return safeConfigured;
     }
+
 }

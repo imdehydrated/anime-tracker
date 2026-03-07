@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApiError } from '../api/client';
-import { deleteListEntry, getUserList, updateListEntry } from '../api/listApi';
+import {
+	deleteListEntry,
+	getUserList,
+	importAniListByUsername,
+	importMalByUsername,
+	updateListEntry,
+} from '../api/listApi';
 
 /**
  * MyList page:
@@ -19,6 +25,11 @@ function MyList() {
 	const [filterText, setFilterText] = useState('');
 	const [filterStatus, setFilterStatus] = useState('ALL');
 	const [sortBy, setSortBy] = useState('DATE_DESC');
+	const [importProvider, setImportProvider] = useState('anilist');
+	const [importUsername, setImportUsername] = useState('');
+	const [importLoading, setImportLoading] = useState(false);
+	const [importError, setImportError] = useState('');
+	const [importResult, setImportResult] = useState(null);
 
 	const navigate = useNavigate();
 
@@ -46,6 +57,37 @@ function MyList() {
 		fetchList();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	const handleImport = async (dryRun) => {
+		setImportError('');
+		setImportResult(null);
+		const username = importUsername.trim();
+		if (!username) {
+			setImportError('Enter a username to import from AniList or MAL.');
+			return;
+		}
+
+		setImportLoading(true);
+		try {
+			const response = importProvider === 'mal'
+				? await importMalByUsername(username, dryRun)
+				: await importAniListByUsername(username, dryRun);
+
+			setImportResult({
+				message: response?.message || 'Import completed',
+				stats: response?.stats || {},
+				dryRun,
+			});
+
+			if (!dryRun) {
+				await fetchList();
+			}
+		} catch (err) {
+			setImportError(getApiError(err, 'Import failed'));
+		} finally {
+			setImportLoading(false);
+		}
+	};
 
 	const handleUpdate = async (entryId, updates, entry) => {
 		setError('');
@@ -132,6 +174,75 @@ function MyList() {
 			</div>
 
 			{error && <p className="error-message">{error}</p>}
+			<div className="list-import-panel">
+				<div className="list-import-header">
+					<h2>Import From AniList / MAL</h2>
+					<span className="list-import-note">Username-based sync for your list</span>
+				</div>
+				<div className="list-import-controls">
+					<div className="list-import-provider-grid" role="group" aria-label="Import provider">
+						<button
+							type="button"
+							className={`list-import-provider ${importProvider === 'anilist' ? 'is-active' : ''}`}
+							onClick={() => setImportProvider('anilist')}
+							disabled={importLoading}
+						>
+							AniList
+						</button>
+						<button
+							type="button"
+							className={`list-import-provider ${importProvider === 'mal' ? 'is-active' : ''}`}
+							onClick={() => setImportProvider('mal')}
+							disabled={importLoading}
+						>
+							MAL
+						</button>
+					</div>
+					<input
+						type="text"
+						value={importUsername}
+						placeholder={`Enter ${importProvider === 'mal' ? 'MAL' : 'AniList'} username`}
+						onChange={(e) => setImportUsername(e.target.value)}
+						disabled={importLoading}
+					/>
+					<button
+						type="button"
+						className="btn-outline"
+						onClick={() => handleImport(true)}
+						disabled={importLoading}
+					>
+						{importLoading ? 'Running...' : 'Dry Run'}
+					</button>
+					<button
+						type="button"
+						className="btn-primary"
+						onClick={() => handleImport(false)}
+						disabled={importLoading}
+					>
+						{importLoading ? 'Running...' : 'Import'}
+					</button>
+				</div>
+				{importError && <p className="error-message">{importError}</p>}
+				{importResult && (
+					<div className="list-import-result">
+						<p className="list-import-result-title">
+							{importResult.message}{importResult.dryRun ? ' (dry run)' : ''}
+						</p>
+						<p>
+							Discovered: {importResult.stats.discovered ?? 0} | Imported: {importResult.stats.imported ?? 0} |
+							Updated: {importResult.stats.updated ?? 0} | Skipped: {importResult.stats.skipped ?? 0} |
+							Failed: {importResult.stats.failed ?? 0}
+						</p>
+						{Array.isArray(importResult.stats.failureSamples) && importResult.stats.failureSamples.length > 0 && (
+							<p className="list-import-failures">
+								Failures: {importResult.stats.failureSamples
+									.map((sample) => sample?.detail || sample?.reason || 'unknown')
+									.join(' | ')}
+							</p>
+						)}
+					</div>
+				)}
+			</div>
 
 			{entries.length === 0 ? (
 				<div className="empty-state">

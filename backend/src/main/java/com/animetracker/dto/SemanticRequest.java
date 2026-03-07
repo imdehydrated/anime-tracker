@@ -9,16 +9,17 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 
 /**
- * Request body for POST /api/users/recommendations/semantic.
- * Contains seed anime IDs, an optional text query, and result limit.
+ * Shared request body for recommendation endpoints:
+ * - POST /api/users/recommendations/semantic/scored
+ * - POST /api/users/recommendations/semantic/scored/paged
  */
 public class SemanticRequest {
 
 	@Size(max = 5, message = "Maximum 5 seed anime allowed")
 	private List<Integer> seedIds;
 	private String query;
-	@Min(value = 1, message = "limit must be between 1 and 50")
-	@Max(value = 50, message = "limit must be between 1 and 50")
+	@Min(value = 1, message = "limit must be between 1 and 100")
+	@Max(value = 100, message = "limit must be between 1 and 100")
 	private Integer limit;
 	private Boolean useListOnly;
 	@DecimalMin(value = "0.0", message = "listWeight must be between 0 and 1")
@@ -26,8 +27,8 @@ public class SemanticRequest {
 	private Float listWeight;
 	private String mode; // "semantic" (default), "similar", or "cf"
 	private String cursor;
-	@Min(value = 1, message = "pageSize must be between 1 and 50")
-	@Max(value = 50, message = "pageSize must be between 1 and 50")
+	@Min(value = 1, message = "pageSize must be between 1 and 100")
+	@Max(value = 100, message = "pageSize must be between 1 and 100")
 	private Integer pageSize;
 	private Boolean excludeSeen;
 	private Filters filters;

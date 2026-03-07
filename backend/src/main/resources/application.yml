@@ -104,12 +104,24 @@ ml-sidecar:
 # AniList API pacing to avoid upstream rate limits during interactive usage.
 anilist:
   request-spacing-ms: ${ANILIST_REQUEST_SPACING_MS:700}
-  # Max per-search ID-based metadata hydrations for incomplete local rows.
-  # Keeps mixed-query search cards stable without unbounded upstream calls.
+  # Max per-search local metadata hydrations for incomplete rows.
+  # Runtime recommendation/search paths are local-DB only; no AniList HTTP fallback.
   search-metadata-hydration-max: ${ANILIST_SEARCH_METADATA_HYDRATION_MAX:2}
 
 # Recommendation vector retrieval configuration
 recommendations:
+  ops:
+    # Manual maintenance endpoints (/custom-embeddings/import|populate|failures) are disabled by default.
+    # Enable only for controlled ops sessions.
+    manual-endpoints-enabled: ${RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED:false}
+    # Optional second-factor token required in X-Ops-Token header for manual maintenance endpoints.
+    token: ${RECOMMENDATIONS_OPS_TOKEN}
+  list-import:
+    mal:
+      # Official MAL API credentials for username import endpoint (/api/users/list/import/mal).
+      # MAL v2 username list reads require client-id; secret is optional for future OAuth flows.
+      client-id: ${RECOMMENDATIONS_MAL_CLIENT_ID:${MAL_CLIENT_ID:}}
+      client-secret: ${RECOMMENDATIONS_MAL_CLIENT_SECRET:${MAL_CLIENT_SECRET:}}
   # OpenAI embedding fallback is removed; custom vectors should remain enabled.
   # true: query embedding_custom (384-dim)
   use-custom-vectors: ${RECOMMENDATIONS_USE_CUSTOM_VECTORS:true}
@@ -127,6 +139,11 @@ recommendations:
   cf:
     # Blend CF sidecar score with user taste-vector cosine similarity.
     taste-vector-weight: ${RECOMMENDATIONS_CF_TASTE_VECTOR_WEIGHT:0.20}
+    # Cold-start fallback: use popularity-ranked local catalog results when user history is too small
+    # or sidecar CF returns no candidates.
+    popular-fallback-enabled: ${RECOMMENDATIONS_CF_POPULAR_FALLBACK_ENABLED:true}
+    popular-fallback-min-rated-items: ${RECOMMENDATIONS_CF_POPULAR_FALLBACK_MIN_RATED_ITEMS:3}
+    popular-fallback-candidate-limit: ${RECOMMENDATIONS_CF_POPULAR_FALLBACK_CANDIDATE_LIMIT:100}
   # Used by POST /api/users/recommendations/custom-embeddings/import when path is omitted
   custom-embeddings-path: ${CUSTOM_EMBEDDINGS_PATH:/app/models/anime_embeddings.jsonl}
   # On startup, import custom embeddings only if source JSONL changed since last import.
@@ -145,6 +162,15 @@ recommendations:
     # Keep small candidate pools from collapsing after strict control filters.
     underfill-min-ratio: ${RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_RATIO:0.60}
     underfill-min-floor: ${RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_FLOOR:5}
+    # Base AniList metadata hydration floor per response for relation/format-aware filtering.
+    # Runtime may adapt this upward based on candidate count and active strict filters.
+    entrypoint-remap-max-hydrations: ${RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_MAX_HYDRATIONS:8}
+    # Hard cap for adaptive relation/format hydration in recommendation filtering.
+    entrypoint-remap-max-hydrations-hard-cap: ${RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_MAX_HYDRATIONS_HARD_CAP:12}
+    # Separate hydration budget for CF mode to avoid AniList rate-limit spikes under frequent For You requests.
+    entrypoint-remap-max-hydrations-cf: ${RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_MAX_HYDRATIONS_CF:3}
+    # Per-request failure threshold before hydration circuit opens and skips further AniList relation calls.
+    entrypoint-remap-failure-circuit-threshold: ${RECOMMENDATIONS_FILTERS_ENTRYPOINT_REMAP_FAILURE_CIRCUIT_THRESHOLD:3}
   semantic:
     # Hybrid candidate generation for Smart Search: vector retrieval + lexical matches.
     lexical-enabled: ${RECOMMENDATIONS_SEMANTIC_LEXICAL_ENABLED:true}
@@ -185,6 +211,12 @@ recommendations:
     broad-query-low-quality-score-threshold: ${RECOMMENDATIONS_SEMANTIC_BROAD_LOW_QUALITY_SCORE_THRESHOLD:72}
     broad-query-low-quality-popularity-threshold: ${RECOMMENDATIONS_SEMANTIC_BROAD_LOW_QUALITY_POPULARITY_THRESHOLD:15000}
     broad-query-low-quality-penalty: ${RECOMMENDATIONS_SEMANTIC_BROAD_LOW_QUALITY_PENALTY:0.88}
+    # Query-first quality gate for sparse/low-signal catalog items in semantic mode.
+    quality-gate-enabled: ${RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_ENABLED:true}
+    quality-gate-min-score: ${RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_MIN_SCORE:65}
+    quality-gate-min-popularity: ${RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_MIN_POPULARITY:2000}
+    quality-gate-high-relevance-override: ${RECOMMENDATIONS_SEMANTIC_QUALITY_GATE_HIGH_RELEVANCE_OVERRIDE:0.82}
+    sparse-metadata-relevance-floor: ${RECOMMENDATIONS_SEMANTIC_SPARSE_METADATA_RELEVANCE_FLOOR:0.62}
     # Keep semantic retrieval query-first for logged-in users (personalization is mainly rerank-time).
     list-blend-cap-with-query: ${RECOMMENDATIONS_SEMANTIC_LIST_BLEND_CAP_WITH_QUERY:0.08}
     list-blend-cap-broad-query: ${RECOMMENDATIONS_SEMANTIC_LIST_BLEND_CAP_BROAD_QUERY:0.12}
@@ -195,22 +227,34 @@ recommendations:
     second-pass-max-added-tokens: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_MAX_ADDED_TOKENS:8}
     second-pass-trigger-max-query-tokens: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_TRIGGER_MAX_QUERY_TOKENS:5}
     second-pass-skip-top-relevance-threshold: ${RECOMMENDATIONS_SEMANTIC_SECOND_PASS_SKIP_TOP_RELEVANCE_THRESHOLD:0.80}
+    # Runtime local-catalog seeding: embed missing local catalog hits on-demand (no AniList calls)
+    # before semantic retrieval when candidate pools are too small.
+    catalog-seeding-enabled: ${RECOMMENDATIONS_SEMANTIC_CATALOG_SEEDING_ENABLED:true}
+    catalog-seeding-max-per-query: ${RECOMMENDATIONS_SEMANTIC_CATALOG_SEEDING_MAX_PER_QUERY:12}
     # Deterministic in-memory query result cache for semantic mode.
     cache-enabled: ${RECOMMENDATIONS_SEMANTIC_CACHE_ENABLED:true}
     cache-size: ${RECOMMENDATIONS_SEMANTIC_CACHE_SIZE:2000}
     cache-ttl-hours: ${RECOMMENDATIONS_SEMANTIC_CACHE_TTL_HOURS:6}
     model-fingerprint: ${RECOMMENDATIONS_SEMANTIC_MODEL_FINGERPRINT:semantic-v1}
+  similar:
+    # Runtime local-catalog seeding for seed-driven recommendations when candidate pools underfill.
+    catalog-seeding-max-per-request: ${RECOMMENDATIONS_SIMILAR_CATALOG_SEEDING_MAX_PER_REQUEST:12}
   metadata-sync:
     # Disabled by default to avoid unexpected AniList load during local dev.
     enabled: ${RECOMMENDATIONS_METADATA_SYNC_ENABLED:false}
     initial-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_INITIAL_DELAY_MS:120000}
-    hot-popular-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_HOT_POPULAR_FIXED_DELAY_MS:21600000}
-    daily-active-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_DAILY_ACTIVE_FIXED_DELAY_MS:86400000}
-    weekly-deep-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_DEEP_FIXED_DELAY_MS:604800000}
-    per-page: ${RECOMMENDATIONS_METADATA_SYNC_PER_PAGE:50}
-    hot-popular-pages: ${RECOMMENDATIONS_METADATA_SYNC_HOT_POPULAR_PAGES:20}
-    daily-active-pages: ${RECOMMENDATIONS_METADATA_SYNC_DAILY_ACTIVE_PAGES:20}
-    weekly-deep-pages: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_DEEP_PAGES:120}
+    # Single weekly full-catalog rolling refresh window (cursor-resumable).
+    weekly-full-catalog-enabled: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED:true}
+    weekly-full-catalog-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_FIXED_DELAY_MS:604800000}
+    weekly-full-catalog-pages: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES:120}
+    # AniList full-catalog payload is heavier; keep page size conservative.
+    full-catalog-per-page: ${RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE:10}
+    # Weekly local graph rebuild from anime_catalog.metadata_json (no AniList calls).
+    weekly-graph-rebuild-enabled: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED:true}
+    weekly-graph-rebuild-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_FIXED_DELAY_MS:604800000}
+    # Early-stop full-catalog windows when we encounter this many consecutive pages
+    # where every entry is already embedded and metadata fingerprint-unchanged.
+    full-catalog-unchanged-stop-pages: ${RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_UNCHANGED_STOP_PAGES:40}
     adaptive-budget-enabled: ${RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_BUDGET_ENABLED:true}
     adaptive-rate-limit-threshold: ${RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_RATE_LIMIT_THRESHOLD:3}
     adaptive-retry-threshold: ${RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_RETRY_THRESHOLD:5}
@@ -256,4 +300,4 @@ recommendations:
     # Number of LLM-generated explanation sentences cached in-memory (LRU).
     llm-cache-size: ${RECOMMENDATIONS_EXPLANATIONS_LLM_CACHE_SIZE:2000}
     # Max LLM rewrites per response. Set <=0 for unlimited (higher cost).
-    llm-max-rewrites-per-request: ${RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST:5}
+    llm-max-rewrites-per-request: ${RECOMMENDATIONS_EXPLANATIONS_LLM_MAX_REWRITES_PER_REQUEST:10}

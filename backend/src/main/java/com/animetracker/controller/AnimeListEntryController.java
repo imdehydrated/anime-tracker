@@ -21,6 +21,7 @@ import com.animetracker.dto.AddAnimeRequest;
 import com.animetracker.dto.UpdateAnimeEntryRequest;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.service.AnimeListEntryService;
+import com.animetracker.service.ListImportService;
 
 import jakarta.validation.Valid;
 
@@ -32,9 +33,13 @@ import jakarta.validation.Valid;
 public class AnimeListEntryController {
 
     private final AnimeListEntryService animeListEntryService;
+    private final ListImportService listImportService;
 
-    public AnimeListEntryController(AnimeListEntryService animeListEntryService) {
+    public AnimeListEntryController(
+            AnimeListEntryService animeListEntryService,
+            ListImportService listImportService) {
         this.animeListEntryService = animeListEntryService;
+        this.listImportService = listImportService;
     }
 
     @GetMapping
@@ -103,6 +108,30 @@ public class AnimeListEntryController {
         String username = getCurrentUsername();
         animeListEntryService.deleteEntry(username, id);
         return ResponseEntity.ok(Map.of("message", "Entry deleted"));
+    }
+
+    @PostMapping("/import/anilist")
+    public ResponseEntity<Map<String, Object>> importAniListByUsername(
+            @org.springframework.web.bind.annotation.RequestParam String username,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean dryRun) {
+        String requestingUser = getCurrentUsername();
+        ListImportService.ImportSummary summary =
+                listImportService.importAniListByUsername(requestingUser, username, dryRun);
+        return ResponseEntity.ok(Map.of(
+                "message", "AniList username import completed",
+                "stats", summary.toMap()));
+    }
+
+    @PostMapping("/import/mal")
+    public ResponseEntity<Map<String, Object>> importMalByUsername(
+            @org.springframework.web.bind.annotation.RequestParam String username,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean dryRun) {
+        String requestingUser = getCurrentUsername();
+        ListImportService.ImportSummary summary =
+                listImportService.importMalByUsername(requestingUser, username, dryRun);
+        return ResponseEntity.ok(Map.of(
+                "message", "MAL username import completed",
+                "stats", summary.toMap()));
     }
 
     private String getCurrentUsername() {

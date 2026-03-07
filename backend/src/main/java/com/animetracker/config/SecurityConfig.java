@@ -41,8 +41,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                 // Public routes - no token needed
                 .requestMatchers(HttpMethod.POST, "/api/users/register", "/api/users/login").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/semantic").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/users/recommendations/semantic/scored").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/semantic/scored/paged").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/custom-embeddings/import").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/custom-embeddings/populate-active-catalog").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/custom-embeddings/populate-full-catalog").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/users/recommendations/custom-embeddings/population-failures").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users/recommendations/custom-embeddings/population-failures/retry").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/anime/**").permitAll()
                 // Everything else requires authentication

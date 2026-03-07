@@ -3,14 +3,22 @@ import axios from 'axios';
 // Shared HTTP client for the entire frontend.
 // All API modules should use this instance so auth/error behavior is centralized.
 function resolveBaseUrl() {
-	const configured = process.env.REACT_APP_API_URL;
+	const viteConfigured =
+		typeof import.meta !== 'undefined' && import.meta.env
+			? import.meta.env.VITE_API_URL
+			: '';
+	const legacyConfigured =
+		typeof process !== 'undefined' && process.env
+			? process.env.REACT_APP_API_URL
+			: '';
+	const configured = viteConfigured || legacyConfigured;
 	if (!configured) return '';
 
 	try {
 		const url = new URL(configured);
 		// In docker-compose we use "backend" as container DNS.
 		// Browsers on the host machine cannot resolve that hostname,
-		// so we keep relative URLs and let CRA proxy handle routing.
+		// so we keep relative URLs and let the dev server proxy route /api.
 		if (url.hostname === 'backend') {
 			return '';
 		}

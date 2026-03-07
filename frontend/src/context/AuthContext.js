@@ -12,7 +12,7 @@
  * 4. Expired tokens are auto-cleared on app load
  * 5. API 401 responses trigger automatic logout via shared API client hook
  */
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { setUnauthorizedHandler } from "../api/client";
 
 // Create the context — a "container" for auth data
@@ -40,6 +40,19 @@ function isTokenExpired(token) {
     return payload.exp * 1000 < Date.now();
   } catch {
     return true;
+  }
+}
+
+function getUsernameFromToken(token) {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (typeof payload?.sub === 'string' && payload.sub.trim().length > 0) {
+      return payload.sub.trim();
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -107,10 +120,11 @@ export function AuthProvider({ children }) {
 
   // Convert token to boolean: null → false, "eyJ..." → true
   const isLoggedIn = !!token;
+  const username = useMemo(() => getUsernameFromToken(token), [token]);
 
   // Provider makes these values available to any child component via useAuth()
   return (
-    <AuthContext.Provider value={{ token, login, logout, isLoggedIn }}>
+    <AuthContext.Provider value={{ token, login, logout, isLoggedIn, username }}>
       {children}
     </AuthContext.Provider>
   );
