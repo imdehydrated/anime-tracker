@@ -464,9 +464,9 @@ Security hardening defaults:
 - ALB origin access constrained with CloudFront secret origin header
 - private ECS task networking and private RDS
 - least-privilege IAM for deploy/runtime roles
-- OIDC-based GitHub Actions authentication (no static AWS keys)
+- OIDC-based GitHub Actions authentication (no static AWS keys) when CI/CD is enabled
 - Secrets Manager for sensitive runtime values (`JWT_SECRET`, DB creds, ops token, MAL/OpenAI secrets)
-- ECR scan-on-push + CI Trivy fail-on-critical gate
+- ECR scan-on-push; CI Trivy fail-on-critical gate when CI/CD is enabled
 - production default `RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=false`; temporary enabling should require ops token and network restriction
 
 Scalability defaults:
