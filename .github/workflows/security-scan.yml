@@ -1,0 +1,55 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "ml-sidecar/**"
+      - ".github/workflows/security-scan.yml"
+
+jobs:
+  container-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t animetracker-backend:scan backend
+
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile.prod -t animetracker-frontend:scan .
+
+      - name: Build sidecar image
+        run: docker build -f ml-sidecar/Dockerfile.prod -t animetracker-sidecar:scan .
+
+      - name: Trivy scan backend
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: animetracker-backend:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy scan frontend
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: animetracker-frontend:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy scan sidecar
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: animetracker-sidecar:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"

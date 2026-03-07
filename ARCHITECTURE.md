@@ -458,13 +458,25 @@ Deployment baseline is container-first and mirrors local service boundaries:
 
 Security hardening defaults:
 
-- TLS-only ingress (ACM cert + HTTP->HTTPS redirect)
+- CloudFront as canonical public entrypoint in front of ALB
+- TLS-only ingress (CloudFront HTTPS redirect + ACM cert)
+- WAF attached at CloudFront (managed rules + rate limits)
+- ALB origin access constrained with CloudFront secret origin header
 - private ECS task networking and private RDS
 - least-privilege IAM for deploy/runtime roles
 - OIDC-based GitHub Actions authentication (no static AWS keys)
 - Secrets Manager for sensitive runtime values (`JWT_SECRET`, DB creds, ops token, MAL/OpenAI secrets)
 - ECR scan-on-push + CI Trivy fail-on-critical gate
 - production default `RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=false`; temporary enabling should require ops token and network restriction
+
+Scalability defaults:
+
+- API/Web ECS services use target-tracking autoscaling (CPU + request load).
+- DB concurrency is protected with RDS Proxy + tuned Hikari pool settings.
+- Request overload protection is layered:
+  - edge rate limiting (WAF)
+  - app rate limiting (backend filter keyed by authenticated user or anonymous client identity)
+- current recommendation caches are in-memory per API task; shared Redis/ElastiCache is the next scale step for cross-task cache and rate-limit consistency.
 
 ## How to Extend Safely
 

@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -38,6 +40,7 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/users/recommendations")
 public class RecommendationController {
+    private static final Logger log = LoggerFactory.getLogger(RecommendationController.class);
     private final SemanticRecommendationService semanticService;
     private final CustomEmbeddingImportService customEmbeddingImportService;
     @Value("${recommendations.ops.manual-endpoints-enabled:false}")
@@ -205,19 +208,31 @@ public class RecommendationController {
     }
 
     private void ensureManualOpsAccess() {
+        HttpServletRequest request = currentRequestOrNull();
         if (!manualOpsEndpointsEnabled) {
+            log.warn(
+                    "Denied manual ops request while endpoints disabled: path={} ip={}",
+                    request == null ? "unknown" : request.getRequestURI(),
+                    request == null ? "unknown" : request.getRemoteAddr());
             throw new NotFoundException("Not found");
         }
         if (opsToken == null || opsToken.isBlank()) {
             return;
         }
-        ServletRequestAttributes attrs =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        HttpServletRequest request = attrs == null ? null : attrs.getRequest();
         String header = request == null ? null : request.getHeader("X-Ops-Token");
         if (header == null || !opsToken.equals(header)) {
+            log.warn(
+                    "Denied manual ops request due to invalid/missing token: path={} ip={}",
+                    request == null ? "unknown" : request.getRequestURI(),
+                    request == null ? "unknown" : request.getRemoteAddr());
             throw new UnauthorizedException("Invalid ops token");
         }
+    }
+
+    private HttpServletRequest currentRequestOrNull() {
+        ServletRequestAttributes attrs =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        return attrs == null ? null : attrs.getRequest();
     }
 
     private String getCurrentUsernameOrNull() {

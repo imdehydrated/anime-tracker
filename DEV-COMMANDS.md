@@ -641,6 +641,8 @@ docker-compose up --build -d
 
 Core runtime:
 - `JWT_SECRET`
+- `SERVER_ERROR_INCLUDE_MESSAGE`
+- `SERVER_ERROR_INCLUDE_STACKTRACE`
 - `ML_SIDECAR_ENABLED` (must remain `true` for recommendation features)
 - `ML_SIDECAR_URL`
 - `ML_SIDECAR_STARTUP_HEALTHCHECK_ENABLED`
@@ -656,6 +658,22 @@ Core runtime:
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED`
+- `SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE`
+- `SPRING_DATASOURCE_HIKARI_MIN_IDLE`
+- `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT_MS`
+- `SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT_MS`
+- `SPRING_DATASOURCE_HIKARI_MAX_LIFETIME_MS`
+- `SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME_MS`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_ENABLED`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_WINDOW_SECONDS`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_CLEANUP_INTERVAL_SECONDS`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_ANON_GLOBAL_LIMIT`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_AUTH_GLOBAL_LIMIT`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_SEARCH_LIMIT`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_RECOMMENDATION_LIMIT`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_LOGIN_LIMIT`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_REGISTER_LIMIT`
+- `RECOMMENDATIONS_SECURITY_RATE_LIMIT_TRUST_FORWARDED_FOR`
 
 Semantic/fusion behavior:
 - `RECOMMENDATIONS_DEFAULT_LIST_WEIGHT`
@@ -704,9 +722,15 @@ CF popularity attenuation:
 - `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_RATIO`
 - `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_FLOOR`
 
-## 24) Container-First AWS Deployment Templates
+## 24) Container-First AWS CI/CD Workflows
 
-Deployment templates are intentionally stored under `infra/` and not activated in `.github/workflows` by default.
+Active workflows are now versioned under `.github/workflows`:
+
+- `.github/workflows/deploy-api.yml`
+- `.github/workflows/deploy-web.yml`
+- `.github/workflows/security-scan.yml`
+
+Templates remain under `infra/github-actions` for reference and regeneration.
 
 Template files:
 - `infra/github-actions/deploy-api.yml.template`
@@ -719,16 +743,23 @@ Template files:
 - `infra/iam/ecs-task-runtime-policy.json`
 - `infra/alb/listener-rules.md`
 
-When ready to enable CI/CD:
+Required setup:
 
-```powershell
-New-Item -ItemType Directory -Force .github\workflows | Out-Null
-Copy-Item infra\github-actions\deploy-api.yml.template .github\workflows\deploy-api.yml
-Copy-Item infra\github-actions\deploy-web.yml.template .github\workflows\deploy-web.yml
-Copy-Item infra\github-actions\security-scan.yml.template .github\workflows\security-scan.yml
-```
-
-Then replace placeholders in `infra/ecs/*.json` and `infra/iam/*.json`:
+1. Configure repository variable values:
+- `AWS_REGION`
+- `ECS_CLUSTER`
+- `ECS_SERVICE_API`
+- `ECS_SERVICE_WEB`
+- `ECR_BACKEND_REPO`
+- `ECR_SIDECAR_REPO`
+- `ECR_FRONTEND_REPO`
+- `MODEL_ARTIFACT_BUCKET`
+- `MODEL_ARTIFACT_PREFIX`
+- `API_HEALTH_URL`
+- `WEB_HEALTH_URL`
+2. Configure repository secret:
+- `AWS_GHA_DEPLOY_ROLE_ARN`
+3. Replace placeholders in `infra/ecs/*.json` and `infra/iam/*.json`:
 - `<AWS_ACCOUNT_ID>`
 - `<AWS_REGION>`
 - `<RDS_HOST>`

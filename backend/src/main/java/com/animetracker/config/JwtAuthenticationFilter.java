@@ -3,6 +3,8 @@ package com.animetracker.config;
 import java.io.IOException;
 import java.util.Collections;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -16,6 +18,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtUtil jwtUtil;
 
@@ -55,6 +59,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 );
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+            } else {
+                log.warn(
+                        "Rejected invalid JWT token: method={} path={} ip={}",
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        request.getRemoteAddr());
             }
         }
 

@@ -184,13 +184,15 @@ animetracker/
 
 We deployed AniRec using a container-first AWS setup:
 
+- CloudFront is the public entrypoint in front of ALB (HTTPS redirect + security headers + WAF).
 - Backend and ML sidecar run together in one ECS/Fargate task.
 - Frontend runs as a separate ECS/Fargate service behind Nginx.
 - An Application Load Balancer routes `/api/*` to the API service and all other routes to the web service.
-- PostgreSQL runs in RDS, and the app uses local catalog + embeddings data from that database.
+- PostgreSQL runs in RDS (RDS Proxy recommended for connection stability), and the app uses local catalog + embeddings data from that database.
 - Runtime secrets are stored in AWS Secrets Manager.
 - Container images are built locally/CI, pushed to ECR, then rolled out by updating ECS task definitions/services.
+- GitHub Actions deploy is OIDC-only (no static AWS keys) with smoke checks and rollback guidance.
+- Backend uses layered rate limiting (edge + app-level) and in-memory caches; shared Redis cache is the next scale step for multi-task consistency.
 
-(Not public)
 Infra templates and task definitions are stored under `infra/`.
 Detailed step-by-step deployment and operations instructions are in `DEPLOYMENT.md`.

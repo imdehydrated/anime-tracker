@@ -8,3 +8,8 @@ logging:
     com.animetracker: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+server:
+  error:
+    include-message: always
+    include-stacktrace: on_param

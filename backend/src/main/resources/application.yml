@@ -24,6 +24,14 @@ spring:
     # Driver class (PostgreSQL JDBC driver)
     # Spring Boot auto-detects this, but explicit is better
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Concurrency-safe defaults for Fargate + RDS Proxy deployments.
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE:20}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MIN_IDLE:5}
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT_MS:2000}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT_MS:300000}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME_MS:1800000}
+      keepalive-time: ${SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME_MS:30000}
 
   # JPA (Java Persistence API) configuration
   jpa:
@@ -70,10 +78,10 @@ server:
   port: ${SERVER_PORT:8080}
 
   # Error handling: Include error details in responses (for debugging)
-  # In production, set this to "never" for security
+  # Defaults are hardened for production.
   error:
-    include-message: always
-    include-stacktrace: on_param  # Include stack trace if "?trace=true" in URL
+    include-message: ${SERVER_ERROR_INCLUDE_MESSAGE:never}
+    include-stacktrace: ${SERVER_ERROR_INCLUDE_STACKTRACE:never}
 
 # Logging configuration
 logging:
@@ -110,6 +118,19 @@ anilist:
 
 # Recommendation vector retrieval configuration
 recommendations:
+  security:
+    rate-limit:
+      enabled: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_ENABLED:true}
+      window-seconds: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_WINDOW_SECONDS:300}
+      cleanup-interval-seconds: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_CLEANUP_INTERVAL_SECONDS:60}
+      # Balanced launch profile.
+      anonymous-global-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_ANON_GLOBAL_LIMIT:1200}
+      authenticated-global-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_AUTH_GLOBAL_LIMIT:1800}
+      search-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_SEARCH_LIMIT:600}
+      recommendation-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_RECOMMENDATION_LIMIT:300}
+      login-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_LOGIN_LIMIT:60}
+      register-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_REGISTER_LIMIT:20}
+      trust-forwarded-for: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_TRUST_FORWARDED_FOR:true}
   ops:
     # Manual maintenance endpoints (/custom-embeddings/import|populate|failures) are disabled by default.
     # Enable only for controlled ops sessions.
