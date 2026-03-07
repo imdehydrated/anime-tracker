@@ -1,5 +1,7 @@
 # AniRec
 
+Live app: `http://anirec-alb-898467065.us-west-1.elb.amazonaws.com/`
+
 AniRec is a full-stack anime tracking and recommendation app.
 It combines a Spring Boot API, React + Vite frontend, PostgreSQL + pgvector, and a Python ML sidecar for semantic and collaborative recommendations.
 Recommendation features require the ML sidecar to be enabled and healthy at startup.
@@ -178,35 +180,17 @@ animetracker/
 `-- docker-compose.yml
 ```
 
-## AWS Container-First Deployment Artifacts
+## Deployment Overview (AWS)
 
-This repo now includes container-first AWS deployment templates under `infra/`:
+We deployed AniRec using a container-first AWS setup:
 
-- ECS task definition templates:
-  - `infra/ecs/taskdef.api.json` (`backend` + `ml-sidecar` in one task)
-  - `infra/ecs/taskdef.web.json` (frontend Nginx container)
-- IAM/OIDC policy templates:
-  - `infra/iam/github-oidc-trust-policy.json`
-  - `infra/iam/github-actions-deploy-policy.json`
-  - `infra/iam/ecs-task-runtime-policy.json`
-- ALB routing/security reference:
-  - `infra/alb/listener-rules.md`
-- GitHub Actions workflow templates (not active by default):
-  - `infra/github-actions/deploy-api.yml.template`
-  - `infra/github-actions/deploy-web.yml.template`
-  - `infra/github-actions/security-scan.yml.template`
-  - these are intentionally not under `.github/workflows` until explicitly enabled
+- Backend and ML sidecar run together in one ECS/Fargate task.
+- Frontend runs as a separate ECS/Fargate service behind Nginx.
+- An Application Load Balancer routes `/api/*` to the API service and all other routes to the web service.
+- PostgreSQL runs in RDS, and the app uses local catalog + embeddings data from that database.
+- Runtime secrets are stored in AWS Secrets Manager.
+- Container images are built locally/CI, pushed to ECR, then rolled out by updating ECS task definitions/services.
 
-Frontend production container files were added:
-
-- `frontend/Dockerfile.prod`
-- `frontend/nginx.conf`
-
-Frontend runtime env notes:
-
-- Vite uses `VITE_API_URL` for explicit API base URL overrides.
-- Legacy `REACT_APP_API_URL` fallback is still supported in the frontend API client for compatibility.
-
-ML sidecar production Dockerfile was added:
-
-- `ml-sidecar/Dockerfile.prod`
+(Not public)
+Infra templates and task definitions are stored under `infra/`.
+Detailed step-by-step deployment and operations instructions are in `DEPLOYMENT.md`.
