@@ -20,7 +20,7 @@ import { useLocation } from 'react-router-dom';
 const MAX_SEEDS = 5;
 const PAGE_SIZE = 15;
 const MAX_RESULTS = 100;
-const SMART_REC_STATE_KEY = 'smart_rec_page_state_v5';
+const SMART_REC_STATE_KEY_BASE = 'smart_rec_page_state_v6';
 const SIMILAR_LIST_WEIGHT_WHEN_ENABLED = 0.25;
 const SEED_SEARCH_FILTERS = {
 	includeExtraSeasons: true,
@@ -42,6 +42,13 @@ const MODES = [
 	{ key: 'cf', label: 'For You', requiresLogin: true },
 ];
 
+function buildSmartRecStateKey(username) {
+	const normalized = typeof username === 'string' && username.trim().length > 0
+		? username.trim().toLowerCase()
+		: 'anon';
+	return `${SMART_REC_STATE_KEY_BASE}:${normalized}`;
+}
+
 function SmartRec() {
 	const location = useLocation();
 	const [mode, setMode] = useState('semantic');
@@ -59,10 +66,12 @@ function SmartRec() {
 	const [hasMore, setHasMore] = useState(false);
 	const [addedIds, setAddedIds] = useState(new Set());
 	const [hydrated, setHydrated] = useState(false);
+	const [hydratedStorageKey, setHydratedStorageKey] = useState(null);
 	const requestSeqRef = useRef(0);
 	const activeRequestSeqRef = useRef(0);
 
-	const { isLoggedIn } = useAuth();
+	const { isLoggedIn, username } = useAuth();
+	const storageKey = buildSmartRecStateKey(username);
 	const { addToList, message, error, clearMessages, setError } = useAddToList();
 	const {
 		query,
@@ -89,8 +98,26 @@ function SmartRec() {
 	}, []);
 
 	useEffect(() => {
+		setHydrated(false);
+		setHydratedStorageKey(null);
+		invalidatePendingRequests();
+		setMode('semantic');
+		setSeeds([]);
+		setContext('');
+		setSemanticUseList(true);
+		setSimilarUseList(false);
+		hydrateFilters(RECOMMENDATION_FILTER_DEFAULTS);
+		setResults([]);
+		setHasRequested(false);
+		setSearching(false);
+		setLoadingMore(false);
+		setSearchError('');
+		setNextCursor(null);
+		setHasMore(false);
+		setAddedIds(new Set());
+
 		try {
-			const cached = sessionStorage.getItem(SMART_REC_STATE_KEY);
+			const cached = sessionStorage.getItem(storageKey);
 			if (!cached) return;
 			const parsed = JSON.parse(cached);
 			if (parsed.mode) setMode(parsed.mode);
@@ -110,8 +137,9 @@ function SmartRec() {
 			// Ignore corrupted cache and continue with defaults.
 		} finally {
 			setHydrated(true);
+			setHydratedStorageKey(storageKey);
 		}
-	}, [hydrateFilters]);
+	}, [hydrateFilters, invalidatePendingRequests, storageKey]);
 
 	useEffect(() => {
 		const prefillMode = location.state?.prefillMode;
@@ -140,8 +168,8 @@ function SmartRec() {
 		}, [location.state, isLoggedIn, invalidatePendingRequests]);
 
 	useEffect(() => {
-		if (!hydrated) return;
-		sessionStorage.setItem(SMART_REC_STATE_KEY, JSON.stringify({
+		if (!hydrated || hydratedStorageKey !== storageKey) return;
+		sessionStorage.setItem(storageKey, JSON.stringify({
 			mode,
 			seeds,
 			context,
@@ -166,7 +194,9 @@ function SmartRec() {
 		nextCursor,
 		hasMore,
 		addedIds,
-		searchError
+		searchError,
+		hydratedStorageKey,
+		storageKey,
 	]);
 
 	useEffect(() => {
