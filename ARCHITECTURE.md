@@ -462,6 +462,7 @@ Security hardening defaults:
 - TLS-only ingress (CloudFront HTTPS redirect + ACM cert)
 - WAF attached at CloudFront (managed rules + rate limits)
 - ALB origin access constrained with CloudFront secret origin header
+- ALB default listener behavior blocks direct internet traffic (`403`) when origin header is absent
 - private ECS task networking and private RDS
 - least-privilege IAM for deploy/runtime roles
 - OIDC-based GitHub Actions authentication (no static AWS keys) when CI/CD is enabled

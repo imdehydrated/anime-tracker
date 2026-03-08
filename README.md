@@ -1,6 +1,6 @@
 # AniRec
 
-Live app: `http://anirec-alb-898467065.us-west-1.elb.amazonaws.com/`
+Live app: `https://d2twcwm8eoud49.cloudfront.net/`
 
 AniRec is a full-stack anime tracking and recommendation app.
 It combines a Spring Boot API, React + Vite frontend, PostgreSQL + pgvector, and a Python ML sidecar for semantic and collaborative recommendations.
@@ -185,6 +185,7 @@ animetracker/
 We deployed AniRec using a container-first AWS setup:
 
 - CloudFront is the public entrypoint in front of ALB (HTTPS redirect + security headers + WAF).
+- ALB is origin-only and should return `403` for direct internet requests (CloudFront header-gated).
 - Backend and ML sidecar run together in one ECS/Fargate task.
 - Frontend runs as a separate ECS/Fargate service behind Nginx.
 - An Application Load Balancer routes `/api/*` to the API service and all other routes to the web service.
