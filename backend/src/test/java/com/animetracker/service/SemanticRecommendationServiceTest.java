@@ -1311,6 +1311,133 @@ class SemanticRecommendationServiceTest {
     }
 
     @Test
+    void applyRecommendationControls_popularityAttenuationUsesAverageScoreFallbackWhenPopularityMissing() throws Exception {
+        setField(service, "popularityAttenuationLow", 0.00f);
+        setField(service, "popularityAttenuationMedium", 0.08f);
+        setField(service, "popularityAttenuationHigh", 0.16f);
+
+        AniListResponse.AnimeInfo higherScore = new AniListResponse.AnimeInfo();
+        higherScore.setId(1001);
+        higherScore.setAverageScore(90);
+        higherScore.setPopularity(null);
+
+        AniListResponse.AnimeInfo lowerScore = new AniListResponse.AnimeInfo();
+        lowerScore.setId(1002);
+        lowerScore.setAverageScore(60);
+        lowerScore.setPopularity(null);
+
+        RecommendationResponse higherScoreRow = new RecommendationResponse(
+                higherScore,
+                0.50d,
+                List.of(RecommendationResponse.MATCHES_QUERY));
+        RecommendationResponse lowerScoreRow = new RecommendationResponse(
+                lowerScore,
+                0.50d,
+                List.of(RecommendationResponse.MATCHES_QUERY));
+
+        SemanticRequest.Filters requestedFilters = new SemanticRequest.Filters();
+        requestedFilters.setPopularityAttenuation("high");
+
+        Object controls = invokePrivate(
+                "resolveRecommendationControls",
+                new Class<?>[] { SemanticRequest.Filters.class },
+                requestedFilters);
+
+        Method method = SemanticRecommendationService.class.getDeclaredMethod(
+                "applyRecommendationControls",
+                List.class,
+                controls.getClass(),
+                String.class,
+                int.class,
+                Map.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<RecommendationResponse> filtered = (List<RecommendationResponse>) method.invoke(
+                service,
+                List.of(higherScoreRow, lowerScoreRow),
+                controls,
+                "semantic",
+                10,
+                Map.of());
+
+        assertEquals(2, filtered.size());
+        assertEquals(1002, filtered.get(0).getAnime().getId());
+        assertTrue(numberValue(filtered.get(0).getFusionScore(), 0.0d)
+                > numberValue(filtered.get(1).getFusionScore(), 0.0d));
+    }
+
+    @Test
+    void applyRecommendationControls_popularityAttenuationHighDownweightsPopularAndBoostsNiche() throws Exception {
+        setField(service, "popularityAttenuationLow", 0.00f);
+        setField(service, "popularityAttenuationMedium", 0.08f);
+        setField(service, "popularityAttenuationHigh", 0.16f);
+
+        AniListResponse.AnimeInfo highlyPopular = new AniListResponse.AnimeInfo();
+        highlyPopular.setId(1000);
+        highlyPopular.setPopularity(1_500_000);
+
+        AniListResponse.AnimeInfo niche = new AniListResponse.AnimeInfo();
+        niche.setId(2000);
+        niche.setPopularity(2_000);
+
+        RecommendationResponse highlyPopularRow = new RecommendationResponse(
+                highlyPopular,
+                0.65d,
+                List.of(RecommendationResponse.MATCHES_QUERY));
+        RecommendationResponse nicheRow = new RecommendationResponse(
+                niche,
+                0.65d,
+                List.of(RecommendationResponse.MATCHES_QUERY));
+
+        SemanticRequest.Filters lowFilters = new SemanticRequest.Filters();
+        lowFilters.setPopularityAttenuation("low");
+        SemanticRequest.Filters highFilters = new SemanticRequest.Filters();
+        highFilters.setPopularityAttenuation("high");
+
+        Object lowControls = invokePrivate(
+                "resolveRecommendationControls",
+                new Class<?>[] { SemanticRequest.Filters.class },
+                lowFilters);
+        Object highControls = invokePrivate(
+                "resolveRecommendationControls",
+                new Class<?>[] { SemanticRequest.Filters.class },
+                highFilters);
+
+        Method method = SemanticRecommendationService.class.getDeclaredMethod(
+                "applyRecommendationControls",
+                List.class,
+                lowControls.getClass(),
+                String.class,
+                int.class,
+                Map.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<RecommendationResponse> low = (List<RecommendationResponse>) method.invoke(
+                service,
+                List.of(highlyPopularRow, nicheRow),
+                lowControls,
+                "semantic",
+                10,
+                Map.of());
+
+        @SuppressWarnings("unchecked")
+        List<RecommendationResponse> high = (List<RecommendationResponse>) method.invoke(
+                service,
+                List.of(highlyPopularRow, nicheRow),
+                highControls,
+                "semantic",
+                10,
+                Map.of());
+
+        assertEquals(1000, low.get(0).getAnime().getId());
+        assertEquals(2000, high.get(0).getAnime().getId());
+        assertTrue(numberValue(high.get(0).getFusionScore(), 0.0d)
+                > numberValue(high.get(1).getFusionScore(), 0.0d));
+    }
+
+    @Test
     void applyRecommendationControls_appliesFeedbackScoreAdjustmentsAcrossModes() throws Exception {
         com.animetracker.dto.AniListResponse.AnimeInfo downAnime = new com.animetracker.dto.AniListResponse.AnimeInfo();
         downAnime.setId(901);

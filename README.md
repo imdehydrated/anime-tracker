@@ -1,6 +1,6 @@
 # AniRec
 
-Live app: `https://d2twcwm8eoud49.cloudfront.net/`
+[Live app](https://d2twcwm8eoud49.cloudfront.net/)
 
 AniRec is a full-stack anime tracking and recommendation app.
 It combines a Spring Boot API, React + Vite frontend, PostgreSQL + pgvector, and a Python ML sidecar for semantic and collaborative recommendations.
@@ -189,10 +189,10 @@ We deployed AniRec using a container-first AWS setup:
 - Backend and ML sidecar run together in one ECS/Fargate task.
 - Frontend runs as a separate ECS/Fargate service behind Nginx.
 - An Application Load Balancer routes `/api/*` to the API service and all other routes to the web service.
-- PostgreSQL runs in RDS (RDS Proxy recommended for connection stability), and the app uses local catalog + embeddings data from that database.
+- PostgreSQL runs in RDS behind RDS Proxy for connection stability under ECS scale, and the app uses local catalog + embeddings data from that database.
 - Runtime secrets are stored in AWS Secrets Manager.
 - Container images are built locally/CI, pushed to ECR, then rolled out by updating ECS task definitions/services.
-- GitHub Actions deploy templates are kept under `infra/github-actions`, but active repo workflows are currently paused; deploys are running manually via ECR + ECS updates.
+- GitHub Actions deploy templates are kept under `infra/github-actions`, but active repo workflows are currently paused; deploys currently run manually via ECR + ECS updates until GP10.5 runtime hardening gates are fully green.
 - Backend uses layered rate limiting (edge + app-level) and in-memory caches; shared Redis cache is the next scale step for multi-task consistency.
 
 Infra templates and task definitions are stored under `infra/`.

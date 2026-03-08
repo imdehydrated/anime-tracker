@@ -130,6 +130,8 @@ recommendations:
       recommendation-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_RECOMMENDATION_LIMIT:300}
       login-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_LOGIN_LIMIT:60}
       register-limit: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_REGISTER_LIMIT:20}
+      # When true, the limiter parses X-Forwarded-For and uses a proxy-safe hop strategy
+      # (penultimate when multiple hops) before falling back to remote address.
       trust-forwarded-for: ${RECOMMENDATIONS_SECURITY_RATE_LIMIT_TRUST_FORWARDED_FOR:true}
   ops:
     # Manual maintenance endpoints (/custom-embeddings/import|populate|failures) are disabled by default.

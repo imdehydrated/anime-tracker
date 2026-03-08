@@ -708,7 +708,7 @@ public class SemanticRecommendationService {
             if (anime == null || anime.getId() == null) {
                 continue;
             }
-            double popularityNorm = normalizePopularityForAttenuation(anime.getPopularity());
+            double popularityNorm = normalizePopularityForAttenuation(anime.getPopularity(), anime.getAverageScore());
             double scoreNorm = anime.getAverageScore() == null
                     ? 0.60d
                     : FusionScoringService.clamp(anime.getAverageScore() / 100.0d, 0.0d, 1.0d);
@@ -2140,6 +2140,7 @@ public class SemanticRecommendationService {
             double adjustedScore = applyPopularityAttenuation(
                     baseScore,
                     anime.getPopularity(),
+                    anime.getAverageScore(),
                     controls.popularityAttenuation(),
                     mode);
             String feedbackSignal = anime.getId() == null ? null : feedbackSignals.get(anime.getId());
@@ -2449,6 +2450,7 @@ public class SemanticRecommendationService {
     private double applyPopularityAttenuation(
             double baseScore,
             Integer popularity,
+            Integer averageScore,
             PopularityAttenuation attenuation,
             String mode) {
         boolean cfMode = "cf".equalsIgnoreCase(mode);
@@ -2469,13 +2471,18 @@ public class SemanticRecommendationService {
         if (alpha <= 0.0d) {
             return FusionScoringService.clamp(baseScore, 0.0d, 1.0d);
         }
-        double popularityNorm = normalizePopularityForAttenuation(popularity);
-        double nicheBoost = 1.0d - popularityNorm;
-        return FusionScoringService.clamp(baseScore * (1.0d + (alpha * nicheBoost)), 0.0d, 1.0d);
+        double popularityNorm = normalizePopularityForAttenuation(popularity, averageScore);
+        // Two-sided attenuation: boost niche entries and down-weight very popular entries.
+        double centeredPopularity = FusionScoringService.clamp((popularityNorm * 2.0d) - 1.0d, -1.0d, 1.0d);
+        double multiplier = 1.0d - (alpha * centeredPopularity);
+        return FusionScoringService.clamp(baseScore * multiplier, 0.0d, 1.0d);
     }
 
-    private double normalizePopularityForAttenuation(Integer popularity) {
+    private double normalizePopularityForAttenuation(Integer popularity, Integer averageScore) {
         if (popularity == null || popularity <= 0) {
+            if (averageScore != null) {
+                return FusionScoringService.clamp(averageScore / 100.0d, 0.0d, 1.0d);
+            }
             return 0.50d;
         }
         double capped = Math.min(2_000_000.0d, popularity.doubleValue());

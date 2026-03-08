@@ -5,10 +5,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,10 @@ public class RequestRateLimitingFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(RequestRateLimitingFilter.class);
     private static final int MAX_KEY_LENGTH = 256;
+    private static final Pattern IPV4_PATTERN = Pattern.compile(
+            "^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)"
+                    + "(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$");
+    private static final Pattern IPV6_CHARS_PATTERN = Pattern.compile("^[0-9a-fA-F:]+$");
 
     private final Map<String, RateCounter> counters = new ConcurrentHashMap<>();
 
@@ -165,15 +172,70 @@ public class RequestRateLimitingFilter extends OncePerRequestFilter {
     private String resolveClientIp(HttpServletRequest request) {
         if (trustForwardedFor) {
             String forwardedFor = request.getHeader("X-Forwarded-For");
-            if (forwardedFor != null && !forwardedFor.isBlank()) {
-                int commaIdx = forwardedFor.indexOf(',');
-                String first = commaIdx >= 0 ? forwardedFor.substring(0, commaIdx) : forwardedFor;
-                if (!first.isBlank()) {
-                    return first.strip();
+            List<String> hops = parseForwardedForHops(forwardedFor);
+            if (!hops.isEmpty()) {
+                // For CloudFront -> ALB chains, right-most values are latest proxies.
+                // Use the hop before the latest proxy when present to reduce spoofing risk.
+                if (hops.size() >= 2) {
+                    return hops.get(hops.size() - 2);
                 }
+                return hops.get(0);
             }
         }
-        return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
+        String remote = normalizePotentialIpToken(request.getRemoteAddr());
+        return remote == null ? "unknown" : remote;
+    }
+
+    private List<String> parseForwardedForHops(String forwardedFor) {
+        if (forwardedFor == null || forwardedFor.isBlank()) {
+            return List.of();
+        }
+        String[] tokens = forwardedFor.split(",");
+        List<String> hops = new ArrayList<>(tokens.length);
+        for (String token : tokens) {
+            String normalized = normalizePotentialIpToken(token);
+            if (normalized != null) {
+                hops.add(normalized);
+            }
+        }
+        return hops;
+    }
+
+    private String normalizePotentialIpToken(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String token = raw.strip();
+        if (token.isEmpty() || "unknown".equalsIgnoreCase(token)) {
+            return null;
+        }
+        if ((token.startsWith("\"") && token.endsWith("\""))
+                || (token.startsWith("'") && token.endsWith("'"))) {
+            token = token.substring(1, token.length() - 1).strip();
+        }
+        if (token.startsWith("[") && token.contains("]")) {
+            int endBracket = token.indexOf(']');
+            token = token.substring(1, endBracket);
+        } else if (token.indexOf(':') >= 0 && token.indexOf(':') == token.lastIndexOf(':')) {
+            // Single colon likely indicates IPv4:port.
+            token = token.substring(0, token.indexOf(':'));
+        }
+        if (isValidIpToken(token)) {
+            return token;
+        }
+        return null;
+    }
+
+    private boolean isValidIpToken(String token) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+        if (IPV4_PATTERN.matcher(token).matches()) {
+            return true;
+        }
+        // Keep IPv6 validation lightweight but strict enough to reject arbitrary text.
+        return token.indexOf(':') >= 0
+                && IPV6_CHARS_PATTERN.matcher(token).matches();
     }
 
     private boolean isAuthenticatedRequest() {

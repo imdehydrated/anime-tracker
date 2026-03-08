@@ -461,6 +461,7 @@ Security hardening defaults:
 - CloudFront as canonical public entrypoint in front of ALB
 - TLS-only ingress (CloudFront HTTPS redirect + ACM cert)
 - WAF attached at CloudFront (managed rules + rate limits)
+- explicit CloudFront `/api/*` behavior is required (all methods + no API caching + auth-relevant origin forwarding)
 - ALB origin access constrained with CloudFront secret origin header
 - ALB default listener behavior blocks direct internet traffic (`403`) when origin header is absent
 - private ECS task networking and private RDS
@@ -477,6 +478,7 @@ Scalability defaults:
 - Request overload protection is layered:
   - edge rate limiting (WAF)
   - app rate limiting (backend filter keyed by authenticated user or anonymous client identity)
+    - anonymous identity is derived from proxy-safe `X-Forwarded-For` parsing (penultimate hop when multiple hops) to reduce spoofing bypass risk
 - current recommendation caches are in-memory per API task; shared Redis/ElastiCache is the next scale step for cross-task cache and rate-limit consistency.
 
 ## How to Extend Safely

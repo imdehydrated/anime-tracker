@@ -15,6 +15,74 @@ class RequestRateLimitingFilterTest {
     @Test
     void blocksRequestWhenLimitExceeded() throws Exception {
         RequestRateLimitingFilter filter = new RequestRateLimitingFilter();
+        configureDefaults(filter);
+
+        MockHttpServletRequest first = buildSemanticRequest(null, "127.0.0.1");
+        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+        filter.doFilter(first, firstResponse, new MockFilterChain());
+
+        MockHttpServletRequest second = buildSemanticRequest(null, "127.0.0.1");
+        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+        filter.doFilter(second, secondResponse, new MockFilterChain());
+
+        assertThat(firstResponse.getStatus()).isEqualTo(200);
+        assertThat(secondResponse.getStatus()).isEqualTo(429);
+        assertThat(secondResponse.getContentAsString()).contains("Rate limit exceeded");
+    }
+
+    @Test
+    void usesPenultimateForwardedForHopToReduceSpoofing() throws Exception {
+        RequestRateLimitingFilter filter = new RequestRateLimitingFilter();
+        configureDefaults(filter);
+
+        MockHttpServletRequest first = buildSemanticRequest("1.1.1.1, 9.9.9.9, 10.0.0.1", "127.0.0.1");
+        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+        filter.doFilter(first, firstResponse, new MockFilterChain());
+
+        // Spoofed first token changes, but penultimate stays the same.
+        MockHttpServletRequest second = buildSemanticRequest("2.2.2.2, 9.9.9.9, 10.0.0.1", "127.0.0.1");
+        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+        filter.doFilter(second, secondResponse, new MockFilterChain());
+
+        assertThat(firstResponse.getStatus()).isEqualTo(200);
+        assertThat(secondResponse.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void usesSingleForwardedForValueWhenOnlyOneHopPresent() throws Exception {
+        RequestRateLimitingFilter filter = new RequestRateLimitingFilter();
+        configureDefaults(filter);
+
+        MockHttpServletRequest first = buildSemanticRequest("9.9.9.9", "127.0.0.1");
+        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+        filter.doFilter(first, firstResponse, new MockFilterChain());
+
+        MockHttpServletRequest second = buildSemanticRequest("9.9.9.9", "127.0.0.1");
+        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+        filter.doFilter(second, secondResponse, new MockFilterChain());
+
+        assertThat(firstResponse.getStatus()).isEqualTo(200);
+        assertThat(secondResponse.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void fallsBackToRemoteAddressWhenForwardedForInvalid() throws Exception {
+        RequestRateLimitingFilter filter = new RequestRateLimitingFilter();
+        configureDefaults(filter);
+
+        MockHttpServletRequest first = buildSemanticRequest("totally-invalid", "10.10.10.10");
+        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+        filter.doFilter(first, firstResponse, new MockFilterChain());
+
+        MockHttpServletRequest second = buildSemanticRequest("still-invalid", "10.10.10.10");
+        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+        filter.doFilter(second, secondResponse, new MockFilterChain());
+
+        assertThat(firstResponse.getStatus()).isEqualTo(200);
+        assertThat(secondResponse.getStatus()).isEqualTo(429);
+    }
+
+    private void configureDefaults(RequestRateLimitingFilter filter) {
         ReflectionTestUtils.setField(filter, "enabled", true);
         ReflectionTestUtils.setField(filter, "windowSeconds", 300);
         ReflectionTestUtils.setField(filter, "cleanupIntervalSeconds", 60);
@@ -25,25 +93,16 @@ class RequestRateLimitingFilterTest {
         ReflectionTestUtils.setField(filter, "recommendationLimit", 1);
         ReflectionTestUtils.setField(filter, "loginLimit", 100);
         ReflectionTestUtils.setField(filter, "registerLimit", 100);
-
-        MockHttpServletRequest first = buildSemanticRequest();
-        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
-        filter.doFilter(first, firstResponse, new MockFilterChain());
-
-        MockHttpServletRequest second = buildSemanticRequest();
-        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
-        filter.doFilter(second, secondResponse, new MockFilterChain());
-
-        assertThat(firstResponse.getStatus()).isEqualTo(200);
-        assertThat(secondResponse.getStatus()).isEqualTo(429);
-        assertThat(secondResponse.getContentAsString()).contains("Rate limit exceeded");
     }
 
-    private MockHttpServletRequest buildSemanticRequest() {
+    private MockHttpServletRequest buildSemanticRequest(String xForwardedFor, String remoteAddress) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST",
                 "/api/users/recommendations/semantic/scored");
         request.addHeader("User-Agent", "rate-limit-test");
-        request.setRemoteAddr("127.0.0.1");
+        if (xForwardedFor != null) {
+            request.addHeader("X-Forwarded-For", xForwardedFor);
+        }
+        request.setRemoteAddr(remoteAddress);
         return request;
     }
 }
