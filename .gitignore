@@ -57,12 +57,10 @@ notebooks/checkpoints/
 ml-models/
 references/
 notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
+ml-models.tar.gz
 
 # Local-only deployment artifacts (do not commit)
 infra/
-frontend/Dockerfile.prod
-frontend/nginx.conf
-ml-sidecar/Dockerfile.prod
 
 # Test JSON files for curl commands
 *.json
