@@ -493,7 +493,7 @@ Active workflows in `.github/workflows`:
    - fetches current ECS task definition from AWS, renders updated image, deploys `anirec-web`, then smoke-tests web root
 3. `deploy-api.yml`
    - runs on `main` pushes affecting backend/sidecar/workflow path
-   - compiles/tests backend, syncs model artifacts, builds/pushes backend + sidecar images (`GITHUB_SHA` tag)
+   - compiles/tests backend, builds/pushes backend + sidecar images (`GITHUB_SHA` tag)
    - fetches current ECS task definition from AWS, renders updated images, deploys `anirec-api`, then smoke-tests `/api/health`
 
 OIDC trust boundary:

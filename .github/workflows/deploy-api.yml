@@ -27,8 +27,6 @@ jobs:
       ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
       ECR_BACKEND_REPO: ${{ vars.ECR_BACKEND_REPO }}
       ECR_SIDECAR_REPO: ${{ vars.ECR_SIDECAR_REPO }}
-      MODEL_ARTIFACT_BUCKET: ${{ vars.MODEL_ARTIFACT_BUCKET }}
-      MODEL_ARTIFACT_PREFIX: ${{ vars.MODEL_ARTIFACT_PREFIX }}
       API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
 
     steps:
@@ -64,8 +62,6 @@ jobs:
             "ECS_SERVICE_API"
             "ECR_BACKEND_REPO"
             "ECR_SIDECAR_REPO"
-            "MODEL_ARTIFACT_BUCKET"
-            "MODEL_ARTIFACT_PREFIX"
             "API_HEALTH_URL"
           )
           for var_name in "${required_vars[@]}"; do
@@ -82,16 +78,6 @@ jobs:
       - name: Mask registry output
         run: |
           echo "::add-mask::${{ steps.login-ecr.outputs.registry }}"
-
-      - name: Download model artifacts
-        run: |
-          set -euo pipefail
-          mkdir -p ml-models
-          aws s3 sync "s3://${MODEL_ARTIFACT_BUCKET}/${MODEL_ARTIFACT_PREFIX}" ./ml-models --delete
-          test -f ./ml-models/anime_embeddings.jsonl
-          test -f ./ml-models/cf/model.pt
-          test -f ./ml-models/cf/anime_index.json
-          test -d ./ml-models/semantic
 
       - name: Build and push backend image
         env:
