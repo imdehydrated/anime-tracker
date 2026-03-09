@@ -1,0 +1,172 @@
+name: Deploy API (Backend + ML Sidecar)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "ml-sidecar/**"
+      - ".github/workflows/deploy-api.yml"
+
+concurrency:
+  group: deploy-api-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE_API: ${{ vars.ECS_SERVICE_API }}
+      ECR_BACKEND_REPO: ${{ vars.ECR_BACKEND_REPO }}
+      ECR_SIDECAR_REPO: ${{ vars.ECR_SIDECAR_REPO }}
+      MODEL_ARTIFACT_BUCKET: ${{ vars.MODEL_ARTIFACT_BUCKET }}
+      MODEL_ARTIFACT_PREFIX: ${{ vars.MODEL_ARTIFACT_PREFIX }}
+      API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Backend compile
+        run: mvn -q -DskipTests compile -f backend/pom.xml
+
+      - name: Backend targeted tests
+        env:
+          JWT_SECRET: test-secret
+        run: mvn -q "-Dtest=RecommendationControllerTest,SemanticRecommendationServiceTest,AnimeSearchControllerTest,AniListServiceTest,RequestRateLimitingFilterTest" test -f backend/pom.xml
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate required CI variables
+        run: |
+          set -euo pipefail
+          required_vars=(
+            "AWS_REGION"
+            "ECS_CLUSTER"
+            "ECS_SERVICE_API"
+            "ECR_BACKEND_REPO"
+            "ECR_SIDECAR_REPO"
+            "MODEL_ARTIFACT_BUCKET"
+            "MODEL_ARTIFACT_PREFIX"
+            "API_HEALTH_URL"
+          )
+          for var_name in "${required_vars[@]}"; do
+            if [ -z "${!var_name:-}" ]; then
+              echo "Missing required variable: ${var_name}"
+              exit 1
+            fi
+          done
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Mask registry output
+        run: |
+          echo "::add-mask::${{ steps.login-ecr.outputs.registry }}"
+
+      - name: Download model artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p ml-models
+          aws s3 sync "s3://${MODEL_ARTIFACT_BUCKET}/${MODEL_ARTIFACT_PREFIX}" ./ml-models --delete
+          test -f ./ml-models/anime_embeddings.jsonl
+          test -f ./ml-models/cf/model.pt
+          test -f ./ml-models/cf/anime_index.json
+          test -d ./ml-models/semantic
+
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          IMAGE_TAG=${GITHUB_SHA}
+          docker build -f backend/Dockerfile -t ${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG} backend
+          docker push ${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG}
+          echo "BACKEND_IMAGE=${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+
+      - name: Build and push ml-sidecar image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          IMAGE_TAG=${GITHUB_SHA}
+          docker build -f ml-sidecar/Dockerfile.prod -t ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG} .
+          docker push ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}
+          echo "SIDECAR_IMAGE=${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+
+      - name: Export current API task definition
+        run: |
+          set -euo pipefail
+          SERVICE_TASKDEF_ARN=$(aws ecs describe-services --cluster "${ECS_CLUSTER}" --services "${ECS_SERVICE_API}" --query "services[0].taskDefinition" --output text)
+          aws ecs describe-task-definition --task-definition "${SERVICE_TASKDEF_ARN}" --query "taskDefinition" --output json > taskdef-api.base.json
+          jq 'del(
+            .taskDefinitionArn,
+            .requiresAttributes,
+            .compatibilities,
+            .revision,
+            .status,
+            .registeredAt,
+            .registeredBy,
+            .deregisteredAt
+          )' taskdef-api.base.json > taskdef-api.json
+
+      - name: Render task definition (backend)
+        id: render-backend
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef-api.json
+          container-name: backend
+          image: ${{ env.BACKEND_IMAGE }}
+
+      - name: Render task definition (ml-sidecar)
+        id: render-sidecar
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.render-backend.outputs.task-definition }}
+          container-name: ml-sidecar
+          image: ${{ env.SIDECAR_IMAGE }}
+
+      - name: Deploy API service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-sidecar.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_API }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Smoke test API
+        run: |
+          set -euo pipefail
+          curl -f "${API_HEALTH_URL}/api/health"
+
+      - name: Capture deployed task definition
+        id: deployed-taskdef
+        run: |
+          set -euo pipefail
+          TASKDEF_ARN=$(aws ecs describe-services --cluster "${ECS_CLUSTER}" --services "${ECS_SERVICE_API}" --query "services[0].taskDefinition" --output text)
+          echo "taskdef_arn=${TASKDEF_ARN}" >> "$GITHUB_OUTPUT"
+          echo "Deployed task definition: ${TASKDEF_ARN}"
+
+      - name: Rollback command (reference)
+        run: |
+          echo "Rollback command:"
+          echo "aws ecs update-service --cluster ${ECS_CLUSTER} --service ${ECS_SERVICE_API} --task-definition <PREVIOUS_TASKDEF_ARN>"

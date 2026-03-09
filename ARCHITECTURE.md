@@ -466,7 +466,7 @@ Security hardening defaults:
 - ALB default listener behavior blocks direct internet traffic (`403`) when origin header is absent
 - private ECS task networking and private RDS
 - least-privilege IAM for deploy/runtime roles
-- OIDC-based GitHub Actions authentication (no static AWS keys) when CI/CD is enabled
+- OIDC-based GitHub Actions authentication (no static AWS keys)
 - Secrets Manager for sensitive runtime values (`JWT_SECRET`, DB creds, ops token, MAL/OpenAI secrets)
 - ECR scan-on-push; CI Trivy fail-on-critical gate when CI/CD is enabled
 - production default `RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=false`; temporary enabling should require ops token and network restriction
@@ -480,6 +480,27 @@ Scalability defaults:
   - app rate limiting (backend filter keyed by authenticated user or anonymous client identity)
     - anonymous identity is derived from proxy-safe `X-Forwarded-For` parsing (penultimate hop when multiple hops) to reduce spoofing bypass risk
 - current recommendation caches are in-memory per API task; shared Redis/ElastiCache is the next scale step for cross-task cache and rate-limit consistency.
+
+## CI/CD Control Flow (GP11)
+
+Active workflows in `.github/workflows`:
+1. `security-scan.yml`
+   - runs on PR and `main`
+   - builds backend/frontend/sidecar images and runs Trivy gates
+2. `deploy-web.yml`
+   - runs on `main` pushes affecting frontend/workflow path
+   - builds/pushes frontend image to ECR (`GITHUB_SHA` tag)
+   - fetches current ECS task definition from AWS, renders updated image, deploys `anirec-web`, then smoke-tests web root
+3. `deploy-api.yml`
+   - runs on `main` pushes affecting backend/sidecar/workflow path
+   - compiles/tests backend, syncs model artifacts, builds/pushes backend + sidecar images (`GITHUB_SHA` tag)
+   - fetches current ECS task definition from AWS, renders updated images, deploys `anirec-api`, then smoke-tests `/api/health`
+
+OIDC trust boundary:
+- GitHub Actions runner exchanges short-lived OIDC token for AWS role credentials (`AWS_GHA_DEPLOY_ROLE_ARN`).
+- No long-lived AWS access keys are stored in GitHub.
+- Workflow files do not embed account IDs/secret values; runtime config comes from GitHub Variables/Secrets.
+- Production environment protections (approvals/branch rules) are the operational gate before automatic deploys.
 
 ## How to Extend Safely
 

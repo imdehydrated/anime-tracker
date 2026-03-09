@@ -192,7 +192,10 @@ We deployed AniRec using a container-first AWS setup:
 - PostgreSQL runs in RDS behind RDS Proxy for connection stability under ECS scale, and the app uses local catalog + embeddings data from that database.
 - Runtime secrets are stored in AWS Secrets Manager.
 - Container images are built locally/CI, pushed to ECR, then rolled out by updating ECS task definitions/services.
-- GitHub Actions deploy templates are kept under `infra/github-actions`, but active repo workflows are currently paused; deploys currently run manually via ECR + ECS updates until GP10.5 runtime hardening gates are fully green.
+- GitHub Actions workflows are active under `.github/workflows` for security scan + API deploy + web deploy.
+  - Deploy workflows use AWS OIDC role assumption (no static AWS keys).
+  - Workflow files contain placeholders only; all environment-specific values are read from GitHub Variables/Secrets.
+  - Manual ECR/ECS deployment remains documented as fallback in `DEPLOYMENT.md`.
 - Backend uses layered rate limiting (edge + app-level) and in-memory caches; shared Redis cache is the next scale step for multi-task consistency.
 
 Infra templates and task definitions are stored under `infra/`.
