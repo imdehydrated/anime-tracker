@@ -3,7 +3,8 @@ FROM python:3.11-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    VENV_PATH=/opt/venv
 
 WORKDIR /app
 
@@ -12,22 +13,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ml-sidecar/requirements.txt .
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+RUN python -m venv "${VENV_PATH}" && \
+    "${VENV_PATH}/bin/pip" install --upgrade pip setuptools wheel && \
+    "${VENV_PATH}/bin/pip" install --no-cache-dir -r requirements.txt
 
 FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    VENV_PATH=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
+    && python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && rm -rf /var/lib/apt/lists/* && \
     groupadd -r app && useradd -r -g app app
 
-COPY --from=builder /usr/local /usr/local
+COPY --from=builder ${VENV_PATH} ${VENV_PATH}
 COPY ml-sidecar/app ./app
 COPY ml-models ./models
 
