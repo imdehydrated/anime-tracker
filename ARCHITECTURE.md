@@ -481,7 +481,7 @@ Scalability defaults:
     - anonymous identity is derived from proxy-safe `X-Forwarded-For` parsing (penultimate hop when multiple hops) to reduce spoofing bypass risk
 - current recommendation caches are in-memory per API task; shared Redis/ElastiCache is the next scale step for cross-task cache and rate-limit consistency.
 
-## CI/CD Control Flow (GP11)
+## CI/CD Control Flow
 
 Active workflows in `.github/workflows`:
 1. `security-scan.yml`
