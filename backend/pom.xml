@@ -26,6 +26,8 @@
     <properties>
         <!-- Java version: We're using Java 17 (LTS version) -->
         <java.version>17</java.version>
+        <!-- Override managed Jackson BOM to include fixes for current CVEs -->
+        <jackson-bom.version>2.21.1</jackson-bom.version>
     </properties>
 
     <!-- Dependencies: External libraries our project needs -->

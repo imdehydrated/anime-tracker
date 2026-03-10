@@ -34,6 +34,9 @@ FROM eclipse-temurin:17-jre-alpine
 # Set working directory
 WORKDIR /app
 
+# Pull latest patched Alpine packages at build time to reduce OS CVEs
+RUN apk upgrade --no-cache
+
 # Copy only the JAR file from the build stage
 # --from=build references the "build" stage above
 # This is why we use multi-stage builds: final image only has the JAR, not the source code or Maven
