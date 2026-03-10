@@ -14,7 +14,12 @@ on:
 jobs:
   container-scan:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      MODEL_BUCKET: ${{ vars.MODEL_BUCKET }}
+      MODEL_KEY: ${{ vars.MODEL_KEY }}
     permissions:
+      id-token: write
       contents: read
     concurrency:
       group: security-scan-${{ github.ref }}
@@ -30,7 +35,28 @@ jobs:
       - name: Build frontend image
         run: docker build -f frontend/Dockerfile.prod -t animetracker-frontend:scan .
 
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download model artifacts
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MODEL_BUCKET:-}" ] || [ -z "${MODEL_KEY:-}" ]; then
+            echo "MODEL_BUCKET and MODEL_KEY must be set for sidecar scan."
+            exit 1
+          fi
+          aws s3 cp "s3://${MODEL_BUCKET}/${MODEL_KEY}" ml-models.tar.gz
+          tar -xzf ml-models.tar.gz
+          test -f ml-models/cf/model.pt
+          test -f ml-models/semantic/model.safetensors
+
       - name: Build sidecar image
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         run: docker build -f ml-sidecar/Dockerfile.prod -t animetracker-sidecar:scan .
 
       - name: Trivy scan backend
@@ -50,6 +76,7 @@ jobs:
           exit-code: "1"
 
       - name: Trivy scan sidecar
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: animetracker-sidecar:scan

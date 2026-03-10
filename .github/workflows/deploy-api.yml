@@ -28,6 +28,8 @@ jobs:
       ECR_BACKEND_REPO: ${{ vars.ECR_BACKEND_REPO }}
       ECR_SIDECAR_REPO: ${{ vars.ECR_SIDECAR_REPO }}
       API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
+      MODEL_BUCKET: ${{ vars.MODEL_BUCKET }}
+      MODEL_KEY: ${{ vars.MODEL_KEY }}
 
     steps:
       - name: Checkout
@@ -63,6 +65,8 @@ jobs:
             "ECR_BACKEND_REPO"
             "ECR_SIDECAR_REPO"
             "API_HEALTH_URL"
+            "MODEL_BUCKET"
+            "MODEL_KEY"
           )
           for var_name in "${required_vars[@]}"; do
             if [ -z "${!var_name:-}" ]; then
@@ -94,6 +98,10 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           set -euo pipefail
+          aws s3 cp "s3://${MODEL_BUCKET}/${MODEL_KEY}" ml-models.tar.gz
+          tar -xzf ml-models.tar.gz
+          test -f ml-models/cf/model.pt
+          test -f ml-models/semantic/model.safetensors
           IMAGE_TAG=${GITHUB_SHA}
           docker build -f ml-sidecar/Dockerfile.prod -t ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG} .
           docker push ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}
