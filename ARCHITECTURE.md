@@ -194,7 +194,8 @@ Contract choice:
   - dry-run mode reports import deltas without mutating user list rows
 - manual ops endpoints (import/populate/failure-retry) are gated for operational use:
   - disabled by default (`RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=false`)
-  - optional `X-Ops-Token` second factor (`RECOMMENDATIONS_OPS_TOKEN`)
+  - `RECOMMENDATIONS_OPS_TOKEN` is required when manual endpoints are enabled; startup fails if missing
+  - requests must include `X-Ops-Token` for manual ops calls
 - request payload can include additive global controls under `filters`:
   - `includeExtraSeasons`
   - `includeMovies`

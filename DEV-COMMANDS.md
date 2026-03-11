@@ -344,7 +344,8 @@ curl.exe -X POST "http://localhost:8080/api/users/recommendations/custom-embeddi
 Note:
 - these manual ops endpoints do not require JWT login.
 - they are still blocked unless `RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED=true`.
-- set `RECOMMENDATIONS_OPS_TOKEN` in shared/prod-like environments and send it as `X-Ops-Token`.
+- `RECOMMENDATIONS_OPS_TOKEN` is required when manual ops endpoints are enabled (app fails fast at startup if missing).
+- send `RECOMMENDATIONS_OPS_TOKEN` as `X-Ops-Token` for all manual ops requests.
 
 Notes:
 - this path stores expanded AniList media payload into `anime_embeddings.metadata_json` (not only currently-used card fields).

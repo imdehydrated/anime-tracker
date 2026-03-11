@@ -137,7 +137,7 @@ recommendations:
     # Manual maintenance endpoints (/custom-embeddings/import|populate|failures) are disabled by default.
     # Enable only for controlled ops sessions.
     manual-endpoints-enabled: ${RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED:false}
-    # Optional second-factor token required in X-Ops-Token header for manual maintenance endpoints.
+    # Required token when manual maintenance endpoints are enabled.
     token: ${RECOMMENDATIONS_OPS_TOKEN}
   list-import:
     mal:

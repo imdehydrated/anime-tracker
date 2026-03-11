@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +54,15 @@ public class RecommendationController {
             CustomEmbeddingImportService customEmbeddingImportService) {
         this.semanticService = semanticService;
         this.customEmbeddingImportService = customEmbeddingImportService;
+    }
+
+    @PostConstruct
+    void validateManualOpsConfiguration() {
+        if (manualOpsEndpointsEnabled && (opsToken == null || opsToken.isBlank())) {
+            throw new IllegalStateException(
+                    "Manual ops endpoints are enabled but RECOMMENDATIONS_OPS_TOKEN is missing. "
+                            + "Set a non-empty ops token or disable manual ops endpoints.");
+        }
     }
 
     @PostMapping("/semantic/scored")

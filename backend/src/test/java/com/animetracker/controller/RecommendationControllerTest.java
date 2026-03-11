@@ -2,6 +2,7 @@ package com.animetracker.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -274,6 +275,24 @@ class RecommendationControllerTest {
         verify(semanticService).removeFeedback("tester", 1L);
     }
 
+    @Test
+    void manualOpsStartupValidation_failsWhenEnabledAndTokenMissing() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        enableManualOpsEndpoints(controller);
+        setOpsToken(controller, "");
+
+        assertThrows(IllegalStateException.class, controller::validateManualOpsConfiguration);
+    }
+
+    @Test
+    void manualOpsStartupValidation_passesWhenEnabledAndTokenPresent() {
+        RecommendationController controller = new RecommendationController(semanticService, customEmbeddingImportService);
+        enableManualOpsEndpoints(controller);
+        setOpsToken(controller, "test-token");
+
+        assertDoesNotThrow(controller::validateManualOpsConfiguration);
+    }
+
     private AniListResponse.AnimeInfo animeInfo(int anilistId) {
         AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
         anime.setId(anilistId);
@@ -288,6 +307,16 @@ class RecommendationControllerTest {
             Field field = RecommendationController.class.getDeclaredField("manualOpsEndpointsEnabled");
             field.setAccessible(true);
             field.set(controller, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void setOpsToken(RecommendationController controller, String token) {
+        try {
+            Field field = RecommendationController.class.getDeclaredField("opsToken");
+            field.setAccessible(true);
+            field.set(controller, token);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
