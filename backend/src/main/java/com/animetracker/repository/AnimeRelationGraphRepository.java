@@ -32,11 +32,18 @@ public class AnimeRelationGraphRepository {
         Long edgesBefore = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM anime_relation_graph",
                 Long.class);
-        jdbcTemplate.execute("TRUNCATE TABLE anime_relation_graph");
+        jdbcTemplate.execute("""
+                CREATE TEMP TABLE tmp_relation_edges (
+                    anime_id INTEGER NOT NULL,
+                    related_anime_id INTEGER NOT NULL,
+                    relation_type VARCHAR(40) NOT NULL,
+                    PRIMARY KEY (anime_id, related_anime_id, relation_type)
+                ) ON COMMIT DROP
+                """);
 
-        int inserted = jdbcTemplate.update("""
-                INSERT INTO anime_relation_graph
-                    (anime_id, related_anime_id, relation_type, created_at, updated_at)
+        jdbcTemplate.update("""
+                INSERT INTO tmp_relation_edges
+                    (anime_id, related_anime_id, relation_type)
                 SELECT DISTINCT
                     c.anilist_id AS anime_id,
                     CASE
@@ -49,9 +56,7 @@ public class AnimeRelationGraphRepository {
                         ' ',
                         '_'),
                         '-',
-                        '_')) AS relation_type,
-                    NOW(),
-                    NOW()
+                        '_')) AS relation_type
                 FROM anime_catalog c
                 CROSS JOIN LATERAL jsonb_array_elements(
                     CASE
@@ -69,6 +74,31 @@ public class AnimeRelationGraphRepository {
                         (rel->>'id') ~ '^[0-9]+$'
                         OR (rel->'node'->>'id') ~ '^[0-9]+$'
                     )
+                """);
+
+        int inserted = jdbcTemplate.update("""
+                INSERT INTO anime_relation_graph
+                    (anime_id, related_anime_id, relation_type, created_at, updated_at)
+                SELECT
+                    t.anime_id,
+                    t.related_anime_id,
+                    t.relation_type,
+                    NOW(),
+                    NOW()
+                FROM tmp_relation_edges t
+                ON CONFLICT (anime_id, related_anime_id, relation_type) DO UPDATE SET
+                    updated_at = NOW()
+                """);
+
+        jdbcTemplate.update("""
+                DELETE FROM anime_relation_graph g
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM tmp_relation_edges t
+                    WHERE t.anime_id = g.anime_id
+                      AND t.related_anime_id = g.related_anime_id
+                      AND t.relation_type = g.relation_type
+                )
                 """);
 
         Long animeWithEdges = jdbcTemplate.queryForObject(

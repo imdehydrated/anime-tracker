@@ -1,6 +1,7 @@
 package com.animetracker.service;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,7 +54,10 @@ class AniListMetadataSyncSchedulerTest {
         setField("fullCatalogWrapOnExhausted", true);
         setField("lowMetadataBackfillEnabled", true);
         setField("lowMetadataBackfillMaxIds", 90);
+        setField("lowMetadataBackfillRefreshCooldownHours", 72);
+        setField("lowMetadataBackfillUnreleasedRefreshCooldownHours", 336);
         setField("weeklyGraphRebuildEnabled", true);
+        setField("clusterLockEnabled", false);
     }
 
     @Test
@@ -155,7 +159,7 @@ class AniListMetadataSyncSchedulerTest {
                 "90");
         when(syncStateRepository.findOrCreate(eq("catalog_low_metadata_backfill"), eq(1), eq("90")))
                 .thenReturn(state);
-        when(catalogRepository.findLowMetadataAnilistIds(90)).thenReturn(List.of(11, 22, 33));
+        when(catalogRepository.findLowMetadataAnilistIds(90, 72, 336)).thenReturn(List.of(11, 22, 33));
         when(populatorService.refreshCatalogIds(eq(List.of(11, 22, 33)), eq("catalog_low_metadata_backfill")))
                 .thenReturn(new AnimeEmbeddingPopulatorService.IdBackfillStats(
                         "catalog_low_metadata_backfill",
@@ -176,13 +180,25 @@ class AniListMetadataSyncSchedulerTest {
 
         scheduler.runLowMetadataBackfillSync();
 
-        verify(catalogRepository).findLowMetadataAnilistIds(90);
+        verify(catalogRepository).findLowMetadataAnilistIds(90, 72, 336);
         verify(populatorService).refreshCatalogIds(eq(List.of(11, 22, 33)), eq("catalog_low_metadata_backfill"));
         verify(syncStateRepository).markSuccess(
                 eq("catalog_low_metadata_backfill"),
                 eq(1),
                 eq("90"),
                 any(Instant.class));
+    }
+
+    @Test
+    void runLowMetadataBackfillSync_skipsWhenClusterLeaseNotAcquired() throws Exception {
+        setField("clusterLockEnabled", true);
+        when(syncStateRepository.tryAcquireLease(anyString(), anyString(), any())).thenReturn(false);
+
+        scheduler.runLowMetadataBackfillSync();
+
+        verify(catalogRepository, never()).findLowMetadataAnilistIds(anyInt(), anyInt(), anyInt());
+        verify(populatorService, never()).refreshCatalogIds(anyList(), anyString());
+        verify(syncStateRepository, never()).releaseLease(anyString(), anyString());
     }
 
     @Test

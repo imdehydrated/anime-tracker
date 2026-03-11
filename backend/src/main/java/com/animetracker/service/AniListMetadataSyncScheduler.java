@@ -1,6 +1,10 @@
 package com.animetracker.service;
 
 import java.time.Instant;
+import java.time.Duration;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
@@ -27,6 +31,8 @@ public class AniListMetadataSyncScheduler {
     private static final String SOURCE_INCREMENTAL_FULL_SCAN = "catalog_full_scan_incremental";
     private static final String SOURCE_LOW_METADATA_BACKFILL = "catalog_low_metadata_backfill";
     private static final String SOURCE_WEEKLY_GRAPH_REBUILD = "weekly_relation_graph_rebuild";
+    private static final String LOCK_METADATA_LANE = "lock_metadata_lane";
+    private static final String LOCK_WEEKLY_GRAPH_REBUILD = "lock_weekly_relation_graph_rebuild";
 
     private final AnimeEmbeddingPopulatorService populatorService;
     private final AniListService aniListService;
@@ -35,6 +41,7 @@ public class AniListMetadataSyncScheduler {
     private final AniListSyncStateRepository syncStateRepository;
     private final ReentrantLock metadataLaneLock = new ReentrantLock();
     private final ReentrantLock weeklyGraphLock = new ReentrantLock();
+    private final String schedulerLockOwner = resolveSchedulerLockOwner();
 
     @Value("${recommendations.metadata-sync.enabled:false}")
     private boolean metadataSyncEnabled;
@@ -51,8 +58,18 @@ public class AniListMetadataSyncScheduler {
     private boolean lowMetadataBackfillEnabled;
     @Value("${recommendations.metadata-sync.low-metadata-backfill-max-ids:90}")
     private int lowMetadataBackfillMaxIds;
+    @Value("${recommendations.metadata-sync.low-metadata-backfill-refresh-cooldown-hours:72}")
+    private int lowMetadataBackfillRefreshCooldownHours;
+    @Value("${recommendations.metadata-sync.low-metadata-backfill-unreleased-refresh-cooldown-hours:336}")
+    private int lowMetadataBackfillUnreleasedRefreshCooldownHours;
     @Value("${recommendations.metadata-sync.weekly-graph-rebuild-enabled:true}")
     private boolean weeklyGraphRebuildEnabled;
+    @Value("${recommendations.metadata-sync.cluster-lock-enabled:true}")
+    private boolean clusterLockEnabled;
+    @Value("${recommendations.metadata-sync.cluster-lock-lease-ms:21600000}")
+    private long clusterLockLeaseMs;
+    @Value("${recommendations.metadata-sync.weekly-graph-lock-lease-ms:21600000}")
+    private long weeklyGraphLockLeaseMs;
 
     @Value("${recommendations.metadata-sync.adaptive-budget-enabled:true}")
     private boolean adaptiveBudgetEnabled;
@@ -87,9 +104,18 @@ public class AniListMetadataSyncScheduler {
             log.debug("Skipping low metadata backfill sync: another metadata sync lane is active");
             return;
         }
+        boolean clusterLockAcquired = false;
         try {
+            clusterLockAcquired = tryAcquireClusterLock(LOCK_METADATA_LANE, clusterLockLeaseMs);
+            if (!clusterLockAcquired) {
+                log.debug("Skipping low metadata backfill sync: cluster metadata lane lock is active");
+                return;
+            }
             runLowMetadataBackfillWindow();
         } finally {
+            if (clusterLockAcquired) {
+                syncStateRepository.releaseLease(LOCK_METADATA_LANE, schedulerLockOwner);
+            }
             metadataLaneLock.unlock();
         }
     }
@@ -105,13 +131,22 @@ public class AniListMetadataSyncScheduler {
             log.debug("Skipping weekly full catalog sync: another metadata sync lane is active");
             return;
         }
+        boolean clusterLockAcquired = false;
         try {
+            clusterLockAcquired = tryAcquireClusterLock(LOCK_METADATA_LANE, clusterLockLeaseMs);
+            if (!clusterLockAcquired) {
+                log.debug("Skipping weekly full catalog sync: cluster metadata lane lock is active");
+                return;
+            }
             runWindowedSync(
                     SOURCE_INCREMENTAL_FULL_SCAN,
                     1,
                     weeklyFullCatalogPages,
                     fullCatalogWrapOnExhausted);
         } finally {
+            if (clusterLockAcquired) {
+                syncStateRepository.releaseLease(LOCK_METADATA_LANE, schedulerLockOwner);
+            }
             metadataLaneLock.unlock();
         }
     }
@@ -127,7 +162,13 @@ public class AniListMetadataSyncScheduler {
             log.debug("Skipping weekly relation graph rebuild: previous run still active");
             return;
         }
+        boolean clusterLockAcquired = false;
         try {
+            clusterLockAcquired = tryAcquireClusterLock(LOCK_WEEKLY_GRAPH_REBUILD, weeklyGraphLockLeaseMs);
+            if (!clusterLockAcquired) {
+                log.debug("Skipping weekly relation graph rebuild: cluster graph lock is active");
+                return;
+            }
             AnimeRelationGraphRepository.RelationGraphRebuildStats stats =
                     relationGraphRepository.rebuildFromCatalogMetadata();
             syncStateRepository.markSuccess(
@@ -154,6 +195,9 @@ public class AniListMetadataSyncScheduler {
                     SOURCE_WEEKLY_GRAPH_REBUILD,
                     ex.getMessage());
         } finally {
+            if (clusterLockAcquired) {
+                syncStateRepository.releaseLease(LOCK_WEEKLY_GRAPH_REBUILD, schedulerLockOwner);
+            }
             weeklyGraphLock.unlock();
         }
     }
@@ -166,7 +210,12 @@ public class AniListMetadataSyncScheduler {
                 Integer.toString(safeMaxIds));
         int maxIds = resolveBudgetPages(state.budgetState(), safeMaxIds);
         Instant startedAt = Instant.now();
-        var candidateIds = catalogRepository.findLowMetadataAnilistIds(maxIds);
+        int refreshCooldownHours = Math.max(1, lowMetadataBackfillRefreshCooldownHours);
+        int unreleasedCooldownHours = Math.max(refreshCooldownHours, lowMetadataBackfillUnreleasedRefreshCooldownHours);
+        var candidateIds = catalogRepository.findLowMetadataAnilistIds(
+                maxIds,
+                refreshCooldownHours,
+                unreleasedCooldownHours);
         if (candidateIds == null || candidateIds.isEmpty()) {
             syncStateRepository.markSuccess(
                     SOURCE_LOW_METADATA_BACKFILL,
@@ -330,6 +379,29 @@ public class AniListMetadataSyncScheduler {
             return Math.min(safeConfigured, safeCurrent + 1);
         }
         return safeConfigured;
+    }
+
+    private boolean tryAcquireClusterLock(String lockKey, long leaseMs) {
+        if (!clusterLockEnabled) {
+            return true;
+        }
+        Duration lease = Duration.ofMillis(Math.max(60000L, leaseMs));
+        try {
+            return syncStateRepository.tryAcquireLease(lockKey, schedulerLockOwner, lease);
+        } catch (Exception ex) {
+            log.warn("Failed to acquire cluster lock '{}' (lease_ms={}): {}", lockKey, leaseMs, ex.getMessage());
+            return false;
+        }
+    }
+
+    private String resolveSchedulerLockOwner() {
+        String host;
+        try {
+            host = InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException ex) {
+            host = "unknown-host";
+        }
+        return host + "-" + UUID.randomUUID();
     }
 
 }

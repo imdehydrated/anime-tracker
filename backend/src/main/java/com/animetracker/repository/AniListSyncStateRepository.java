@@ -4,6 +4,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -83,6 +85,47 @@ public class AniListSyncStateRepository {
                 truncateError(error),
                 now,
                 budgetState));
+    }
+
+    public boolean tryAcquireLease(String sourceKey, String lockOwner, Duration leaseDuration) {
+        Instant now = Instant.now();
+        Instant lockUntil = now.plus(leaseDuration == null || leaseDuration.isNegative()
+                ? Duration.ofHours(1)
+                : leaseDuration);
+        List<String> acquired = jdbcTemplate.query(
+                """
+                INSERT INTO anilist_sync_state
+                    (source_key, next_page, budget_state, lock_owner, lock_until, last_run_at)
+                VALUES
+                    (?, 1, NULL, ?, ?, ?)
+                ON CONFLICT (source_key) DO UPDATE SET
+                    lock_owner = EXCLUDED.lock_owner,
+                    lock_until = EXCLUDED.lock_until,
+                    last_run_at = EXCLUDED.last_run_at
+                WHERE anilist_sync_state.lock_until IS NULL
+                    OR anilist_sync_state.lock_until < EXCLUDED.last_run_at
+                    OR anilist_sync_state.lock_owner = EXCLUDED.lock_owner
+                RETURNING source_key
+                """,
+                (rs, rowNum) -> rs.getString(1),
+                sourceKey,
+                lockOwner,
+                toTimestamp(lockUntil),
+                toTimestamp(now));
+        return acquired != null && !acquired.isEmpty();
+    }
+
+    public void releaseLease(String sourceKey, String lockOwner) {
+        jdbcTemplate.update(
+                """
+                UPDATE anilist_sync_state
+                SET lock_owner = NULL,
+                    lock_until = NULL
+                WHERE source_key = ?
+                  AND lock_owner = ?
+                """,
+                sourceKey,
+                lockOwner);
     }
 
     private String truncateError(String error) {

@@ -159,8 +159,26 @@ public interface AnimeCatalogRepository extends JpaRepository<AnimeCatalog, Long
                     OR episodes IS NULL
                     OR status = 'NOT_YET_RELEASED'
                   )
-            ORDER BY metadata_refreshed_at NULLS FIRST, updated_at ASC, anilist_id ASC
+              AND (
+                    metadata_refreshed_at IS NULL
+                    OR (
+                        status = 'NOT_YET_RELEASED'
+                        AND metadata_refreshed_at < NOW() - make_interval(hours => :unreleasedRefreshCooldownHours)
+                    )
+                    OR (
+                        (status IS NULL OR status <> 'NOT_YET_RELEASED')
+                        AND metadata_refreshed_at < NOW() - make_interval(hours => :refreshCooldownHours)
+                    )
+                  )
+            ORDER BY
+                CASE WHEN status = 'NOT_YET_RELEASED' THEN 1 ELSE 0 END,
+                metadata_refreshed_at NULLS FIRST,
+                updated_at ASC,
+                anilist_id ASC
             LIMIT :limit
             """, nativeQuery = true)
-    List<Integer> findLowMetadataAnilistIds(@Param("limit") int limit);
+    List<Integer> findLowMetadataAnilistIds(
+            @Param("limit") int limit,
+            @Param("refreshCooldownHours") int refreshCooldownHours,
+            @Param("unreleasedRefreshCooldownHours") int unreleasedRefreshCooldownHours);
 }

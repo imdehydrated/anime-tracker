@@ -270,12 +270,18 @@ recommendations:
     low-metadata-backfill-enabled: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_ENABLED:true}
     low-metadata-backfill-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_FIXED_DELAY_MS:86400000}
     low-metadata-backfill-max-ids: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_MAX_IDS:90}
+    low-metadata-backfill-refresh-cooldown-hours: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_REFRESH_COOLDOWN_HOURS:72}
+    low-metadata-backfill-unreleased-refresh-cooldown-hours: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_UNRELEASED_REFRESH_COOLDOWN_HOURS:336}
     # Single weekly full-catalog rolling refresh window (cursor-resumable).
     # Track B: incremental full-catalog scan lane with cursor wrap at end-of-catalog.
     weekly-full-catalog-enabled: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED:true}
     weekly-full-catalog-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_FIXED_DELAY_MS:604800000}
     weekly-full-catalog-pages: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES:120}
     full-catalog-wrap-on-exhausted: ${RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_WRAP_ON_EXHAUSTED:true}
+    # Cluster-safe lease lock for scheduler lanes (required when API runs with >1 task).
+    cluster-lock-enabled: ${RECOMMENDATIONS_METADATA_SYNC_CLUSTER_LOCK_ENABLED:true}
+    cluster-lock-lease-ms: ${RECOMMENDATIONS_METADATA_SYNC_CLUSTER_LOCK_LEASE_MS:21600000}
+    weekly-graph-lock-lease-ms: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_LOCK_LEASE_MS:21600000}
     # AniList full-catalog payload is heavier; keep page size conservative.
     full-catalog-per-page: ${RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE:10}
     # Weekly local graph rebuild from anime_catalog.metadata_json (no AniList calls).

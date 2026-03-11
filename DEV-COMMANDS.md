@@ -388,24 +388,31 @@ Key knobs:
 - `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_ENABLED`
 - `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_FIXED_DELAY_MS`
 - `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_MAX_IDS`
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_REFRESH_COOLDOWN_HOURS` (default `72`)
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_UNRELEASED_REFRESH_COOLDOWN_HOURS` (default `336`)
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_WRAP_ON_EXHAUSTED`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_CLUSTER_LOCK_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_CLUSTER_LOCK_LEASE_MS`
+- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_LOCK_LEASE_MS`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_UNCHANGED_STOP_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_BUDGET_ENABLED`
 
 Notes:
 - Track A backfills sparse/unreleased catalog rows by ID with a fixed cap per run.
+- Track A cooldown windows prevent repeated refresh churn on the same sparse rows.
 - Track B does incremental full-catalog page scans and wraps back to page 1 on exhaustion.
 - Track A and Track B are overlap-protected by a shared scheduler lock.
+- cluster lock lease keys ensure only one API task executes scheduler lanes in multi-task ECS deployments.
 - weekly graph rebuild uses local `anime_catalog.metadata_json` only (no AniList calls).
 
 Inspect persisted sync state:
 
 ```powershell
-docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT source_key, next_page, last_success_at, last_error, last_run_at, budget_state FROM anilist_sync_state ORDER BY source_key;"
+docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT source_key, next_page, last_success_at, last_error, last_run_at, budget_state, lock_owner, lock_until FROM anilist_sync_state ORDER BY source_key;"
 ```
 
 Inspect metadata fingerprint refresh state:

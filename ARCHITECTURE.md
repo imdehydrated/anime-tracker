@@ -100,6 +100,9 @@ Runs tiered metadata refresh jobs:
 State is persisted in `anilist_sync_state` so jobs resume across restarts.
 Track B wraps cursor back to page `1` when AniList returns no more pages, so full-catalog coverage continues over time instead of pinning at end-of-catalog.
 Track A and Track B use a shared scheduler lock so they do not overlap and spike AniList calls in the same window.
+Cluster-wide lease locks (`lock_metadata_lane`, `lock_weekly_relation_graph_rebuild`) are persisted in `anilist_sync_state` so only one API task in ECS executes each scheduled lane at a time.
+Track A also applies cooldown windows for sparse rows so unreleased/low-metadata titles are revisited on cadence instead of being churned every run.
+Weekly relation-graph rebuild uses staged temp-table upsert/delete (instead of table truncate) to reduce lock contention against read traffic.
 Scheduler adjusts page budgets downward when AniList rate-limit pressure is detected (429/retry-heavy windows), then recovers gradually on clean runs.
 
 Design reason:
@@ -122,7 +125,8 @@ Design reason:
 
 Syncs canonical catalog metadata and then generates embeddings:
 - single full-catalog population path for deployment bootstrap and refresh (`populate-full-catalog`)
-  - manual and scheduled runs share one cursor via `anilist_sync_state` source `catalog_populate`
+  - manual full-catalog path uses `catalog_populate` state
+  - scheduler full-catalog lane uses independent `catalog_full_scan_incremental` state
   - full-catalog path supports early stop after consecutive unchanged pages to avoid unnecessary full rescans
 
 Each refresh persists:
@@ -332,9 +336,12 @@ Metadata sync state table: `anilist_sync_state`
 - `last_error`
 - `last_run_at`
 - `budget_state`
+- `lock_owner` (cluster lease owner identity)
+- `lock_until` (cluster lease expiry)
 
 Design reason:
 - sync cursor and adaptive budget must survive restarts and deploys to keep refresh incremental and rate-limit safe.
+- cluster lock lease persistence prevents duplicate scheduler lanes when API service runs multiple tasks.
 - active source keys include:
   - `catalog_full_scan_incremental` (Track B cursor)
   - `catalog_low_metadata_backfill` (Track A bounded ID refresh)
