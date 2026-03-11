@@ -266,10 +266,16 @@ recommendations:
     # Disabled by default to avoid unexpected AniList load during local dev.
     enabled: ${RECOMMENDATIONS_METADATA_SYNC_ENABLED:false}
     initial-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_INITIAL_DELAY_MS:120000}
+    # Track A: low-metadata backfill lane. Refreshes sparse/unreleased catalog IDs directly.
+    low-metadata-backfill-enabled: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_ENABLED:true}
+    low-metadata-backfill-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_FIXED_DELAY_MS:86400000}
+    low-metadata-backfill-max-ids: ${RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_MAX_IDS:90}
     # Single weekly full-catalog rolling refresh window (cursor-resumable).
+    # Track B: incremental full-catalog scan lane with cursor wrap at end-of-catalog.
     weekly-full-catalog-enabled: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED:true}
     weekly-full-catalog-fixed-delay-ms: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_FIXED_DELAY_MS:604800000}
     weekly-full-catalog-pages: ${RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES:120}
+    full-catalog-wrap-on-exhausted: ${RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_WRAP_ON_EXHAUSTED:true}
     # AniList full-catalog payload is heavier; keep page size conservative.
     full-catalog-per-page: ${RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE:10}
     # Weekly local graph rebuild from anime_catalog.metadata_json (no AniList calls).

@@ -141,4 +141,26 @@ public interface AnimeCatalogRepository extends JpaRepository<AnimeCatalog, Long
             LIMIT 1
             """, nativeQuery = true)
     Optional<Integer> findAnilistIdByMalId(@Param("malId") Integer malId);
+
+    @Query(value = """
+            SELECT anilist_id
+            FROM anime_catalog
+            WHERE anilist_id IS NOT NULL
+              AND (
+                    metadata_json IS NULL
+                    OR (NULLIF(TRIM(COALESCE(title_romaji, '')), '') IS NULL
+                        AND NULLIF(TRIM(COALESCE(title_english, '')), '') IS NULL)
+                    OR NULLIF(TRIM(COALESCE(cover_image, '')), '') IS NULL
+                    OR NULLIF(TRIM(COALESCE(genres, '')), '') IS NULL
+                    OR description IS NULL
+                    OR LENGTH(TRIM(description)) < 80
+                    OR average_score IS NULL
+                    OR anilist_popularity IS NULL
+                    OR episodes IS NULL
+                    OR status = 'NOT_YET_RELEASED'
+                  )
+            ORDER BY metadata_refreshed_at NULLS FIRST, updated_at ASC, anilist_id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Integer> findLowMetadataAnilistIds(@Param("limit") int limit);
 }

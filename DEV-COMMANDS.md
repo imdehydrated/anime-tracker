@@ -350,7 +350,8 @@ Notes:
 - this path stores expanded AniList media payload into `anime_embeddings.metadata_json` (not only currently-used card fields).
 - relation edges are refreshed into `anime_relation_graph` during the same run.
 - full-catalog page size is intentionally capped at `10` for stability with broad AniList payloads.
-- all manual/scheduled catalog repopulates share one cursor (`catalog_populate` in `anilist_sync_state`) and continue from `nextPageHint`.
+- manual full-catalog populate uses cursor source `catalog_populate`.
+- scheduled lanes use independent sources (`catalog_low_metadata_backfill`, `catalog_full_scan_incremental`) so manual operations do not interfere with automated cadence.
 - full-catalog runs can stop early after consecutive unchanged pages (`stableStopReached=true`) to avoid scanning the entire catalog on routine repop runs.
 
 Coverage tracking:
@@ -375,7 +376,7 @@ docker exec -it animetracker-db psql -U anime_user -d animetracker -c "SELECT CO
 
 Runtime recommendation/search traffic is local-DB only by default.
 
-## 11.1) Metadata Sync Scheduler (Tiered AniList Refresh)
+## 11.1) Metadata Sync Scheduler (Dual-Lane AniList Refresh)
 
 Scheduler is disabled by default and can be enabled with env:
 
@@ -384,19 +385,21 @@ $env:RECOMMENDATIONS_METADATA_SYNC_ENABLED = "true"
 ```
 
 Key knobs:
-- `RECOMMENDATIONS_METADATA_SYNC_HOT_POPULAR_PAGES`
-- `RECOMMENDATIONS_METADATA_SYNC_DAILY_ACTIVE_PAGES`
-- `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_DEEP_PAGES`
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_FIXED_DELAY_MS`
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_MAX_IDS`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE`
+- `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_WRAP_ON_EXHAUSTED`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_UNCHANGED_STOP_PAGES`
-- `RECOMMENDATIONS_METADATA_SYNC_PER_PAGE`
 - `RECOMMENDATIONS_METADATA_SYNC_ADAPTIVE_BUDGET_ENABLED`
 
 Notes:
-- weekly full-catalog sync is cursor-resumable and uses the same adaptive budget policy.
+- Track A backfills sparse/unreleased catalog rows by ID with a fixed cap per run.
+- Track B does incremental full-catalog page scans and wraps back to page 1 on exhaustion.
+- Track A and Track B are overlap-protected by a shared scheduler lock.
 - weekly graph rebuild uses local `anime_catalog.metadata_json` only (no AniList calls).
 
 Inspect persisted sync state:
@@ -654,9 +657,13 @@ Core runtime:
 - `CUSTOM_EMBEDDINGS_PATH`
 - `AUTO_SYNC_CUSTOM_EMBEDDINGS`
 - `RECOMMENDATIONS_METADATA_FAILURE_POLICY_*` (reason-aware retry/dead-letter tuning)
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_ENABLED`
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_FIXED_DELAY_MS`
+- `RECOMMENDATIONS_METADATA_SYNC_LOW_METADATA_BACKFILL_MAX_IDS`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_PAGES`
 - `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_PER_PAGE`
+- `RECOMMENDATIONS_METADATA_SYNC_FULL_CATALOG_WRAP_ON_EXHAUSTED`
 - `RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED`
 - `SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE`
 - `SPRING_DATASOURCE_HIKARI_MIN_IDLE`
@@ -794,3 +801,56 @@ docker build --no-cache -f frontend/Dockerfile.prod -t <frontend-image-tag> .
 Frontend API base-url env behavior:
 - Primary: `VITE_API_URL`
 - Compatibility fallback: `REACT_APP_API_URL`
+
+## 26) GP14 Cost-Reduction Commands (AWS Runtime)
+
+Deploy current right-sized ECS task definitions:
+```powershell
+aws ecs register-task-definition --cli-input-json file://infra/ecs/taskdef.api.json
+aws ecs register-task-definition --cli-input-json file://infra/ecs/taskdef.web.json
+aws ecs update-service --cluster anirec-cluster --service anirec-api --task-definition animetracker-api
+aws ecs update-service --cluster anirec-cluster --service anirec-web --task-definition animetracker-web
+aws ecs wait services-stable --cluster anirec-cluster --services anirec-api anirec-web
+```
+
+Set CloudWatch log retention to reduce storage growth:
+```powershell
+aws logs put-retention-policy --log-group-name /ecs/animetracker/api --retention-in-days 14
+aws logs put-retention-policy --log-group-name /ecs/animetracker/web --retention-in-days 14
+```
+
+Set ECR lifecycle policy to keep only recent images:
+```powershell
+$POLICY='{"rules":[{"rulePriority":1,"description":"Keep last 20 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+aws ecr put-lifecycle-policy --repository-name animetracker/backend --lifecycle-policy-text $POLICY
+aws ecr put-lifecycle-policy --repository-name animetracker/frontend --lifecycle-policy-text $POLICY
+aws ecr put-lifecycle-policy --repository-name animetracker/ml-sidecar --lifecycle-policy-text $POLICY
+```
+
+## 27) Manual Task Definition Update Without Image Drift
+
+Use this when you need to register task definition config changes but do not want image rollback to stale tags.
+
+1. Export currently deployed task definitions:
+```powershell
+$API_TASKDEF_ARN = (aws ecs describe-services --cluster anirec-cluster --services anirec-api --query "services[0].taskDefinition" --output text).Trim()
+$WEB_TASKDEF_ARN = (aws ecs describe-services --cluster anirec-cluster --services anirec-web --query "services[0].taskDefinition" --output text).Trim()
+
+aws ecs describe-task-definition --task-definition $API_TASKDEF_ARN --query "taskDefinition" --output json > taskdef-api.current.json
+aws ecs describe-task-definition --task-definition $WEB_TASKDEF_ARN --query "taskDefinition" --output json > taskdef-web.current.json
+```
+
+2. Edit only non-image config fields in those exported files (env/secrets/cpu/memory/ports/health/logging/roles).
+
+3. Register edited task definitions:
+```powershell
+aws ecs register-task-definition --cli-input-json file://taskdef-api.current.json
+aws ecs register-task-definition --cli-input-json file://taskdef-web.current.json
+```
+
+4. Update services to latest revisions:
+```powershell
+aws ecs update-service --cluster anirec-cluster --service anirec-api --task-definition animetracker-api
+aws ecs update-service --cluster anirec-cluster --service anirec-web --task-definition animetracker-web
+aws ecs wait services-stable --cluster anirec-cluster --services anirec-api anirec-web
+```

@@ -72,7 +72,9 @@ For deeper design details, see `ARCHITECTURE.md`.
   - semantic response cache (in-memory LRU, 6-hour TTL) for faster repeat queries
   - semantic dedupe pass reduces same-franchise season/special clutter in top results
   - per-query score calibration to reduce overconfident outliers
-  - metadata freshness is handled by tiered AniList sync jobs (hot popular window, daily active rotation, weekly deep sweep) with persisted cursor state and adaptive page budgets
+  - metadata freshness is handled by dual AniList sync lanes with persisted state:
+    - Track A: bounded low-metadata/unreleased ID backfill
+    - Track B: incremental full-catalog page scan with cursor wrap to page 1 at end-of-catalog
   - optional weekly full-catalog rolling refresh and weekly local relation-graph rebuild can run automatically under metadata-sync config
   - embedding population failures are tracked with reason codes and retry schedules (`OPEN`, `DEAD_LETTER`, `RESOLVED`)
   - metadata fingerprinting prevents unnecessary re-embedding; vectors are refreshed only when embedding-relevant metadata changes
@@ -189,7 +191,7 @@ We deployed AniRec using a container-first AWS setup:
 - Backend and ML sidecar run together in one ECS/Fargate task.
 - Frontend runs as a separate ECS/Fargate service behind Nginx.
 - An Application Load Balancer routes `/api/*` to the API service and all other routes to the web service.
-- PostgreSQL runs in RDS behind RDS Proxy for connection stability under ECS scale, and the app uses local catalog + embeddings data from that database.
+- PostgreSQL runs in private RDS (direct connection by default for lower cost); RDS Proxy is optional when connection-pressure metrics justify it.
 - Runtime secrets are stored in AWS Secrets Manager.
 - Container images are built locally/CI, pushed to ECR, then rolled out by updating ECS task definitions/services.
 - GitHub Actions workflows are active under `.github/workflows` for security scan + API deploy + web deploy.
@@ -197,6 +199,9 @@ We deployed AniRec using a container-first AWS setup:
   - Workflow files contain placeholders only; all environment-specific values are read from GitHub Variables/Secrets.
   - Manual ECR/ECS deployment remains documented as fallback in `DEPLOYMENT.md`.
 - Backend uses layered rate limiting (edge + app-level) and in-memory caches; shared Redis cache is the next scale step for multi-task consistency.
+- Current low-cost ECS baseline is right-sized task compute:
+  - API task: `1024 CPU / 3072 MB`
+  - Web task: `256 CPU / 512 MB`
 
 Infra templates and task definitions are stored under `infra/`.
 Detailed step-by-step deployment and operations instructions are in `DEPLOYMENT.md`.

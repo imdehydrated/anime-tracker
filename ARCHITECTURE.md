@@ -93,13 +93,13 @@ Design reason:
 ### `AniListMetadataSyncScheduler`
 
 Runs tiered metadata refresh jobs:
-- hot popular window (6h cadence)
-- daily active-catalog rotation (cursor-based)
-- weekly deep sweep (resume-safe)
-- optional weekly full-catalog rolling refresh (cursor-based, page-budgeted)
+- Track A: sparse/unreleased metadata backfill by catalog ID (bounded IDs per run)
+- Track B: incremental full-catalog rolling refresh (cursor-based, page-budgeted)
 - optional weekly relation-graph rebuild from local catalog metadata (no AniList calls)
 
-State is persisted in `anilist_sync_state` so jobs resume across restarts and avoid restarting from page 1 each run.
+State is persisted in `anilist_sync_state` so jobs resume across restarts.
+Track B wraps cursor back to page `1` when AniList returns no more pages, so full-catalog coverage continues over time instead of pinning at end-of-catalog.
+Track A and Track B use a shared scheduler lock so they do not overlap and spike AniList calls in the same window.
 Scheduler adjusts page budgets downward when AniList rate-limit pressure is detected (429/retry-heavy windows), then recovers gradually on clean runs.
 
 Design reason:
@@ -335,6 +335,10 @@ Metadata sync state table: `anilist_sync_state`
 
 Design reason:
 - sync cursor and adaptive budget must survive restarts and deploys to keep refresh incremental and rate-limit safe.
+- active source keys include:
+  - `catalog_full_scan_incremental` (Track B cursor)
+  - `catalog_low_metadata_backfill` (Track A bounded ID refresh)
+  - `weekly_relation_graph_rebuild`
 
 Population failure ledger table: `embedding_population_failures`
 - `anilist_id`
@@ -474,12 +478,16 @@ Security hardening defaults:
 Scalability defaults:
 
 - API/Web ECS services use target-tracking autoscaling (CPU + request load).
-- DB concurrency is protected with RDS Proxy + tuned Hikari pool settings.
+- DB baseline is direct RDS connection with tuned Hikari pool settings; RDS Proxy is optional and activated only when sustained connection-pressure metrics justify added fixed cost.
 - Request overload protection is layered:
   - edge rate limiting (WAF)
   - app rate limiting (backend filter keyed by authenticated user or anonymous client identity)
     - anonymous identity is derived from proxy-safe `X-Forwarded-For` parsing (penultimate hop when multiple hops) to reduce spoofing bypass risk
 - current recommendation caches are in-memory per API task; shared Redis/ElastiCache is the next scale step for cross-task cache and rate-limit consistency.
+
+Current low-cost task-sizing baseline:
+- API task definition: `1024 CPU / 3072 MB` (`backend` + `ml-sidecar`)
+- Web task definition: `256 CPU / 512 MB`
 
 ## CI/CD Control Flow
 

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.animetracker.repository.AniListSyncStateRepository;
+import com.animetracker.repository.AnimeCatalogRepository;
 import com.animetracker.repository.AnimeRelationGraphRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,6 +29,8 @@ class AniListMetadataSyncSchedulerTest {
     private AnimeEmbeddingPopulatorService populatorService;
     @Mock
     private AniListService aniListService;
+    @Mock
+    private AnimeCatalogRepository catalogRepository;
     @Mock
     private AnimeRelationGraphRepository relationGraphRepository;
     @Mock
@@ -39,25 +43,29 @@ class AniListMetadataSyncSchedulerTest {
         scheduler = new AniListMetadataSyncScheduler(
                 populatorService,
                 aniListService,
+                catalogRepository,
                 relationGraphRepository,
                 syncStateRepository);
         setField("metadataSyncEnabled", true);
         setField("weeklyFullCatalogEnabled", true);
         setField("weeklyFullCatalogPages", 120);
         setField("fullCatalogPerPage", 10);
+        setField("fullCatalogWrapOnExhausted", true);
+        setField("lowMetadataBackfillEnabled", true);
+        setField("lowMetadataBackfillMaxIds", 90);
         setField("weeklyGraphRebuildEnabled", true);
     }
 
     @Test
     void runWeeklyFullCatalogSync_usesCursorAndCallsFullCatalogPopulation() {
         AniListSyncStateRepository.SyncState state = new AniListSyncStateRepository.SyncState(
-                "catalog_populate",
+                "catalog_full_scan_incremental",
                 2201,
                 null,
                 null,
                 null,
                 "6");
-        when(syncStateRepository.findOrCreate(eq("catalog_populate"), eq(1), eq("120")))
+        when(syncStateRepository.findOrCreate(eq("catalog_full_scan_incremental"), eq(1), eq("120")))
                 .thenReturn(state);
         when(populatorService.populateFullCatalogRange(2201, 6, 10))
                 .thenReturn(new AnimeEmbeddingPopulatorService.PopulationStats(
@@ -87,9 +95,93 @@ class AniListMetadataSyncSchedulerTest {
         verify(aniListService).resetRateLimitWindow();
         verify(populatorService).populateFullCatalogRange(2201, 6, 10);
         verify(syncStateRepository).markSuccess(
-                eq("catalog_populate"),
+                eq("catalog_full_scan_incremental"),
                 eq(2207),
                 eq("6"),
+                any(Instant.class));
+    }
+
+    @Test
+    void runWeeklyFullCatalogSync_wrapsCursorWhenExhausted() {
+        AniListSyncStateRepository.SyncState state = new AniListSyncStateRepository.SyncState(
+                "catalog_full_scan_incremental",
+                3201,
+                null,
+                null,
+                null,
+                "8");
+        when(syncStateRepository.findOrCreate(eq("catalog_full_scan_incremental"), eq(1), eq("120")))
+                .thenReturn(state);
+        when(populatorService.populateFullCatalogRange(3201, 8, 10))
+                .thenReturn(new AnimeEmbeddingPopulatorService.PopulationStats(
+                        "full_catalog",
+                        3201,
+                        3201,
+                        true,
+                        8,
+                        80,
+                        20,
+                        60,
+                        80,
+                        80,
+                        0,
+                        30000L,
+                        1.0d,
+                        1.0d,
+                        1.0d,
+                        1.0d,
+                        false,
+                        0));
+        when(aniListService.consumeRateLimitWindow())
+                .thenReturn(new AniListService.RateLimitWindow(8, 0, 0));
+
+        scheduler.runWeeklyFullCatalogSync();
+
+        verify(syncStateRepository).markSuccess(
+                eq("catalog_full_scan_incremental"),
+                eq(1),
+                eq("8"),
+                any(Instant.class));
+    }
+
+    @Test
+    void runLowMetadataBackfillSync_refreshesNinetySparseIdsPerRun() {
+        AniListSyncStateRepository.SyncState state = new AniListSyncStateRepository.SyncState(
+                "catalog_low_metadata_backfill",
+                1,
+                null,
+                null,
+                null,
+                "90");
+        when(syncStateRepository.findOrCreate(eq("catalog_low_metadata_backfill"), eq(1), eq("90")))
+                .thenReturn(state);
+        when(catalogRepository.findLowMetadataAnilistIds(90)).thenReturn(List.of(11, 22, 33));
+        when(populatorService.refreshCatalogIds(eq(List.of(11, 22, 33)), eq("catalog_low_metadata_backfill")))
+                .thenReturn(new AnimeEmbeddingPopulatorService.IdBackfillStats(
+                        "catalog_low_metadata_backfill",
+                        3,
+                        3,
+                        2,
+                        1,
+                        3,
+                        3,
+                        0,
+                        100L,
+                        1.0d,
+                        1.0d,
+                        1.0d,
+                        1.0d));
+        when(aniListService.consumeRateLimitWindow())
+                .thenReturn(new AniListService.RateLimitWindow(3, 0, 0));
+
+        scheduler.runLowMetadataBackfillSync();
+
+        verify(catalogRepository).findLowMetadataAnilistIds(90);
+        verify(populatorService).refreshCatalogIds(eq(List.of(11, 22, 33)), eq("catalog_low_metadata_backfill"));
+        verify(syncStateRepository).markSuccess(
+                eq("catalog_low_metadata_backfill"),
+                eq(1),
+                eq("90"),
                 any(Instant.class));
     }
 

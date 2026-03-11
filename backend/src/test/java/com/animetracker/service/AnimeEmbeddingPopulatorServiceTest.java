@@ -128,6 +128,41 @@ class AnimeEmbeddingPopulatorServiceTest {
                 anyString());
     }
 
+    @Test
+    void refreshCatalogIds_embedsCatalogIdsFromAniListApi() {
+        AniListResponse.AnimeInfo anime = anime(401, "Catalog ID Refresh");
+        when(aniListService.getAnimeByIdFromApi(401)).thenReturn(anime);
+        when(embeddingRepository.existsByAnilistId(401)).thenReturn(false);
+        when(mlSidecarService.embedText(anyString()))
+                .thenReturn(new float[] { 0.2f, 0.3f, 0.4f });
+
+        AnimeEmbeddingPopulatorService.IdBackfillStats stats =
+                service.refreshCatalogIds(List.of(401), "catalog_low_metadata_backfill");
+
+        assertEquals(1, stats.requestedIds());
+        assertEquals(1, stats.discovered());
+        assertEquals(1, stats.embedded());
+        assertEquals(0, stats.failed());
+        verify(aniListService).getAnimeByIdFromApi(401);
+    }
+
+    @Test
+    void refreshCatalogIds_recordsFailureWhenAniListReturnsNoMetadata() {
+        when(aniListService.getAnimeByIdFromApi(777)).thenReturn(null);
+
+        AnimeEmbeddingPopulatorService.IdBackfillStats stats =
+                service.refreshCatalogIds(List.of(777), "catalog_low_metadata_backfill");
+
+        assertEquals(1, stats.requestedIds());
+        assertEquals(0, stats.discovered());
+        assertEquals(1, stats.failed());
+        verify(failureRepository).recordFailure(
+                eq(777),
+                eq("catalog_low_metadata_backfill"),
+                eq(EmbeddingFailureReason.MISSING_METADATA),
+                eq("AniList returned no metadata"));
+    }
+
     private AniListResponse.AnimeInfo anime(int id, String titleText) {
         AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
         anime.setId(id);
