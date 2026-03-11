@@ -7,6 +7,7 @@ on:
     paths:
       - "backend/**"
       - "ml-sidecar/**"
+      - "infra/ecs/taskdef.api.json"
       - ".github/workflows/deploy-api.yml"
 
 concurrency:
@@ -30,6 +31,9 @@ jobs:
       API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
       MODEL_BUCKET: ${{ vars.MODEL_BUCKET }}
       MODEL_KEY: ${{ vars.MODEL_KEY }}
+      ECS_EXECUTION_ROLE_NAME: ${{ vars.ECS_EXECUTION_ROLE_NAME }}
+      ECS_TASK_ROLE_NAME: ${{ vars.ECS_TASK_ROLE_NAME }}
+      RDS_HOST: ${{ secrets.RDS_HOST }}
 
     steps:
       - name: Checkout
@@ -67,6 +71,9 @@ jobs:
             "API_HEALTH_URL"
             "MODEL_BUCKET"
             "MODEL_KEY"
+            "ECS_EXECUTION_ROLE_NAME"
+            "ECS_TASK_ROLE_NAME"
+            "RDS_HOST"
           )
           for var_name in "${required_vars[@]}"; do
             if [ -z "${!var_name:-}" ]; then
@@ -107,21 +114,43 @@ jobs:
           docker push ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}
           echo "SIDECAR_IMAGE=${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
 
-      - name: Export current API task definition
+      - name: Prepare API task definition from template
         run: |
           set -euo pipefail
-          SERVICE_TASKDEF_ARN=$(aws ecs describe-services --cluster "${ECS_CLUSTER}" --services "${ECS_SERVICE_API}" --query "services[0].taskDefinition" --output text)
-          aws ecs describe-task-definition --task-definition "${SERVICE_TASKDEF_ARN}" --query "taskDefinition" --output json > taskdef-api.base.json
-          jq 'del(
-            .taskDefinitionArn,
-            .requiresAttributes,
-            .compatibilities,
-            .revision,
-            .status,
-            .registeredAt,
-            .registeredBy,
-            .deregisteredAt
-          )' taskdef-api.base.json > taskdef-api.json
+          cp infra/ecs/taskdef.api.json taskdef-api.json
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          EXEC_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE_NAME}"
+          TASK_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ECS_TASK_ROLE_NAME}"
+          jq --arg exec_role "${EXEC_ROLE_ARN}" --arg task_role "${TASK_ROLE_ARN}" \
+            '.executionRoleArn=$exec_role | .taskRoleArn=$task_role' \
+            taskdef-api.json > taskdef-api.next.json
+          mv taskdef-api.next.json taskdef-api.json
+
+          jq --arg rds_host "${RDS_HOST}" \
+            '(.containerDefinitions[] | select(.name=="backend").environment[] | select(.name=="SPRING_DATASOURCE_URL").value) |= sub("REPLACE_WITH_RDS_HOST"; $rds_host)' \
+            taskdef-api.json > taskdef-api.next.json
+          mv taskdef-api.next.json taskdef-api.json
+
+          mapfile -t secret_refs < <(jq -r '.containerDefinitions[]?.secrets[]?.valueFrom // empty' taskdef-api.json | sort -u)
+          for ref in "${secret_refs[@]}"; do
+            if [[ "${ref}" == arn:* ]]; then
+              continue
+            fi
+            secret_arn=$(aws secretsmanager describe-secret --secret-id "${ref}" --query "ARN" --output text)
+            jq --arg ref "${ref}" --arg arn "${secret_arn}" \
+              '(.containerDefinitions[]?.secrets[]? | select(.valueFrom==$ref) | .valueFrom) = $arn' \
+              taskdef-api.json > taskdef-api.next.json
+            mv taskdef-api.next.json taskdef-api.json
+          done
+
+          if jq -e 'any(.containerDefinitions[]?; any(.secrets[]?; (.valueFrom | startswith("arn:") | not)))' taskdef-api.json >/dev/null; then
+            echo "Unresolved secret references remain in taskdef-api.json"
+            exit 1
+          fi
+          if jq -e '.. | strings | select(test("REPLACE_WITH_RDS_HOST"))' taskdef-api.json >/dev/null; then
+            echo "RDS host placeholder was not resolved in taskdef-api.json"
+            exit 1
+          fi
 
       - name: Render task definition (backend)
         id: render-backend

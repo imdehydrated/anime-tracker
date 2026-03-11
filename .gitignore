@@ -60,10 +60,16 @@ notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
 ml-models.tar.gz
 
 # Local-only deployment artifacts (do not commit)
-infra/
+infra/*
+!infra/ecs/
+infra/ecs/*
+!infra/ecs/taskdef.api.json
+!infra/ecs/taskdef.web.json
 
 # Test JSON files for curl commands
 *.json
 !**/package.json
 !**/package-lock.json
 !notebooks/eval/semantic_query_testset.json
+!infra/ecs/taskdef.api.json
+!infra/ecs/taskdef.web.json

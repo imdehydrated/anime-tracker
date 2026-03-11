@@ -196,7 +196,8 @@ We deployed AniRec using a container-first AWS setup:
 - Container images are built locally/CI, pushed to ECR, then rolled out by updating ECS task definitions/services.
 - GitHub Actions workflows are active under `.github/workflows` for security scan + API deploy + web deploy.
   - Deploy workflows use AWS OIDC role assumption (no static AWS keys).
-  - Workflow files contain placeholders only; all environment-specific values are read from GitHub Variables/Secrets.
+  - Workflow/taskdef files contain placeholders only; account-scoped role ARNs, RDS host, and Secrets Manager ARNs are resolved at deploy time in CI.
+  - All environment-specific values are read from GitHub Variables/Secrets.
   - Manual ECR/ECS deployment remains documented as fallback in `DEPLOYMENT.md`.
 - Backend uses layered rate limiting (edge + app-level) and in-memory caches; shared Redis cache is the next scale step for multi-task consistency.
 - Current low-cost ECS baseline is right-sized task compute:

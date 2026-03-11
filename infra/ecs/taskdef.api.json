@@ -1,0 +1,213 @@
+{
+  "family": "animetracker-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "3072",
+  "executionRoleArn": "REPLACE_WITH_ECS_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "REPLACE_WITH_ECS_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "ml-sidecar",
+      "image": "REPLACE_WITH_CI_IMAGE_URI_SIDECAR",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 5000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "CF_POPULARITY_PENALTY_ALPHA",
+          "value": "0.15"
+        },
+        {
+          "name": "CF_POPULARITY_PENALTY_SMOOTHING",
+          "value": "1.0"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/animetracker/api",
+          "awslogs-region": "us-west-1",
+          "awslogs-create-group": "true",
+          "awslogs-stream-prefix": "ml-sidecar"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\" || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    },
+    {
+      "name": "backend",
+      "image": "REPLACE_WITH_CI_IMAGE_URI_BACKEND",
+      "essential": true,
+      "dependsOn": [
+        {
+          "containerName": "ml-sidecar",
+          "condition": "START"
+        }
+      ],
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "SERVER_PORT",
+          "value": "8080"
+        },
+        {
+          "name": "SPRING_DATASOURCE_URL",
+          "value": "jdbc:postgresql://REPLACE_WITH_RDS_HOST:5432/animetracker"
+        },
+        {
+          "name": "ML_SIDECAR_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "ML_SIDECAR_URL",
+          "value": "http://127.0.0.1:5000"
+        },
+        {
+          "name": "AUTO_SYNC_CUSTOM_EMBEDDINGS",
+          "value": "false"
+        },
+        {
+          "name": "RECOMMENDATIONS_OPS_MANUAL_ENDPOINTS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "RECOMMENDATIONS_METADATA_SYNC_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "RECOMMENDATIONS_METADATA_SYNC_WEEKLY_FULL_CATALOG_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "RECOMMENDATIONS_METADATA_SYNC_WEEKLY_GRAPH_REBUILD_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "SERVER_ERROR_INCLUDE_MESSAGE",
+          "value": "never"
+        },
+        {
+          "name": "SERVER_ERROR_INCLUDE_STACKTRACE",
+          "value": "never"
+        },
+        {
+          "name": "SPRING_DATASOURCE_HIKARI_MAX_POOL_SIZE",
+          "value": "10"
+        },
+        {
+          "name": "SPRING_DATASOURCE_HIKARI_MIN_IDLE",
+          "value": "1"
+        },
+        {
+          "name": "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT_MS",
+          "value": "3000"
+        },
+        {
+          "name": "SPRING_DATASOURCE_HIKARI_MAX_LIFETIME_MS",
+          "value": "1800000"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_WINDOW_SECONDS",
+          "value": "300"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_ANON_GLOBAL_LIMIT",
+          "value": "1200"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_AUTH_GLOBAL_LIMIT",
+          "value": "1800"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_SEARCH_LIMIT",
+          "value": "600"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_RECOMMENDATION_LIMIT",
+          "value": "300"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_LOGIN_LIMIT",
+          "value": "60"
+        },
+        {
+          "name": "RECOMMENDATIONS_SECURITY_RATE_LIMIT_REGISTER_LIMIT",
+          "value": "20"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "SPRING_DATASOURCE_USERNAME",
+          "valueFrom": "anirec/prod/SPRING_DATASOURCE_USERNAME"
+        },
+        {
+          "name": "SPRING_DATASOURCE_PASSWORD",
+          "valueFrom": "anirec/prod/SPRING_DATASOURCE_PASSWORD"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "anirec/prod/JWT_SECRET"
+        },
+        {
+          "name": "RECOMMENDATIONS_OPS_TOKEN",
+          "valueFrom": "anirec/prod/RECOMMENDATIONS_OPS_TOKEN"
+        },
+        {
+          "name": "RECOMMENDATIONS_MAL_CLIENT_ID",
+          "valueFrom": "anirec/prod/RECOMMENDATIONS_MAL_CLIENT_ID"
+        },
+        {
+          "name": "RECOMMENDATIONS_MAL_CLIENT_SECRET",
+          "valueFrom": "anirec/prod/RECOMMENDATIONS_MAL_CLIENT_SECRET"
+        },
+        {
+          "name": "RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY",
+          "valueFrom": "anirec/prod/RECOMMENDATIONS_EXPLANATIONS_OPENAI_API_KEY"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/animetracker/api",
+          "awslogs-region": "us-west-1",
+          "awslogs-create-group": "true",
+          "awslogs-stream-prefix": "backend"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget -q -T 5 -O - http://localhost:8080/api/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

@@ -498,11 +498,11 @@ Active workflows in `.github/workflows`:
 2. `deploy-web.yml`
    - runs on `main` pushes affecting frontend/workflow path
    - builds/pushes frontend image to ECR (`GITHUB_SHA` tag)
-   - fetches current ECS task definition from AWS, renders updated image, deploys `anirec-web`, then smoke-tests web root
+   - reads `infra/ecs/taskdef.web.json`, resolves runtime role ARNs from account + role-name vars, renders updated image, deploys `anirec-web`, then smoke-tests web root
 3. `deploy-api.yml`
    - runs on `main` pushes affecting backend/sidecar/workflow path
    - compiles/tests backend, builds/pushes backend + sidecar images (`GITHUB_SHA` tag)
-   - fetches current ECS task definition from AWS, renders updated images, deploys `anirec-api`, then smoke-tests `/api/health`
+   - reads `infra/ecs/taskdef.api.json`, resolves runtime role ARNs + RDS host + secret ARNs (from secret names), renders updated images, deploys `anirec-api`, then smoke-tests `/api/health`
 
 OIDC trust boundary:
 - GitHub Actions runner exchanges short-lived OIDC token for AWS role credentials (`AWS_GHA_DEPLOY_ROLE_ARN`).

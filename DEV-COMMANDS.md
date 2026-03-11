@@ -760,18 +760,20 @@ Required setup:
 - `ECR_BACKEND_REPO`
 - `ECR_SIDECAR_REPO`
 - `ECR_FRONTEND_REPO`
-- `MODEL_ARTIFACT_BUCKET`
-- `MODEL_ARTIFACT_PREFIX`
+- `MODEL_BUCKET`
+- `MODEL_KEY`
 - `API_HEALTH_URL`
 - `WEB_HEALTH_URL`
+- `ECS_EXECUTION_ROLE_NAME`
+- `ECS_TASK_ROLE_NAME`
 2. Configure repository secret:
 - `AWS_GHA_DEPLOY_ROLE_ARN`
-3. Replace placeholders in `infra/ecs/*.json` and `infra/iam/*.json`:
-- `<AWS_ACCOUNT_ID>`
-- `<AWS_REGION>`
-- `<RDS_HOST>`
-- `<SECRETS_PREFIX>`
-- `<MODEL_ARTIFACT_BUCKET>`
+- `RDS_HOST` (for example `anirec-db.<id>.us-west-1.rds.amazonaws.com`)
+3. Keep `infra/ecs/taskdef.*.json` sanitized:
+- role ARN placeholders stay in git (`REPLACE_WITH_ECS_*`)
+- image placeholders stay in git (`REPLACE_WITH_CI_IMAGE_URI_*`)
+- datasource host placeholder stays in git (`REPLACE_WITH_RDS_HOST`)
+- API secret refs use secret names (workflow resolves names to ARNs at deploy time)
 
 Recommended pre-deploy smoke command after ECS rollout:
 
@@ -806,11 +808,7 @@ Frontend API base-url env behavior:
 
 Deploy current right-sized ECS task definitions:
 ```powershell
-aws ecs register-task-definition --cli-input-json file://infra/ecs/taskdef.api.json
-aws ecs register-task-definition --cli-input-json file://infra/ecs/taskdef.web.json
-aws ecs update-service --cluster anirec-cluster --service anirec-api --task-definition animetracker-api
-aws ecs update-service --cluster anirec-cluster --service anirec-web --task-definition animetracker-web
-aws ecs wait services-stable --cluster anirec-cluster --services anirec-api anirec-web
+powershell -ExecutionPolicy Bypass -File .\scripts\register_taskdefs_without_image_drift.ps1 -UpdateServices
 ```
 
 Set CloudWatch log retention to reduce storage growth:
@@ -831,26 +829,8 @@ aws ecr put-lifecycle-policy --repository-name animetracker/ml-sidecar --lifecyc
 
 Use this when you need to register task definition config changes but do not want image rollback to stale tags.
 
-1. Export currently deployed task definitions:
+1. Edit `infra/ecs/taskdef.api.json` / `infra/ecs/taskdef.web.json` for config-only changes.
+2. Run helper script to keep currently deployed images and resolve role/secret ARNs:
 ```powershell
-$API_TASKDEF_ARN = (aws ecs describe-services --cluster anirec-cluster --services anirec-api --query "services[0].taskDefinition" --output text).Trim()
-$WEB_TASKDEF_ARN = (aws ecs describe-services --cluster anirec-cluster --services anirec-web --query "services[0].taskDefinition" --output text).Trim()
-
-aws ecs describe-task-definition --task-definition $API_TASKDEF_ARN --query "taskDefinition" --output json > taskdef-api.current.json
-aws ecs describe-task-definition --task-definition $WEB_TASKDEF_ARN --query "taskDefinition" --output json > taskdef-web.current.json
-```
-
-2. Edit only non-image config fields in those exported files (env/secrets/cpu/memory/ports/health/logging/roles).
-
-3. Register edited task definitions:
-```powershell
-aws ecs register-task-definition --cli-input-json file://taskdef-api.current.json
-aws ecs register-task-definition --cli-input-json file://taskdef-web.current.json
-```
-
-4. Update services to latest revisions:
-```powershell
-aws ecs update-service --cluster anirec-cluster --service anirec-api --task-definition animetracker-api
-aws ecs update-service --cluster anirec-cluster --service anirec-web --task-definition animetracker-web
-aws ecs wait services-stable --cluster anirec-cluster --services anirec-api anirec-web
+powershell -ExecutionPolicy Bypass -File .\scripts\register_taskdefs_without_image_drift.ps1 -UpdateServices
 ```

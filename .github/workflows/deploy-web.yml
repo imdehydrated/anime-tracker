@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
+      - "infra/ecs/taskdef.web.json"
       - ".github/workflows/deploy-web.yml"
 
 concurrency:
@@ -26,6 +27,8 @@ jobs:
       ECS_SERVICE_WEB: ${{ vars.ECS_SERVICE_WEB }}
       ECR_FRONTEND_REPO: ${{ vars.ECR_FRONTEND_REPO }}
       WEB_HEALTH_URL: ${{ vars.WEB_HEALTH_URL }}
+      ECS_EXECUTION_ROLE_NAME: ${{ vars.ECS_EXECUTION_ROLE_NAME }}
+      ECS_TASK_ROLE_NAME: ${{ vars.ECS_TASK_ROLE_NAME }}
 
     steps:
       - name: Checkout
@@ -46,6 +49,8 @@ jobs:
             "ECS_SERVICE_WEB"
             "ECR_FRONTEND_REPO"
             "WEB_HEALTH_URL"
+            "ECS_EXECUTION_ROLE_NAME"
+            "ECS_TASK_ROLE_NAME"
           )
           for var_name in "${required_vars[@]}"; do
             if [ -z "${!var_name:-}" ]; then
@@ -72,21 +77,17 @@ jobs:
           docker push ${ECR_REGISTRY}/${ECR_FRONTEND_REPO}:${IMAGE_TAG}
           echo "FRONTEND_IMAGE=${ECR_REGISTRY}/${ECR_FRONTEND_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
 
-      - name: Export current web task definition
+      - name: Prepare web task definition from template
         run: |
           set -euo pipefail
-          SERVICE_TASKDEF_ARN=$(aws ecs describe-services --cluster "${ECS_CLUSTER}" --services "${ECS_SERVICE_WEB}" --query "services[0].taskDefinition" --output text)
-          aws ecs describe-task-definition --task-definition "${SERVICE_TASKDEF_ARN}" --query "taskDefinition" --output json > taskdef-web.base.json
-          jq 'del(
-            .taskDefinitionArn,
-            .requiresAttributes,
-            .compatibilities,
-            .revision,
-            .status,
-            .registeredAt,
-            .registeredBy,
-            .deregisteredAt
-          )' taskdef-web.base.json > taskdef-web.json
+          cp infra/ecs/taskdef.web.json taskdef-web.json
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          EXEC_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ECS_EXECUTION_ROLE_NAME}"
+          TASK_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ECS_TASK_ROLE_NAME}"
+          jq --arg exec_role "${EXEC_ROLE_ARN}" --arg task_role "${TASK_ROLE_ARN}" \
+            '.executionRoleArn=$exec_role | .taskRoleArn=$task_role' \
+            taskdef-web.json > taskdef-web.next.json
+          mv taskdef-web.next.json taskdef-web.json
 
       - name: Render task definition (frontend)
         id: render-frontend
