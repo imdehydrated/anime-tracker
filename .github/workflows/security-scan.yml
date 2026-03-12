@@ -10,6 +10,10 @@ on:
       - "backend/**"
       - "frontend/**"
       - "ml-sidecar/**"
+      - "infra/ecs/taskdef.api.json"
+      - "infra/ecs/taskdef.web.json"
+      - ".github/workflows/deploy-api.yml"
+      - ".github/workflows/deploy-web.yml"
 
 jobs:
   container-scan:

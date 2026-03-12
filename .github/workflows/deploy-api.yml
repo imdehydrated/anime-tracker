@@ -21,6 +21,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      checks: read
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -52,6 +53,49 @@ jobs:
         env:
           JWT_SECRET: test-secret
         run: mvn -q "-Dtest=RecommendationControllerTest,SemanticRecommendationServiceTest,AnimeSearchControllerTest,AniListServiceTest,RequestRateLimitingFilterTest" test -f backend/pom.xml
+
+      - name: Wait for security scan to pass
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA}"
+          REPO="${GITHUB_REPOSITORY}"
+          echo "Waiting for Security Scan check on commit ${SHA}..."
+
+          for attempt in $(seq 1 90); do
+            response=$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/commits/${SHA}/check-runs")
+
+            status=$(echo "${response}" | jq -r '[.check_runs[] | select(.name=="container-scan")] | sort_by(.started_at) | last | .status // ""')
+            conclusion=$(echo "${response}" | jq -r '[.check_runs[] | select(.name=="container-scan")] | sort_by(.started_at) | last | .conclusion // ""')
+
+            if [ -z "${status}" ]; then
+              echo "Security scan check not created yet (attempt ${attempt}/90)."
+              sleep 10
+              continue
+            fi
+
+            if [ "${status}" != "completed" ]; then
+              echo "Security scan is ${status} (attempt ${attempt}/90)."
+              sleep 10
+              continue
+            fi
+
+            if [ "${conclusion}" = "success" ]; then
+              echo "Security scan passed."
+              exit 0
+            fi
+
+            echo "Security scan concluded with '${conclusion}'. Failing deploy."
+            exit 1
+          done
+
+          echo "Timed out waiting for security scan result."
+          exit 1
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
