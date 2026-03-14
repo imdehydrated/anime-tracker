@@ -86,6 +86,7 @@ Search also applies a metadata quality gate on local-first results: when critica
 `/api/anime/search` additionally applies the same format/safety controls used by recommendation filtering (`includeExtraSeasons`, `includeMovies`, `includeOnasOvasSpecials`, `includeMusic`, `includeAdult`), and cache keys include both query and filter fingerprint so toggles do not reuse stale cached result sets.
 Detail relation payloads are catalog-scoped: related entries not present in `anime_catalog` (for example manga-only adaptation nodes) are filtered out before response serialization.
 Detail responses also expose AniList `bannerImage` when it is present in persisted `metadata_json`; the field is extracted at query time, so no schema migration was required for the visual-richness pass.
+Detail metadata rehydration now accepts both live AniList connection-style objects and already-flattened stored arrays for `studios` and `relations`, which prevents local-catalog detail responses from silently dropping those fields after `metadata_json` is deserialized.
 
 Design reason:
 - external API reliability policy belongs in one integration service, not spread across features.
@@ -400,9 +401,12 @@ Visual system:
 - `DM Serif Display` is reserved for hero and section headings while `Inter` carries body text, form controls, nav labels, and table UI.
 - page containers share the same contained premium width (`1320px`) while hero/background treatments can bleed edge-to-edge.
 - `Home` also uses a decorative locally-ranked trending strip (`GET /api/anime/popular`) to increase cover-art density without adding new third-party runtime dependencies.
+- `Home` now uses a split hero composition with a right-side popular-art grid, so the landing page reads like a curated editorial surface instead of a centered marketing block.
 - `AnimeDetail` now renders a full-width banner hero when `bannerImage` is available, while preserving the existing content layout when it is absent.
+- `AnimeDetail` also exposes a richer stat grid, stronger relation cards, and a sticky action bar on desktop without changing the underlying detail payload contract.
 - `Login` and `Register` now use a split brand/form layout on desktop and collapse back to a stacked mobile layout at smaller breakpoints.
-- `Search` card presentation now uses poster-ratio media with hover score overlays while keeping the same data flow and add-to-list behavior.
+- `Search` now wraps query, filters, and result count into one toolbar panel, and `AnimeCard` accepts an explicit `action` slot so card CTAs stay reusable without ad hoc per-page markup.
+- `MyList` now adds a summary dashboard above the table and sticky table headers for long-list scanning, while preserving the existing optimistic CRUD flow.
 
 Design reason:
 - API access is centralized to avoid duplicated request logic and simplify auth/header/error behavior.
@@ -514,15 +518,19 @@ Current low-cost task-sizing baseline:
 Active workflows in `.github/workflows`:
 1. `security-scan.yml`
    - runs on PR and `main`
-   - builds backend/frontend/sidecar images and runs Trivy gates
+   - builds backend/frontend/sidecar images with Docker Buildx + GitHub-hosted layer cache and runs Trivy gates
 2. `deploy-web.yml`
    - runs on `main` pushes affecting frontend/workflow path
-   - builds/pushes frontend image to ECR (`GITHUB_SHA` tag)
+   - builds/pushes frontend image to ECR (`GITHUB_SHA` tag) through `docker/build-push-action`
    - reads `infra/ecs/taskdef.web.json`, resolves runtime role ARNs from account + role-name vars, renders updated image, deploys `anirec-web`, then smoke-tests web root
 3. `deploy-api.yml`
    - runs on `main` pushes affecting backend/sidecar/workflow path
-   - compiles/tests backend, builds/pushes backend + sidecar images (`GITHUB_SHA` tag)
+   - compiles/tests backend, builds/pushes backend + sidecar images (`GITHUB_SHA` tag) through `docker/build-push-action`
    - reads `infra/ecs/taskdef.api.json`, resolves runtime role ARNs + RDS host + secret ARNs (from secret names), renders updated images, deploys `anirec-api`, then smoke-tests `/api/health`
+
+CI cache notes:
+- GitHub-hosted layer cache scopes are split by image and purpose (`backend-prod`, `frontend-prod`, `sidecar-prod`, plus separate `*-scan` scopes) so deploy and scan caches do not overwrite each other.
+- Frontend and sidecar workflows still build from repo root, so the repo-root `.dockerignore` is part of CI performance strategy; it strips unrelated directories from those root-context uploads before Buildx computes layers.
 
 OIDC trust boundary:
 - GitHub Actions runner exchanges short-lived OIDC token for AWS role credentials (`AWS_GHA_DEPLOY_ROLE_ARN`).

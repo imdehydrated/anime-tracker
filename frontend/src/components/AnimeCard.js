@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
-function AnimeCard({ anime, children }) {
+function formatCardLabel(value) {
+	if (!value || typeof value !== 'string') return null;
+	return value
+		.toLowerCase()
+		.replace(/_/g, ' ')
+		.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function AnimeCard({ anime, action = null, children }) {
 	const [coverFailed, setCoverFailed] = useState(false);
 	const title = anime.title?.english || anime.title?.romaji || 'Unknown Title';
 	const detailState = { anime };
@@ -9,6 +17,8 @@ function AnimeCard({ anime, children }) {
 		? anime.coverImage
 		: anime.coverImage?.large || anime.coverImage?.medium || '';
 	const showCover = !!coverUrl && !coverFailed;
+	const formatLabel = formatCardLabel(anime.format);
+	const seasonYear = anime.seasonYear || anime.startDate?.year || null;
 
 	return (
 		<div className="anime-card">
@@ -41,15 +51,23 @@ function AnimeCard({ anime, children }) {
 				</div>
 			</div>
 
-			<div className="card-body">
-				<h3><Link to={`/anime/${anime.id}`} state={detailState}>{title}</Link></h3>
-				<p>{anime.genres && anime.genres.join(', ')}</p>
-				<p>
-					Ep: {anime.episodes || '?'} | Score: <span className="score">{anime.averageScore || '?'}</span>/100
-				</p>
-				{children}
+				<div className="card-body">
+					<h3><Link to={`/anime/${anime.id}`} state={detailState}>{title}</Link></h3>
+					<p className="anime-card-meta-line">
+						{[seasonYear, formatLabel, anime.episodes ? `${anime.episodes} eps` : null]
+							.filter(Boolean)
+							.join(' • ') || 'Catalog title'}
+					</p>
+					<p className="anime-card-genre-list">{anime.genres && anime.genres.join(' • ')}</p>
+					<p className="anime-card-score-line">
+						Score: <span className="score">{anime.averageScore || '?'}</span>/100
+					</p>
+					<div className="anime-card-footer">
+						{children ? <div className="anime-card-support">{children}</div> : null}
+						{action ? <div className="anime-card-action-slot">{action}</div> : null}
+					</div>
+				</div>
 			</div>
-		</div>
 	);
 }
 

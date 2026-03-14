@@ -38,17 +38,22 @@ function Register() {
 	return (
 		<div className="auth-page">
 			<div className="auth-split-layout">
-				<div className="auth-split-brand">
-					<p className="auth-split-kicker">Track, rate, and refine your taste</p>
-					<h1>Ani<span>Rec</span></h1>
-					<p className="auth-split-sub">Your personal anime companion.</p>
-					<p className="auth-split-tagline">
-						Build a list, shape your taste profile, and turn every search into cleaner recommendations.
-					</p>
-				</div>
-				<div className="auth-form">
-					<h1>Register</h1>
-					<p className="auth-subtitle">Create an account to track anime and unlock personalized recommendations.</p>
+					<div className="auth-split-brand">
+						<p className="auth-split-kicker">Track, rate, and refine your taste</p>
+						<h1>Ani<span>Rec</span></h1>
+						<p className="auth-split-sub">Your personal anime companion.</p>
+						<p className="auth-split-tagline">
+							Build a list, shape your taste profile, and turn every search into cleaner recommendations.
+						</p>
+						<div className="auth-feature-pills fade-in-up fade-delay-1">
+							<span className="auth-feature-pill">List Import</span>
+							<span className="auth-feature-pill">Score Tracking</span>
+							<span className="auth-feature-pill">Taste-aware Ranking</span>
+						</div>
+					</div>
+					<div className="auth-form fade-in-up">
+						<h1>Register</h1>
+						<p className="auth-subtitle">Create an account to track anime and unlock personalized recommendations.</p>
 
 					{error && <p className="error-message">{error}</p>}
 
@@ -74,10 +79,15 @@ function Register() {
 							onChange={(e) => setPassword(e.target.value)}
 							required
 						/>
-						<button type="submit" className="btn-primary">Register</button>
-					</form>
+							<button type="submit" className="btn-primary">Register</button>
+						</form>
 
-					<p>Already have an account? <Link to="/login">Login</Link></p>
+						<div className="auth-form-trust">
+							<p>Import from AniList or MAL after sign-up.</p>
+							<p>Your ratings and progress stay local to your account.</p>
+						</div>
+
+					<p className="auth-form-footer">Already have an account? <Link to="/login">Login</Link></p>
 				</div>
 			</div>
 		</div>

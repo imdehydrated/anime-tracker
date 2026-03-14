@@ -300,12 +300,27 @@ function MyList() {
 				}
 			});
 	}, [entries, filterStatus, filterText, sortBy]);
+	const listSummary = useMemo(() => {
+		const scoredEntries = filteredList.filter((entry) => Number.isFinite(entry.score));
+		const completedCount = filteredList.filter((entry) => entry.status === 'COMPLETED').length;
+		const watchingCount = filteredList.filter((entry) => entry.status === 'WATCHING').length;
+		const averageScore = scoredEntries.length > 0
+			? (scoredEntries.reduce((sum, entry) => sum + entry.score, 0) / scoredEntries.length).toFixed(1)
+			: null;
+
+		return [
+			{ label: 'Visible Entries', value: filteredList.length },
+			{ label: 'Completed', value: completedCount },
+			{ label: 'Watching', value: watchingCount },
+			{ label: 'Average Score', value: averageScore ? `${averageScore}/10` : 'No scores yet' },
+		];
+	}, [filteredList]);
 
 	if (loading) return <div className="page"><p className="loading">Loading...</p></div>;
 
 	return (
 		<div className="page mylist-page">
-			<div className="list-page-header">
+			<div className="list-page-header fade-in-up">
 				<h1>My Anime List</h1>
 				<button className="btn-primary add-to-list-nav" onClick={() => navigate('/search')}>
 					+ Add to Your List
@@ -384,8 +399,11 @@ function MyList() {
 			</div>
 
 			{entries.length === 0 ? (
-				<div className="empty-state">
-					<p>Your list is empty. <Link to="/search">Search for anime</Link> to get started!</p>
+				<div className="empty-state empty-state-block">
+					<p className="empty-state-kicker">Your list is empty</p>
+					<h2>Start tracking shows to unlock cleaner recommendations.</h2>
+					<p>Search for a title, add it to your list, and your score and status history will start shaping future results.</p>
+					<p><Link to="/search">Search the catalog</Link> to get started.</p>
 				</div>
 			) : (
 				<>
@@ -410,6 +428,15 @@ function MyList() {
 							className="list-filter-select-shell"
 							ariaLabel="Sort list"
 						/>
+					</div>
+
+					<div className="mylist-stats-bar fade-in-up fade-delay-1">
+						{listSummary.map((item) => (
+							<div key={item.label} className="mylist-stat-card">
+								<span className="mylist-stat-label">{item.label}</span>
+								<strong className="mylist-stat-value">{item.value}</strong>
+							</div>
+						))}
 					</div>
 
 					<div className="mylist-table-wrap">
@@ -520,9 +547,11 @@ function MyList() {
 					</div>
 
 					{filteredList.length === 0 && entries.length > 0 && (
-						<p style={{ textAlign: 'center', color: '#999', padding: '2rem' }}>
-							No entries match your filters.
-						</p>
+						<div className="empty-state empty-state-block">
+							<p className="empty-state-kicker">No matching entries</p>
+							<h2>Nothing fits the current filters.</h2>
+							<p>Adjust the title search, change the status filter, or switch the sort to bring more of your list back into view.</p>
+						</div>
 					)}
 				</>
 			)}

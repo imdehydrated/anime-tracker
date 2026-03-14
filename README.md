@@ -9,7 +9,8 @@ AniRec is a full-stack anime recommendation and tracking platform. It combines i
 - Account system with personal anime list management
 - List import from AniList and MyAnimeList
 - Recommendation modes: `Smart Search`, `Similar Shows`, `For You`
-- Search/detail pages with configurable result filters
+- Search/detail pages with configurable result filters and stat-rich anime detail layouts
+- Dashboard-style My List view with inline edits, quick filters, and visible summary stats
 - Home page popular strip sourced from the local popular-anime catalog
 - Ongoing local catalog refresh so recommendations are not tied to live third-party API reliability
 
@@ -20,7 +21,7 @@ AniRec is a full-stack anime recommendation and tracking platform. It combines i
 - ML serving sidecar: FastAPI (Python)
 - Database: PostgreSQL
 - Infra: AWS CloudFront, ALB, ECS/Fargate, RDS, ECR, Secrets Manager, CloudWatch
-- CI/CD: GitHub Actions with AWS OIDC
+- CI/CD: GitHub Actions with AWS OIDC, Docker Buildx, and GitHub-hosted layer caching
 
 ## Recommendation System
 

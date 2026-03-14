@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -238,12 +239,8 @@ public class AniListResponse {
         }
 
         @JsonProperty("studios")
-        public void setStudiosConnection(StudioConnection studiosConnection) {
-            if (studiosConnection == null || studiosConnection.getNodes() == null) {
-                this.studios = null;
-                return;
-            }
-            this.studios = studiosConnection.getNodes();
+        public void setStudiosPayload(Object studiosPayload) {
+            this.studios = parseStudios(studiosPayload);
         }
 
         public List<AnimeRelation> getRelations() {
@@ -255,23 +252,8 @@ public class AniListResponse {
         }
 
         @JsonProperty("relations")
-        public void setRelationsConnection(RelationConnection relationsConnection) {
-            if (relationsConnection == null || relationsConnection.getEdges() == null) {
-                this.relations = null;
-                return;
-            }
-            List<AnimeRelation> mapped = new java.util.ArrayList<>();
-            for (RelationEdge edge : relationsConnection.getEdges()) {
-                if (edge == null || edge.getNode() == null || edge.getNode().getId() == null) {
-                    continue;
-                }
-                AnimeRelation relation = new AnimeRelation();
-                relation.setId(edge.getNode().getId());
-                relation.setTitle(edge.getNode().getTitle());
-                relation.setRelationType(edge.getRelationType());
-                mapped.add(relation);
-            }
-            this.relations = mapped.isEmpty() ? null : mapped;
+        public void setRelationsPayload(Object relationsPayload) {
+            this.relations = parseRelations(relationsPayload);
         }
 
         public String getRecommendationReason() {
@@ -366,6 +348,121 @@ public class AniListResponse {
 
         public void setExtraFields(Map<String, Object> extraFields) {
             this.extraFields = extraFields;
+        }
+
+        private List<AnimeStudio> parseStudios(Object studiosPayload) {
+            if (studiosPayload == null) {
+                return null;
+            }
+
+            List<?> rawStudios;
+            if (studiosPayload instanceof Map<?, ?> studiosMap) {
+                Object nodes = studiosMap.get("nodes");
+                if (!(nodes instanceof List<?> nodesList)) {
+                    return null;
+                }
+                rawStudios = nodesList;
+            } else if (studiosPayload instanceof List<?> studiosList) {
+                rawStudios = studiosList;
+            } else {
+                return null;
+            }
+
+            List<AnimeStudio> mapped = new ArrayList<>();
+            for (Object item : rawStudios) {
+                if (!(item instanceof Map<?, ?> studioMap)) {
+                    continue;
+                }
+                Object name = studioMap.get("name");
+                if (!(name instanceof String studioName) || studioName.isBlank()) {
+                    continue;
+                }
+                AnimeStudio studio = new AnimeStudio();
+                studio.setName(studioName);
+                Object isAnimationStudio = studioMap.get("isAnimationStudio");
+                if (isAnimationStudio instanceof Boolean animationStudio) {
+                    studio.setIsAnimationStudio(animationStudio);
+                }
+                mapped.add(studio);
+            }
+            return mapped.isEmpty() ? null : mapped;
+        }
+
+        private List<AnimeRelation> parseRelations(Object relationsPayload) {
+            if (relationsPayload == null) {
+                return null;
+            }
+
+            List<?> rawRelations;
+            boolean connectionShape = false;
+            if (relationsPayload instanceof Map<?, ?> relationsMap) {
+                Object edges = relationsMap.get("edges");
+                if (!(edges instanceof List<?> edgesList)) {
+                    return null;
+                }
+                rawRelations = edgesList;
+                connectionShape = true;
+            } else if (relationsPayload instanceof List<?> relationsList) {
+                rawRelations = relationsList;
+            } else {
+                return null;
+            }
+
+            List<AnimeRelation> mapped = new ArrayList<>();
+            for (Object item : rawRelations) {
+                if (!(item instanceof Map<?, ?> relationMap)) {
+                    continue;
+                }
+
+                Map<?, ?> sourceMap = relationMap;
+                String relationType = readString(relationMap.get("relationType"));
+                if (connectionShape) {
+                    Object node = relationMap.get("node");
+                    if (!(node instanceof Map<?, ?> nodeMap)) {
+                        continue;
+                    }
+                    sourceMap = nodeMap;
+                }
+
+                Integer relationId = readInteger(sourceMap.get("id"));
+                if (relationId == null) {
+                    continue;
+                }
+
+                AnimeRelation relation = new AnimeRelation();
+                relation.setId(relationId);
+                relation.setRelationType(relationType);
+                relation.setTitle(parseTitle(sourceMap.get("title")));
+                mapped.add(relation);
+            }
+            return mapped.isEmpty() ? null : mapped;
+        }
+
+        private AnimeTitle parseTitle(Object titlePayload) {
+            if (!(titlePayload instanceof Map<?, ?> titleMap)) {
+                return null;
+            }
+            AnimeTitle title = new AnimeTitle();
+            title.setRomaji(readString(titleMap.get("romaji")));
+            title.setEnglish(readString(titleMap.get("english")));
+            title.setNativeTitle(readString(titleMap.get("native")));
+            if ((title.getRomaji() == null || title.getRomaji().isBlank())
+                    && (title.getEnglish() == null || title.getEnglish().isBlank())
+                    && (title.getNativeTitle() == null || title.getNativeTitle().isBlank())) {
+                return null;
+            }
+            return title;
+        }
+
+        private String readString(Object value) {
+            return value instanceof String text && !text.isBlank() ? text : null;
+        }
+
+        private Integer readInteger(Object value) {
+            if (value instanceof Number number) {
+                return number.intValue();
+            }
+            return null;
         }
     }
 

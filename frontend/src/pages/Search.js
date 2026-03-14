@@ -143,52 +143,65 @@ function Search() {
 
 	return (
 		<div className="page search-page">
-			<h1>Search Anime</h1>
+			<div className="search-toolbar fade-in-up">
+				<div className="search-toolbar-header">
+					<div className="search-toolbar-copy">
+						<p className="search-toolbar-eyebrow">Catalog Search</p>
+						<h1>Find titles by franchise or clean title fragments.</h1>
+						<p className="page-subtitle">
+							Use the catalog search when you know the show, want to inspect detail pages, or want a faster route into your list.
+						</p>
+					</div>
+					{results.length > 0 && (
+						<p className="search-result-count search-toolbar-count">
+							Showing {results.length}
+							{hasMore && results.length < SEARCH_MAX_RESULTS ? '+' : ''} results
+						</p>
+					)}
+				</div>
 
-			<form onSubmit={handleSubmit} className="search-form">
-				<input
-					type="text"
-					placeholder="Search anime... (e.g., Naruto)"
-					value={query}
-					onChange={(e) => setQuery(e.target.value)}
+				<form onSubmit={handleSubmit} className="search-form">
+					<input
+						type="text"
+						placeholder="Search anime... (e.g., Naruto)"
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+					/>
+					<button type="submit" className="btn-primary" disabled={loading}>
+						{loading ? 'Searching...' : 'Search'}
+					</button>
+				</form>
+
+				<FilterControlPanel
+					title="Search Filters"
+					filters={filters}
+					setFilters={setFilters}
+					showPopularityAttenuation={false}
+					showAdultToggle={true}
 				/>
-				<button type="submit" className="btn-primary" disabled={loading}>
-					{loading ? 'Searching...' : 'Search'}
-				</button>
-			</form>
+			</div>
 
 			{(searchError || error) && <p className="error-message">{searchError || error}</p>}
 			{message && <p className="success-message">{message}</p>}
 
-			<FilterControlPanel
-				title="Search Filters"
-				filters={filters}
-				setFilters={setFilters}
-				showPopularityAttenuation={false}
-				showAdultToggle={true}
-			/>
-
-			{results.length > 0 && (
-				<p className="search-result-count">
-					Showing {results.length}
-					{hasMore && results.length < SEARCH_MAX_RESULTS ? '+' : ''} results
-				</p>
-			)}
-
 			<div className="card-grid anime-grid">
 				{results.map((anime) => (
-					<AnimeCard key={anime.id} anime={anime}>
+					<AnimeCard
+						key={anime.id}
+						anime={anime}
+						action={isLoggedIn && !userListIds.has(anime.id) ? (
+							<button className="btn-primary" onClick={() => handleAddToList(anime)}>
+								Add to List
+							</button>
+						) : null}
+					>
 						{isLoggedIn ? (
 							userListIds.has(anime.id) ? (
 								<span className="on-list-badge">On Your List</span>
-							) : (
-								<button className="btn-primary" onClick={() => handleAddToList(anime)}>
-									Add to List
-								</button>
-							)
+							) : null
 						) : (
 							<p className="login-prompt">
-								<Link to="/login">Login</Link> or <Link to="/register">register</Link> to add to your list
+								<Link to="/login">Login</Link> or <Link to="/register">register</Link> to save titles to your list
 							</p>
 						)}
 					</AnimeCard>
@@ -196,10 +209,18 @@ function Search() {
 			</div>
 
 			{!loading && !searchError && query.trim().length >= SEARCH_MIN_CHARS && results.length === 0 && (
-				<p className="empty-state">No results found for this query.</p>
+				<div className="empty-state empty-state-block">
+					<p className="empty-state-kicker">No results found</p>
+					<h2>Try a broader title or fewer constraints.</h2>
+					<p>Catalog search works best with recognizable title fragments, franchise names, and clean theme keywords.</p>
+				</div>
 			)}
 			{query.trim().length > 0 && query.trim().length < SEARCH_MIN_CHARS && (
-				<p className="empty-state">Type at least {SEARCH_MIN_CHARS} characters to search.</p>
+				<div className="empty-state empty-state-block">
+					<p className="empty-state-kicker">Search hint</p>
+					<h2>Type at least {SEARCH_MIN_CHARS} characters.</h2>
+					<p>Start with a title fragment like “naru”, a franchise keyword, or a short anime name.</p>
+				</div>
 			)}
 			{results.length >= SEARCH_MAX_RESULTS && (
 				<p className="empty-state">Reached max of {SEARCH_MAX_RESULTS} results for this query.</p>

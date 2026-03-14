@@ -33,11 +33,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build backend image
-        run: docker build -f backend/Dockerfile -t animetracker-backend:scan backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          load: true
+          tags: animetracker-backend:scan
+          cache-from: type=gha,scope=backend-scan
+          cache-to: type=gha,scope=backend-scan,mode=max
 
       - name: Build frontend image
-        run: docker build -f frontend/Dockerfile.prod -t animetracker-frontend:scan .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile.prod
+          load: true
+          tags: animetracker-frontend:scan
+          cache-from: type=gha,scope=frontend-scan
+          cache-to: type=gha,scope=frontend-scan,mode=max
 
       - name: Configure AWS credentials (OIDC)
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
@@ -61,7 +78,14 @@ jobs:
 
       - name: Build sidecar image
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: docker build -f ml-sidecar/Dockerfile.prod -t animetracker-sidecar:scan .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ml-sidecar/Dockerfile.prod
+          load: true
+          tags: animetracker-sidecar:scan
+          cache-from: type=gha,scope=sidecar-scan
+          cache-to: type=gha,scope=sidecar-scan,mode=max
 
       - name: Trivy scan backend
         run: |

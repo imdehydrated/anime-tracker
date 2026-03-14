@@ -1,6 +1,7 @@
 package com.animetracker.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 
@@ -126,6 +127,46 @@ class AniListServiceTest {
 
         assertEquals(1, filtered.size());
         assertEquals(5002, filtered.get(0).getId());
+    }
+
+    @Test
+    void mergeMetadataJson_supportsStoredArrayShapeForStudiosAndRelations() throws Exception {
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setId(20464);
+        String metadataJson = """
+                {
+                  "studios": [
+                    { "name": "Production I.G", "isAnimationStudio": true }
+                  ],
+                  "relations": [
+                    {
+                      "id": 20992,
+                      "relationType": "SEQUEL",
+                      "title": {
+                        "romaji": "Haikyuu!! 2nd Season",
+                        "english": "HAIKYU!! 2nd Season",
+                        "native": "ハイキュー!! セカンドシーズン"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        invokePrivate(
+                "mergeMetadataJson",
+                new Class<?>[] { AniListResponse.AnimeInfo.class, String.class },
+                anime,
+                metadataJson);
+
+        assertNotNull(anime.getStudios());
+        assertEquals(1, anime.getStudios().size());
+        assertEquals("Production I.G", anime.getStudios().get(0).getName());
+        assertNotNull(anime.getRelations());
+        assertEquals(1, anime.getRelations().size());
+        assertEquals(20992, anime.getRelations().get(0).getId());
+        assertEquals("SEQUEL", anime.getRelations().get(0).getRelationType());
+        assertNotNull(anime.getRelations().get(0).getTitle());
+        assertEquals("Haikyuu!! 2nd Season", anime.getRelations().get(0).getTitle().getRomaji());
     }
 
     private Object invokePrivate(String methodName, Class<?>[] argTypes, Object... args) throws Exception {

@@ -156,22 +156,36 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Mask registry output
         run: |
           echo "::add-mask::${{ steps.login-ecr.outputs.registry }}"
 
       - name: Build and push backend image
+        id: build-backend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_BACKEND_REPO }}:${{ github.sha }}
+          cache-from: type=gha,scope=backend-prod
+          cache-to: type=gha,scope=backend-prod,mode=max
+
+      - name: Export backend image ref
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           set -euo pipefail
-          IMAGE_TAG=${GITHUB_SHA}
-          docker build -f backend/Dockerfile -t ${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG} backend
-          docker push ${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG}
-          echo "BACKEND_IMAGE=${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "BACKEND_IMAGE=${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${GITHUB_SHA}" >> $GITHUB_ENV
 
       - name: Build and push ml-sidecar image
         if: env.SIDECAR_REBUILD_REQUIRED == 'true'
+        id: build-sidecar
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
@@ -180,10 +194,27 @@ jobs:
           tar -xzf ml-models.tar.gz
           test -f ml-models/cf/model.pt
           test -f ml-models/semantic/model.safetensors
-          IMAGE_TAG=${GITHUB_SHA}
-          docker build -f ml-sidecar/Dockerfile.prod -t ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG} .
-          docker push ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}
-          echo "SIDECAR_IMAGE=${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+
+      - name: Build and push ml-sidecar image
+        if: env.SIDECAR_REBUILD_REQUIRED == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ml-sidecar/Dockerfile.prod
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_SIDECAR_REPO }}:${{ github.sha }}
+          cache-from: type=gha,scope=sidecar-prod
+          cache-to: type=gha,scope=sidecar-prod,mode=max
+
+      - name: Export sidecar image ref
+        if: env.SIDECAR_REBUILD_REQUIRED == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          echo "SIDECAR_IMAGE=${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${GITHUB_SHA}" >> $GITHUB_ENV
 
       - name: Reuse currently deployed sidecar image (skip rebuild path)
         if: env.SIDECAR_REBUILD_REQUIRED != 'true'

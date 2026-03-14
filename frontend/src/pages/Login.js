@@ -40,21 +40,26 @@ function Login() {
 	return (
 		<div className="auth-page">
 			<div className="auth-split-layout">
-				<div className="auth-split-brand">
-					<p className="auth-split-kicker">Semantic discovery for anime fans</p>
-					<h1>Ani<span>Rec</span></h1>
-					<p className="auth-split-sub">Your personal anime companion.</p>
-					<p className="auth-split-tagline">
-						Track shows, discover hidden gems, and get personalized recommendations powered by semantic AI.
-					</p>
-				</div>
-				<div className="auth-form">
-					<h1>Login</h1>
-					<p className="auth-subtitle">Sign in to save your list, feedback, and recommendation history.</p>
+					<div className="auth-split-brand">
+						<p className="auth-split-kicker">Semantic discovery for anime fans</p>
+						<h1>Ani<span>Rec</span></h1>
+						<p className="auth-split-sub">Your personal anime companion.</p>
+						<p className="auth-split-tagline">
+							Track shows, discover hidden gems, and get personalized recommendations powered by semantic AI.
+						</p>
+						<div className="auth-feature-pills fade-in-up fade-delay-1">
+							<span className="auth-feature-pill">Smart Search</span>
+							<span className="auth-feature-pill">Similar Shows</span>
+							<span className="auth-feature-pill">Personalized For You</span>
+						</div>
+					</div>
+					<div className="auth-form fade-in-up">
+						<h1>Login</h1>
+						<p className="auth-subtitle">Sign in to save your list, feedback, and recommendation history.</p>
 
 					{error && <p className="error-message">{error}</p>}
 
-					<form onSubmit={handleSubmit}>
+						<form onSubmit={handleSubmit}>
 						<input
 							type="email"
 							placeholder="Email"
@@ -69,10 +74,15 @@ function Login() {
 							onChange={(e) => setPassword(e.target.value)}
 							required
 						/>
-						<button type="submit" className="btn-primary">Login</button>
-					</form>
+							<button type="submit" className="btn-primary">Login</button>
+						</form>
 
-					<p>Don't have an account? <Link to="/register">Register</Link></p>
+						<div className="auth-form-trust">
+							<p>Tracks your list, feedback history, and saved progress.</p>
+							<p>No spoiler-heavy recommendation copy on the auth flow.</p>
+						</div>
+
+					<p className="auth-form-footer">Don't have an account? <Link to="/register">Register</Link></p>
 				</div>
 			</div>
 		</div>

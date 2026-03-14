@@ -196,6 +196,10 @@ UI sanity check:
 - confirm filter controls render as toggle cards and toggling updates results
 - in recommendation pages, confirm the `Popularity Attenuation Factor` advanced selector renders as a full-width styled dropdown with helper text
 - in Smart Search and Similar Shows (logged-in), confirm advanced `Use List Personalization` switch appears to the right of popularity attenuation and changes result mix when switched
+- confirm `Home` renders the split hero layout with right-side popular art cards
+- confirm `Search` renders the unified toolbar panel and poster cards reveal `Add to List` CTA on hover/focus
+- confirm `AnimeDetail` shows the stat grid and sticky action bar on desktop
+- confirm `My List` shows the summary stat bar and sticky table headers while scrolling
 
 Search metadata quality check (look for missing cover/genres/title gaps in returned rows):
 ```powershell
@@ -214,6 +218,7 @@ curl.exe "http://localhost:8080/api/anime/popular?limit=10"
 
 Tip:
 - `GET /api/anime/{id}` is local-catalog first; detail UI sanitizes description text client-side and shows relation-driven series links when available.
+- local detail rehydration now tolerates both live AniList connection-shape metadata and flattened stored `metadata_json` arrays for fields like `studios` and `relations`.
 - `GET /api/anime/popular?limit=N` is also local-catalog only and is intended for lightweight cover-art strips; server-side limit is capped to `40`.
 - detail relation links are filtered to anime present in local catalog; manga-only adaptation nodes are excluded from series navigation.
 - if series links are unexpectedly empty for known franchises after a full populate, rebuild the local graph once:
@@ -751,6 +756,18 @@ Active workflows are now versioned under `.github/workflows`:
 - `.github/workflows/deploy-web.yml`
 - `.github/workflows/security-scan.yml`
 
+Build behavior:
+- workflows use `docker/setup-buildx-action` plus `docker/build-push-action`
+- deploy caches use GitHub-hosted layer scopes:
+  - `backend-prod`
+  - `frontend-prod`
+  - `sidecar-prod`
+- security-scan caches use separate scopes:
+  - `backend-scan`
+  - `frontend-scan`
+  - `sidecar-scan`
+- repo-root `.dockerignore` trims root-context frontend/sidecar builds so unrelated repo files do not bloat CI build contexts
+
 Templates remain under `infra/github-actions` for reference and regeneration.
 
 Template files:
@@ -821,6 +838,7 @@ docker build --no-cache -f frontend/Dockerfile.prod -t <frontend-image-tag> .
 Frontend API base-url env behavior:
 - Primary: `VITE_API_URL`
 - Compatibility fallback: `REACT_APP_API_URL`
+- `frontend/Dockerfile.prod` uses `npm ci`, so lockfile edits naturally invalidate the dependency layer while pure source edits keep that layer cacheable.
 
 ## 26) GP14 Cost-Reduction Commands (AWS Runtime)
 

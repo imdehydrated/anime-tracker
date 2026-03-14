@@ -107,19 +107,32 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Mask registry output
         run: |
           echo "::add-mask::${{ steps.login-ecr.outputs.registry }}"
 
       - name: Build and push frontend image
+        id: build-frontend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile.prod
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_FRONTEND_REPO }}:${{ github.sha }}
+          cache-from: type=gha,scope=frontend-prod
+          cache-to: type=gha,scope=frontend-prod,mode=max
+
+      - name: Export frontend image ref
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           set -euo pipefail
-          IMAGE_TAG=${GITHUB_SHA}
-          docker build -f frontend/Dockerfile.prod -t ${ECR_REGISTRY}/${ECR_FRONTEND_REPO}:${IMAGE_TAG} .
-          docker push ${ECR_REGISTRY}/${ECR_FRONTEND_REPO}:${IMAGE_TAG}
-          echo "FRONTEND_IMAGE=${ECR_REGISTRY}/${ECR_FRONTEND_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "FRONTEND_IMAGE=${ECR_REGISTRY}/${ECR_FRONTEND_REPO}:${GITHUB_SHA}" >> $GITHUB_ENV
 
       - name: Prepare web task definition from template
         run: |

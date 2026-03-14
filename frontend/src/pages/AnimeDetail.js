@@ -51,6 +51,38 @@ function normalizeRelationTypeLabel(rawType) {
 	return RELATION_TYPE_LABELS[normalized] || normalized.replace(/_/g, ' ');
 }
 
+function relationTypeKey(rawType) {
+	return (rawType || 'OTHER').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function formatEnumLabel(value) {
+	if (!value || typeof value !== 'string') return 'Unknown';
+	return value
+		.toLowerCase()
+		.replace(/_/g, ' ')
+		.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatSeasonLabel(season, seasonYear) {
+	if (season && seasonYear) return `${formatEnumLabel(season)} ${seasonYear}`;
+	if (seasonYear) return String(seasonYear);
+	if (season) return formatEnumLabel(season);
+	return 'Unknown';
+}
+
+function getPrimaryStudio(anime) {
+	const studios = Array.isArray(anime?.studios) ? anime.studios : [];
+	for (const studio of studios) {
+		if (typeof studio === 'string' && studio.trim().length > 0) {
+			return studio.trim();
+		}
+		if (studio?.name && typeof studio.name === 'string' && studio.name.trim().length > 0) {
+			return studio.name.trim();
+		}
+	}
+	return null;
+}
+
 function relationSortKey(rawType) {
 	const normalized = (rawType || '').toUpperCase().replace(/\s+/g, '_');
 	const order = {
@@ -151,6 +183,25 @@ function AnimeDetail() {
 	}, [descriptionExpanded, descriptionNeedsCollapse, normalizedDescription]);
 
 	const relationItems = useMemo(() => buildRelationItems(anime), [anime]);
+	const primaryStudio = useMemo(() => getPrimaryStudio(anime), [anime]);
+	const detailStats = useMemo(() => ([
+		{ label: 'Score', value: anime?.averageScore ? `${anime.averageScore}/100` : 'Unknown' },
+		{ label: 'Episodes', value: anime?.episodes || '?' },
+		{ label: 'Status', value: formatEnumLabel(anime?.status) },
+		{ label: 'Format', value: formatEnumLabel(anime?.format) },
+		{ label: 'Season', value: formatSeasonLabel(anime?.season, anime?.seasonYear) },
+		{ label: 'Popularity', value: anime?.popularity ? anime.popularity.toLocaleString() : 'Unknown' },
+		{ label: 'Studio', value: primaryStudio || 'Unknown' },
+	]), [
+		anime?.averageScore,
+		anime?.episodes,
+		anime?.format,
+		anime?.popularity,
+		anime?.season,
+		anime?.seasonYear,
+		anime?.status,
+		primaryStudio,
+	]);
 	const titleClusterFallback = useMemo(() => {
 		if (relationItems.length > 0) return [];
 		return buildTitleClusterFallback(anime);
@@ -238,12 +289,6 @@ function AnimeDetail() {
 							<p className="anime-detail-subtitle"><em>{anime.title.romaji}</em></p>
 						)}
 
-						<div className="anime-detail-meta">
-							<span><strong>Score</strong> {anime.averageScore || '?'}/100</span>
-							<span><strong>Episodes</strong> {anime.episodes || '?'}</span>
-							<span><strong>Status</strong> {anime.status || 'Unknown'}</span>
-						</div>
-
 						{Array.isArray(anime.genres) && anime.genres.length > 0 && (
 							<div className="anime-detail-genres">
 								{anime.genres.map((genre) => (
@@ -251,6 +296,39 @@ function AnimeDetail() {
 								))}
 							</div>
 						)}
+
+						<div className="detail-actions detail-actions-top">
+							{isLoggedIn ? (
+								onList ? (
+									<span className="on-list-badge">On Your List</span>
+								) : (
+									<button className="btn-primary" onClick={handleAddToList}>Add to List</button>
+								)
+							) : (
+								<Link className="btn-primary" to="/login">Login to Add to List</Link>
+							)}
+
+							<a
+								className="btn-outline"
+								href={`https://anilist.co/anime/${anime.id}`}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								View on AniList
+							</a>
+						</div>
+
+						<div className="anime-detail-stats">
+							{detailStats.map((stat) => (
+								<div key={stat.label} className="anime-detail-stat">
+									<span className="anime-detail-stat-label">{stat.label}</span>
+									<strong className="anime-detail-stat-value">{stat.value}</strong>
+								</div>
+							))}
+						</div>
+
+						{error && <p className="error-message">{error}</p>}
+						{message && <p className="success-message">{message}</p>}
 
 						{normalizedDescription && (
 							<div className="anime-description-block">
@@ -281,6 +359,7 @@ function AnimeDetail() {
 										<Link
 											key={relation.id}
 											className="series-chip"
+											data-type={relationTypeKey(relation.relationType)}
 											to={`/anime/${relation.id}`}
 										>
 											<span className="series-chip-type">{normalizeRelationTypeLabel(relation.relationType)}</span>
@@ -298,6 +377,7 @@ function AnimeDetail() {
 											<button
 												type="button"
 												className="series-chip series-chip-button"
+												data-type="search"
 												key={clusterTitle}
 												onClick={() => navigate('/search', { state: { prefillQuery: clusterTitle } })}
 											>
@@ -310,30 +390,6 @@ function AnimeDetail() {
 							) : (
 								<p className="series-note">No known related entries for this anime yet.</p>
 							)}
-						</div>
-
-						{error && <p className="error-message">{error}</p>}
-						{message && <p className="success-message">{message}</p>}
-
-						<div className="detail-actions">
-							{isLoggedIn ? (
-								onList ? (
-									<span className="on-list-badge">On Your List</span>
-								) : (
-									<button className="btn-primary" onClick={handleAddToList}>Add to List</button>
-								)
-							) : (
-								<Link className="btn-primary" to="/login">Login to Add to List</Link>
-							)}
-
-							<a
-								className="btn-outline"
-								href={`https://anilist.co/anime/${anime.id}`}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								View on AniList
-							</a>
 						</div>
 					</div>
 				</div>
