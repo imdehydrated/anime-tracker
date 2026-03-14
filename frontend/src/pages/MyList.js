@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApiError } from '../api/client';
 import {
@@ -8,6 +8,145 @@ import {
 	importMalByUsername,
 	updateListEntry,
 } from '../api/listApi';
+
+const STATUS_LABELS = {
+	WATCHING: 'Watching',
+	COMPLETED: 'Completed',
+	PLAN_TO_WATCH: 'Plan to Watch',
+	ON_HOLD: 'On Hold',
+	DROPPED: 'Dropped',
+};
+
+const FILTER_STATUS_OPTIONS = [
+	{ value: 'ALL', label: 'All Status' },
+	{ value: 'WATCHING', label: 'Watching' },
+	{ value: 'COMPLETED', label: 'Completed' },
+	{ value: 'PLAN_TO_WATCH', label: 'Plan to Watch' },
+	{ value: 'ON_HOLD', label: 'On Hold' },
+	{ value: 'DROPPED', label: 'Dropped' },
+];
+
+const SORT_OPTIONS = [
+	{ value: 'DATE_DESC', label: 'Newest First' },
+	{ value: 'TITLE_ASC', label: 'Title A-Z' },
+	{ value: 'SCORE_DESC', label: 'Highest Score' },
+	{ value: 'STATUS', label: 'By Status' },
+];
+
+const SCORE_OPTIONS = [
+	{ value: '', label: '-' },
+	{ value: '1', label: '1' },
+	{ value: '2', label: '2' },
+	{ value: '3', label: '3' },
+	{ value: '4', label: '4' },
+	{ value: '5', label: '5' },
+	{ value: '6', label: '6' },
+	{ value: '7', label: '7' },
+	{ value: '8', label: '8' },
+	{ value: '9', label: '9' },
+	{ value: '10', label: '10' },
+];
+
+const STATUS_OPTIONS = [
+	{ value: 'WATCHING', label: 'Watching' },
+	{ value: 'COMPLETED', label: 'Completed' },
+	{ value: 'PLAN_TO_WATCH', label: 'Plan to Watch' },
+	{ value: 'ON_HOLD', label: 'On Hold' },
+	{ value: 'DROPPED', label: 'Dropped' },
+];
+
+function getStatusBadgeClass(status) {
+	switch (status) {
+		case 'WATCHING':
+			return 'watching';
+		case 'COMPLETED':
+			return 'completed';
+		case 'ON_HOLD':
+			return 'on_hold';
+		case 'DROPPED':
+			return 'dropped';
+		case 'PLAN_TO_WATCH':
+			return 'plan_to_watch';
+		default:
+			return '';
+	}
+}
+
+function CustomSelect({
+	value,
+	options,
+	onChange,
+	className = '',
+	triggerClassName = '',
+	menuClassName = '',
+	ariaLabel,
+}) {
+	const [open, setOpen] = useState(false);
+	const rootRef = useRef(null);
+	const selectedOption = options.find((option) => String(option.value) === String(value)) || options[0];
+
+	useEffect(() => {
+		if (!open) return undefined;
+
+		const handlePointerDown = (event) => {
+			if (rootRef.current && !rootRef.current.contains(event.target)) {
+				setOpen(false);
+			}
+		};
+
+		const handleKeyDown = (event) => {
+			if (event.key === 'Escape') {
+				setOpen(false);
+			}
+		};
+
+		document.addEventListener('mousedown', handlePointerDown);
+		document.addEventListener('keydown', handleKeyDown);
+
+		return () => {
+			document.removeEventListener('mousedown', handlePointerDown);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [open, rootRef]);
+
+	return (
+		<div
+			ref={(node) => {
+				rootRef.current = node;
+			}}
+			className={`custom-select ${className}${open ? ' is-open' : ''}`}
+		>
+			<button
+				type="button"
+				className={`custom-select-trigger ${triggerClassName}`}
+				onClick={() => setOpen((prev) => !prev)}
+				aria-haspopup="listbox"
+				aria-expanded={open}
+				aria-label={ariaLabel}
+			>
+				<span className="custom-select-label">{selectedOption?.label || ''}</span>
+				<span className="custom-select-chevron" aria-hidden="true">v</span>
+			</button>
+			{open && (
+				<div className={`custom-select-menu ${menuClassName}`} role="listbox">
+					{options.map((option) => (
+						<button
+							key={option.value || 'blank'}
+							type="button"
+							className={`custom-select-option${String(option.value) === String(value) ? ' is-selected' : ''}`}
+							onClick={() => {
+								onChange(option.value);
+								setOpen(false);
+							}}
+						>
+							{option.label}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
 
 /**
  * MyList page:
@@ -165,7 +304,7 @@ function MyList() {
 	if (loading) return <div className="page"><p className="loading">Loading...</p></div>;
 
 	return (
-		<div className="page">
+		<div className="page mylist-page">
 			<div className="list-page-header">
 				<h1>My Anime List</h1>
 				<button className="btn-primary add-to-list-nav" onClick={() => navigate('/search')}>
@@ -257,114 +396,128 @@ function MyList() {
 							value={filterText}
 							onChange={(e) => setFilterText(e.target.value)}
 						/>
-						<select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-							<option value="ALL">All Status</option>
-							<option value="WATCHING">Watching</option>
-							<option value="COMPLETED">Completed</option>
-							<option value="PLAN_TO_WATCH">Plan to Watch</option>
-							<option value="ON_HOLD">On Hold</option>
-							<option value="DROPPED">Dropped</option>
-						</select>
-						<select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-							<option value="DATE_DESC">Newest First</option>
-							<option value="TITLE_ASC">Title A-Z</option>
-							<option value="SCORE_DESC">Highest Score</option>
-							<option value="STATUS">By Status</option>
-						</select>
+						<CustomSelect
+							value={filterStatus}
+							options={FILTER_STATUS_OPTIONS}
+							onChange={setFilterStatus}
+							className="list-filter-select-shell"
+							ariaLabel="Filter list by status"
+						/>
+						<CustomSelect
+							value={sortBy}
+							options={SORT_OPTIONS}
+							onChange={setSortBy}
+							className="list-filter-select-shell"
+							ariaLabel="Sort list"
+						/>
 					</div>
 
-					<table className="mal-table">
-						<thead>
-							<tr>
-								<th className="col-num">#</th>
-								<th className="col-image">Image</th>
-								<th className="col-title">Anime Title</th>
-								<th className="col-score">Score</th>
-								<th className="col-status">Status</th>
-								<th className="col-progress">Progress</th>
-								<th className="col-actions"></th>
-							</tr>
-						</thead>
-						<tbody>
-							{filteredList.map((entry, index) => (
-								<tr key={entry.id}>
-									<td className="col-num">{index + 1}</td>
-									<td className="col-image">
-										{entry.coverImage && (
-											<Link to={`/anime/${entry.anilistId}`}>
-												<img src={entry.coverImage} alt={entry.title} />
-											</Link>
-										)}
-									</td>
-									<td className="col-title">
-										<Link to={`/anime/${entry.anilistId}`}>
-											{entry.title || `AniList #${entry.anilistId}`}
-										</Link>
-									</td>
-									<td className="col-score">
-										<select
-											value={entry.score || ''}
-											onChange={(e) => handleUpdate(
-												entry.id,
-												{ score: e.target.value === '' ? null : parseInt(e.target.value, 10) },
-												entry
-											)}
-										>
-											<option value="">-</option>
-											{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-												<option key={n} value={n}>{n}</option>
-											))}
-										</select>
-									</td>
-									<td className="col-status">
-										<select
-											value={entry.status}
-											onChange={(e) => handleUpdate(entry.id, { status: e.target.value }, entry)}
-										>
-											<option value="WATCHING">Watching</option>
-											<option value="COMPLETED">Completed</option>
-											<option value="PLAN_TO_WATCH">Plan to Watch</option>
-											<option value="ON_HOLD">On Hold</option>
-											<option value="DROPPED">Dropped</option>
-										</select>
-									</td>
-									<td className="col-progress">
-										<div className="progress-input">
-											<input
-												type="number"
-												min="0"
-												max={entry.totalEpisodes || undefined}
-												value={episodesDrafts[entry.id] ?? 0}
-												onChange={(e) => {
-													const value = e.target.value === '' ? '' : parseInt(e.target.value, 10);
-													setEpisodesDrafts((prev) => ({ ...prev, [entry.id]: value }));
-												}}
-												onBlur={() => {
-													let val = parseInt(episodesDrafts[entry.id], 10);
-													if (Number.isNaN(val)) val = 0;
-													if (val < 0) val = 0;
-													if (entry.totalEpisodes && val > entry.totalEpisodes) val = entry.totalEpisodes;
-													setEpisodesDrafts((prev) => ({ ...prev, [entry.id]: val }));
-													if (val !== (entry.episodesWatched || 0)) {
-														handleUpdate(entry.id, { episodesWatched: val }, entry);
-													}
-												}}
-												onKeyDown={(e) => {
-													if (e.key === 'Enter') e.currentTarget.blur();
-												}}
-											/>
-											{entry.totalEpisodes != null && <span className="progress-total">/ {entry.totalEpisodes}</span>}
-										</div>
-									</td>
-									<td className="col-actions">
-										<button className="btn-danger" onClick={() => handleDelete(entry.id, entry.title)}>
-											Delete
-										</button>
-									</td>
+					<div className="mylist-table-wrap">
+						<table className="mal-table">
+							<thead>
+								<tr>
+									<th className="col-num">#</th>
+									<th className="col-image">Image</th>
+									<th className="col-title">Anime Title</th>
+									<th className="col-score">Score</th>
+									<th className="col-status">Status</th>
+									<th className="col-progress">Progress</th>
+									<th className="col-actions"></th>
 								</tr>
-							))}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{filteredList.map((entry, index) => (
+									<tr key={entry.id}>
+										<td className="col-num">{index + 1}</td>
+										<td className="col-image">
+											{entry.coverImage && (
+												<Link to={`/anime/${entry.anilistId}`}>
+													<img src={entry.coverImage} alt={entry.title} />
+												</Link>
+											)}
+										</td>
+										<td className="col-title">
+											<Link to={`/anime/${entry.anilistId}`}>
+												{entry.title || `AniList #${entry.anilistId}`}
+											</Link>
+										</td>
+										<td className="col-score">
+											<div className="cell-control-row score-row">
+												<CustomSelect
+													value={entry.score ?? ''}
+													options={SCORE_OPTIONS}
+													onChange={(nextValue) => handleUpdate(
+														entry.id,
+														{ score: nextValue === '' ? null : parseInt(nextValue, 10) },
+														entry
+													)}
+													className="score-select-shell"
+													triggerClassName="compact-trigger"
+													menuClassName="compact-menu"
+													ariaLabel={`Update score for ${entry.title || `AniList ${entry.anilistId}`}`}
+												/>
+											</div>
+										</td>
+										<td className="col-status">
+											<div className="cell-control-row status-row">
+												<CustomSelect
+													value={entry.status}
+													options={STATUS_OPTIONS}
+													onChange={(nextValue) => handleUpdate(entry.id, { status: nextValue }, entry)}
+													className={`status-select-shell ${getStatusBadgeClass(entry.status)}`}
+													triggerClassName="status-trigger"
+													menuClassName="status-menu"
+													ariaLabel={`Update status for ${entry.title || `AniList ${entry.anilistId}`}`}
+												/>
+											</div>
+										</td>
+										<td className="col-progress">
+											<div className="cell-control-row progress-row">
+												<div className="progress-input">
+												<div className="table-input-shell progress-field-shell">
+													<input
+														type="number"
+														min="0"
+														max={entry.totalEpisodes || undefined}
+														value={episodesDrafts[entry.id] ?? 0}
+														onChange={(e) => {
+															const value = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+															setEpisodesDrafts((prev) => ({ ...prev, [entry.id]: value }));
+														}}
+														onBlur={() => {
+															let val = parseInt(episodesDrafts[entry.id], 10);
+															if (Number.isNaN(val)) val = 0;
+															if (val < 0) val = 0;
+															if (entry.totalEpisodes && val > entry.totalEpisodes) val = entry.totalEpisodes;
+															setEpisodesDrafts((prev) => ({ ...prev, [entry.id]: val }));
+															if (val !== (entry.episodesWatched || 0)) {
+																handleUpdate(entry.id, { episodesWatched: val }, entry);
+															}
+														}}
+														onKeyDown={(e) => {
+															if (e.key === 'Enter') e.currentTarget.blur();
+														}}
+													/>
+												</div>
+												{entry.totalEpisodes != null && <span className="progress-total">/ {entry.totalEpisodes}</span>}
+											</div>
+											</div>
+										</td>
+										<td className="col-actions">
+											<button
+												className="icon-delete-btn"
+												onClick={() => handleDelete(entry.id, entry.title)}
+												aria-label={`Delete ${entry.title || `AniList ${entry.anilistId}`}`}
+												title="Delete"
+											>
+												x
+											</button>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
 
 					{filteredList.length === 0 && entries.length > 0 && (
 						<p style={{ textAlign: 'center', color: '#999', padding: '2rem' }}>

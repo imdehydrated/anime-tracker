@@ -72,6 +72,12 @@ public class AnimeSearchController {
         return ResponseEntity.ok(aniListService.searchAnimePaged(q.trim(), filters, cursor, pageSize));
     }
 
+    @GetMapping("/popular")
+    public ResponseEntity<List<AniListResponse.AnimeInfo>> getPopularAnime(
+            @RequestParam(defaultValue = "20") Integer limit) {
+        return ResponseEntity.ok(aniListService.getPopularAnime(limit));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<AniListResponse.AnimeInfo> getAnimeById(@PathVariable Integer id) {
         AniListResponse.AnimeInfo anime = aniListService.getAnimeByIdWithRelations(id);

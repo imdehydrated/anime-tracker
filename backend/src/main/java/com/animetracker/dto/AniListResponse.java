@@ -69,6 +69,7 @@ public class AniListResponse {
         private Integer averageScore;
         private Integer popularity;
         private AnimeCoverImage coverImage;
+        private String bannerImage;
         private List<String> genres;
         private List<String> synonyms;
         private List<AnimeTag> tags;
@@ -146,6 +147,14 @@ public class AniListResponse {
 
         public void setCoverImage(AnimeCoverImage coverImage) {
             this.coverImage = coverImage;
+        }
+
+        public String getBannerImage() {
+            return bannerImage;
+        }
+
+        public void setBannerImage(String bannerImage) {
+            this.bannerImage = bannerImage;
         }
 
         public List<String> getGenres() {

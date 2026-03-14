@@ -338,7 +338,7 @@ function SmartRec() {
 	};
 
 	return (
-		<div className="page smart-rec">
+		<div className="page smart-rec smart-rec-page">
 			<h1>Smart Recommendations</h1>
 			<p className="page-subtitle">
 				{isCfMode
@@ -348,13 +348,13 @@ function SmartRec() {
 							: 'Describe what you\'re looking for and get text-driven recommendations.'}
 			</p>
 
-			<div className="smart-rec-mode-tabs">
+			<div className="smart-rec-mode-tabs mode-tabs">
 				{MODES.map(({ key, label, requiresLogin }) => {
 					if (requiresLogin && !isLoggedIn) return null;
 					return (
 						<button
 							key={key}
-							className={`smart-rec-mode-tab${mode === key ? ' active' : ''}`}
+							className={`smart-rec-mode-tab mode-tab${mode === key ? ' active' : ''}`}
 								onClick={() => {
 									invalidatePendingRequests();
 									setMode(key);

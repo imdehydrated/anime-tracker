@@ -38,32 +38,42 @@ function Login() {
 	};
 
 	return (
-		<div className="page">
-			{/* Centered card form with dark background */}
-			<div className="auth-form">
-				<h1>Login</h1>
+		<div className="auth-page">
+			<div className="auth-split-layout">
+				<div className="auth-split-brand">
+					<p className="auth-split-kicker">Semantic discovery for anime fans</p>
+					<h1>Ani<span>Rec</span></h1>
+					<p className="auth-split-sub">Your personal anime companion.</p>
+					<p className="auth-split-tagline">
+						Track shows, discover hidden gems, and get personalized recommendations powered by semantic AI.
+					</p>
+				</div>
+				<div className="auth-form">
+					<h1>Login</h1>
+					<p className="auth-subtitle">Sign in to save your list, feedback, and recommendation history.</p>
 
-				{error && <p className="error-message">{error}</p>}
+					{error && <p className="error-message">{error}</p>}
 
-				<form onSubmit={handleSubmit}>
-					<input
-						type="email"
-						placeholder="Email"
-						value={email}
-						onChange={(e) => setEmail(e.target.value)}
-						required
-					/>
-					<input
-						type="password"
-						placeholder="Password"
-						value={password}
-						onChange={(e) => setPassword(e.target.value)}
-						required
-					/>
-					<button type="submit">Login</button>
-				</form>
+					<form onSubmit={handleSubmit}>
+						<input
+							type="email"
+							placeholder="Email"
+							value={email}
+							onChange={(e) => setEmail(e.target.value)}
+							required
+						/>
+						<input
+							type="password"
+							placeholder="Password"
+							value={password}
+							onChange={(e) => setPassword(e.target.value)}
+							required
+						/>
+						<button type="submit" className="btn-primary">Login</button>
+					</form>
 
-				<p>Don't have an account? <Link to="/register">Register</Link></p>
+					<p>Don't have an account? <Link to="/register">Register</Link></p>
+				</div>
 			</div>
 		</div>
 	);

@@ -142,7 +142,7 @@ function Search() {
 	};
 
 	return (
-		<div className="page">
+		<div className="page search-page">
 			<h1>Search Anime</h1>
 
 			<form onSubmit={handleSubmit} className="search-form">
@@ -152,7 +152,7 @@ function Search() {
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
 				/>
-				<button type="submit" disabled={loading}>
+				<button type="submit" className="btn-primary" disabled={loading}>
 					{loading ? 'Searching...' : 'Search'}
 				</button>
 			</form>
@@ -175,14 +175,14 @@ function Search() {
 				</p>
 			)}
 
-			<div className="card-grid">
+			<div className="card-grid anime-grid">
 				{results.map((anime) => (
 					<AnimeCard key={anime.id} anime={anime}>
 						{isLoggedIn ? (
 							userListIds.has(anime.id) ? (
 								<span className="on-list-badge">On Your List</span>
 							) : (
-								<button onClick={() => handleAddToList(anime)}>
+								<button className="btn-primary" onClick={() => handleAddToList(anime)}>
 									Add to List
 								</button>
 							)

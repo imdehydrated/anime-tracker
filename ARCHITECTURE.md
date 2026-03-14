@@ -85,6 +85,7 @@ AniList media queries are intentionally broad and include extra metadata fields 
 Search also applies a metadata quality gate on local-first results: when critical card fields are missing (for example cover/title/genres), it performs one upstream search fetch, merges missing fields before returning/caching, backfills improved metadata into the local catalog, and applies a bounded per-item ID hydration pass for remaining incomplete rows.
 `/api/anime/search` additionally applies the same format/safety controls used by recommendation filtering (`includeExtraSeasons`, `includeMovies`, `includeOnasOvasSpecials`, `includeMusic`, `includeAdult`), and cache keys include both query and filter fingerprint so toggles do not reuse stale cached result sets.
 Detail relation payloads are catalog-scoped: related entries not present in `anime_catalog` (for example manga-only adaptation nodes) are filtered out before response serialization.
+Detail responses also expose AniList `bannerImage` when it is present in persisted `metadata_json`; the field is extracted at query time, so no schema migration was required for the visual-richness pass.
 
 Design reason:
 - external API reliability policy belongs in one integration service, not spread across features.
@@ -94,6 +95,7 @@ Design reason:
 
 Runs tiered metadata refresh jobs:
 - Track A: sparse/unreleased metadata backfill by catalog ID (bounded IDs per run)
+  - rows missing persisted AniList `bannerImage` are also eligible so detail-page hero art can backfill without a schema migration
 - Track B: incremental full-catalog rolling refresh (cursor-based, page-budgeted)
 - optional weekly relation-graph rebuild from local catalog metadata (no AniList calls)
 
@@ -101,7 +103,7 @@ State is persisted in `anilist_sync_state` so jobs resume across restarts.
 Track B wraps cursor back to page `1` when AniList returns no more pages, so full-catalog coverage continues over time instead of pinning at end-of-catalog.
 Track A and Track B use a shared scheduler lock so they do not overlap and spike AniList calls in the same window.
 Cluster-wide lease locks (`lock_metadata_lane`, `lock_weekly_relation_graph_rebuild`) are persisted in `anilist_sync_state` so only one API task in ECS executes each scheduled lane at a time.
-Track A also applies cooldown windows for sparse rows so unreleased/low-metadata titles are revisited on cadence instead of being churned every run.
+Track A also applies cooldown windows for sparse rows so unreleased/low-metadata titles, including rows missing `bannerImage`, are revisited on cadence instead of being churned every run.
 Weekly relation-graph rebuild uses staged temp-table upsert/delete (instead of table truncate) to reduce lock contention against read traffic.
 Scheduler adjusts page budgets downward when AniList rate-limit pressure is detected (429/retry-heavy windows), then recovers gradually on clean runs.
 
@@ -163,6 +165,7 @@ Anime list:
 
 Anime lookup:
 - `GET /api/anime/search`
+- `GET /api/anime/popular`
 - `GET /api/anime/{id}`
 
 Recommendations:
@@ -391,6 +394,16 @@ Structure:
   - `Home` provides quick-entry routing into Smart Search, Similar, and For You flows.
   - `AnimeDetail` renders normalized text descriptions and relation-driven series navigation links (with local relation-graph hydration + search-cluster fallback when explicit relations are missing)
   - recommendation list cards render collapsed descriptions with per-card expand/collapse controls
+
+Visual system:
+- frontend styling is centralized in `frontend/src/index.css`; there are no page-scoped CSS files.
+- the token layer now exposes typography/layout/elevation primitives including `--font-serif`, `--font-sans`, `--container-max`, `--glow-accent`, `--glow-accent-sm`, `--shadow-card`, `--shadow-card-hover`, `--radius-*`, and accent/subtle border tokens.
+- `DM Serif Display` is reserved for hero and section headings while `Inter` carries body text, form controls, nav labels, and table UI.
+- page containers share the same contained premium width (`1320px`) while hero/background treatments can bleed edge-to-edge.
+- `Home` also uses a decorative locally-ranked trending strip (`GET /api/anime/popular`) to increase cover-art density without adding new third-party runtime dependencies.
+- `AnimeDetail` now renders a full-width banner hero when `bannerImage` is available, while preserving the existing content layout when it is absent.
+- `Login` and `Register` now use a split brand/form layout on desktop and collapse back to a stacked mobile layout at smaller breakpoints.
+- `Search` card presentation now uses poster-ratio media with hover score overlays while keeping the same data flow and add-to-list behavior.
 
 Design reason:
 - API access is centralized to avoid duplicated request logic and simplify auth/header/error behavior.

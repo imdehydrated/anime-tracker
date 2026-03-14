@@ -109,4 +109,20 @@ class AnimeSearchControllerTest {
         assertEquals(false, filters.includeMusic());
         assertEquals(false, filters.includeAdult());
     }
+
+    @Test
+    void getPopularAnime_returnsServicePayload() {
+        AnimeSearchController controller = new AnimeSearchController(aniListService);
+
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setId(1);
+        when(aniListService.getPopularAnime(12)).thenReturn(List.of(anime));
+
+        ResponseEntity<List<AniListResponse.AnimeInfo>> response = controller.getPopularAnime(12);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(1, response.getBody().size());
+        assertEquals(1, response.getBody().get(0).getId());
+        verify(aniListService).getPopularAnime(12);
+    }
 }

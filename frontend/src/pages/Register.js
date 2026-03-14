@@ -36,39 +36,49 @@ function Register() {
 	};
 
 	return (
-		<div className="page">
-			{/* Centered card form with dark background */}
-			<div className="auth-form">
-				<h1>Register</h1>
+		<div className="auth-page">
+			<div className="auth-split-layout">
+				<div className="auth-split-brand">
+					<p className="auth-split-kicker">Track, rate, and refine your taste</p>
+					<h1>Ani<span>Rec</span></h1>
+					<p className="auth-split-sub">Your personal anime companion.</p>
+					<p className="auth-split-tagline">
+						Build a list, shape your taste profile, and turn every search into cleaner recommendations.
+					</p>
+				</div>
+				<div className="auth-form">
+					<h1>Register</h1>
+					<p className="auth-subtitle">Create an account to track anime and unlock personalized recommendations.</p>
 
-				{error && <p className="error-message">{error}</p>}
+					{error && <p className="error-message">{error}</p>}
 
-				<form onSubmit={handleSubmit}>
-					<input
-						type="text"
-						placeholder="Username"
-						value={username}
-						onChange={(e) => setUsername(e.target.value)}
-						required
-					/>
-					<input
-						type="email"
-						placeholder="Email"
-						value={email}
-						onChange={(e) => setEmail(e.target.value)}
-						required
-					/>
-					<input
-						type="password"
-						placeholder="Password"
-						value={password}
-						onChange={(e) => setPassword(e.target.value)}
-						required
-					/>
-					<button type="submit">Register</button>
-				</form>
+					<form onSubmit={handleSubmit}>
+						<input
+							type="text"
+							placeholder="Username"
+							value={username}
+							onChange={(e) => setUsername(e.target.value)}
+							required
+						/>
+						<input
+							type="email"
+							placeholder="Email"
+							value={email}
+							onChange={(e) => setEmail(e.target.value)}
+							required
+						/>
+						<input
+							type="password"
+							placeholder="Password"
+							value={password}
+							onChange={(e) => setPassword(e.target.value)}
+							required
+						/>
+						<button type="submit" className="btn-primary">Register</button>
+					</form>
 
-				<p>Already have an account? <Link to="/login">Login</Link></p>
+					<p>Already have an account? <Link to="/login">Login</Link></p>
+				</div>
 			</div>
 		</div>
 	);

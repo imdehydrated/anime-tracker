@@ -129,6 +129,21 @@ public interface AnimeCatalogRepository extends JpaRepository<AnimeCatalog, Long
             @Param("limit") int limit);
 
     @Query(value = """
+            SELECT anilist_id, title_romaji, title_english, cover_image,
+                   genres, description, average_score, status, episodes, anilist_popularity,
+                   format, season, season_year, is_adult, metadata_json
+            FROM anime_catalog
+            WHERE NULLIF(TRIM(COALESCE(cover_image, '')), '') IS NOT NULL
+              AND COALESCE(is_adult, FALSE) = FALSE
+              AND (status IS NULL OR status <> 'CANCELLED')
+            ORDER BY anilist_popularity DESC NULLS LAST,
+                     average_score DESC NULLS LAST,
+                     anilist_id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Object[]> findPopularCatalogMetadata(@Param("limit") int limit);
+
+    @Query(value = """
             SELECT COUNT(*)
             FROM anime_catalog
             """, nativeQuery = true)
@@ -157,6 +172,7 @@ public interface AnimeCatalogRepository extends JpaRepository<AnimeCatalog, Long
                     OR average_score IS NULL
                     OR anilist_popularity IS NULL
                     OR episodes IS NULL
+                    OR NULLIF(TRIM(COALESCE((metadata_json::jsonb ->> 'bannerImage'), '')), '') IS NULL
                     OR status = 'NOT_YET_RELEASED'
                   )
               AND (

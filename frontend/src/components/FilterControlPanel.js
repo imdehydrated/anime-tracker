@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 const BASE_TOGGLES = [
 	{ key: 'includeExtraSeasons', label: 'Extra Seasons' },
 	{ key: 'includeMovies', label: 'Movies' },
@@ -6,6 +8,82 @@ const BASE_TOGGLES = [
 ];
 
 const ADULT_TOGGLE = { key: 'includeAdult', label: '18+ Content' };
+const POPULARITY_OPTIONS = [
+	{ value: 'low', label: 'Low' },
+	{ value: 'medium', label: 'Medium' },
+	{ value: 'high', label: 'High' },
+];
+
+function FilterCustomSelect({
+	value,
+	options,
+	onChange,
+	className = '',
+	triggerClassName = '',
+	menuClassName = '',
+	ariaLabel,
+}) {
+	const [open, setOpen] = useState(false);
+	const rootRef = useRef(null);
+	const selectedOption = options.find((option) => option.value === value) || options[0];
+
+	useEffect(() => {
+		if (!open) return undefined;
+
+		const handlePointerDown = (event) => {
+			if (rootRef.current && !rootRef.current.contains(event.target)) {
+				setOpen(false);
+			}
+		};
+
+		const handleKeyDown = (event) => {
+			if (event.key === 'Escape') {
+				setOpen(false);
+			}
+		};
+
+		document.addEventListener('mousedown', handlePointerDown);
+		document.addEventListener('keydown', handleKeyDown);
+
+		return () => {
+			document.removeEventListener('mousedown', handlePointerDown);
+			document.removeEventListener('keydown', handleKeyDown);
+		};
+	}, [open]);
+
+	return (
+		<div ref={rootRef} className={`custom-select ${className}${open ? ' is-open' : ''}`}>
+			<button
+				type="button"
+				className={`custom-select-trigger ${triggerClassName}`}
+				onClick={() => setOpen((prev) => !prev)}
+				aria-haspopup="listbox"
+				aria-expanded={open}
+				aria-label={ariaLabel}
+			>
+				<span className="custom-select-label">{selectedOption.label}</span>
+				<span className="custom-select-chevron" aria-hidden="true">v</span>
+			</button>
+			{open && (
+				<div className={`custom-select-menu ${menuClassName}`} role="listbox">
+					{options.map((option) => (
+						<button
+							key={option.value}
+							type="button"
+							className={`custom-select-option${option.value === value ? ' is-selected' : ''}`}
+							onClick={() => {
+								onChange(option.value);
+								setOpen(false);
+							}}
+						>
+							{option.label}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
 
 function FilterToggleCard({ label, checked, onChange }) {
 	return (
@@ -53,18 +131,15 @@ function FilterControlPanel({
 					<div className={`filter-advanced-grid${showPersonalizationToggle ? '' : ' single'}`}>
 						<div className="filter-advanced-field">
 							<div className="filter-advanced-label">Popularity Attenuation Factor</div>
-							<div className="filter-select-shell">
-								<select
-									className="filter-advanced-select"
-									value={filters?.popularityAttenuation ?? 'medium'}
-									onChange={(e) => setFilters((prev) => ({ ...prev, popularityAttenuation: e.target.value }))}
-								>
-									<option value="low">Low</option>
-									<option value="medium">Medium</option>
-									<option value="high">High</option>
-								</select>
-								<span className="filter-select-chevron" aria-hidden="true">v</span>
-							</div>
+							<FilterCustomSelect
+								value={filters?.popularityAttenuation ?? 'medium'}
+								options={POPULARITY_OPTIONS}
+								onChange={(nextValue) => setFilters((prev) => ({ ...prev, popularityAttenuation: nextValue }))}
+								className="filter-select-shell"
+								triggerClassName="filter-advanced-select"
+								menuClassName="filter-advanced-menu"
+								ariaLabel="Select popularity attenuation factor"
+							/>
 							<p className="filter-advanced-help">
 								Higher popularity attenuation factors result in less-popular anime being weighted higher in
 								recommendations.

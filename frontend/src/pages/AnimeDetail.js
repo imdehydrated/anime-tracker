@@ -209,106 +209,132 @@ function AnimeDetail() {
 	if (!anime) return <div className="page"><p className="error-message">Anime not found</p></div>;
 
 	return (
-		<div className="page">
+		<div className={`page anime-detail-page${anime.bannerImage ? ' has-banner' : ''}`}>
 			<button className="back-btn" onClick={() => navigate(-1)}>Back</button>
 
+			{anime.bannerImage && (
+				<div
+					className="anime-banner-hero"
+					style={{ backgroundImage: `url(${anime.bannerImage})` }}
+				>
+					<div className="anime-banner-hero-overlay" />
+				</div>
+			)}
+
 			<div className="anime-detail">
-				{anime.coverImage?.large && (
-					<img src={anime.coverImage.large} alt={formatTitle(anime)} />
-				)}
-
-				<div className="anime-info">
-					<h1>{formatTitle(anime)}</h1>
-
-					{anime.title?.english && anime.title?.romaji && (
-						<p><em>{anime.title.romaji}</em></p>
+				<div className="anime-detail-header">
+					{anime.coverImage?.large && (
+						<img
+							className="anime-detail-cover"
+							src={anime.coverImage.large}
+							alt={formatTitle(anime)}
+						/>
 					)}
 
-					<p><strong>Score:</strong> {anime.averageScore || '?'}/100</p>
-					<p><strong>Episodes:</strong> {anime.episodes || '?'}</p>
-					<p><strong>Status:</strong> {anime.status}</p>
-					<p><strong>Genres:</strong> {anime.genres?.join(', ')}</p>
+					<div className="anime-info">
+						<h1 className="anime-detail-title">{formatTitle(anime)}</h1>
 
-					{normalizedDescription && (
-						<div className="anime-description-block">
-							<div className="anime-description">
-								{renderedDescription.split('\n').map((line, idx) => (
-									<p key={`${idx}-${line.slice(0, 16)}`}>{line}</p>
-								))}
-							</div>
-							{descriptionNeedsCollapse && (
-								<button
-									type="button"
-									className="detail-inline-link"
-									onClick={() => setDescriptionExpanded((prev) => !prev)}
-								>
-									{descriptionExpanded ? 'Show less' : 'Show more'}
-								</button>
-							)}
+						{anime.title?.english && anime.title?.romaji && (
+							<p className="anime-detail-subtitle"><em>{anime.title.romaji}</em></p>
+						)}
+
+						<div className="anime-detail-meta">
+							<span><strong>Score</strong> {anime.averageScore || '?'}/100</span>
+							<span><strong>Episodes</strong> {anime.episodes || '?'}</span>
+							<span><strong>Status</strong> {anime.status || 'Unknown'}</span>
 						</div>
-					)}
 
-					<div className="series-panel">
-						<h3>Series Navigation</h3>
-						{relationItems.length > 0 ? (
-							<div className="series-chip-list">
-								{relationItems.map((relation) => (
-									<Link
-										key={relation.id}
-										className="series-chip"
-										to={`/anime/${relation.id}`}
-									>
-										<span className="series-chip-type">{normalizeRelationTypeLabel(relation.relationType)}</span>
-										<span className="series-chip-title">{relation.title}</span>
-									</Link>
+						{Array.isArray(anime.genres) && anime.genres.length > 0 && (
+							<div className="anime-detail-genres">
+								{anime.genres.map((genre) => (
+									<span key={genre} className="genre-chip">{genre}</span>
 								))}
 							</div>
-						) : titleClusterFallback.length > 0 ? (
-							<div className="series-fallback-list">
-								<p className="series-note">
-									No explicit relation graph links are available for this entry. Try title-cluster lookup:
-								</p>
-								<div className="series-chip-list">
-									{titleClusterFallback.map((clusterTitle) => (
-										<button
-											type="button"
-											className="series-chip series-chip-button"
-											key={clusterTitle}
-											onClick={() => navigate('/search', { state: { prefillQuery: clusterTitle } })}
-										>
-											<span className="series-chip-type">Search</span>
-											<span className="series-chip-title">{clusterTitle}</span>
-										</button>
+						)}
+
+						{normalizedDescription && (
+							<div className="anime-description-block">
+								<div className="anime-description">
+									{renderedDescription.split('\n').map((line, idx) => (
+										<p key={`${idx}-${line.slice(0, 16)}`}>{line}</p>
 									))}
 								</div>
+								{descriptionNeedsCollapse && (
+									<button
+										type="button"
+										className="detail-inline-link"
+										onClick={() => setDescriptionExpanded((prev) => !prev)}
+									>
+										{descriptionExpanded ? 'Show less' : 'Show more'}
+									</button>
+								)}
 							</div>
-						) : (
-							<p className="series-note">No known related entries for this anime yet.</p>
 						)}
-					</div>
 
-					{error && <p className="error-message">{error}</p>}
-					{message && <p className="success-message">{message}</p>}
-
-					<div className="detail-actions">
-						{isLoggedIn ? (
-							onList ? (
-								<span className="on-list-badge">On Your List</span>
+						<div className="series-panel">
+							<div className="section-header">
+								<h2>Series Navigation</h2>
+							</div>
+							{relationItems.length > 0 ? (
+								<div className="series-chip-list">
+									{relationItems.map((relation) => (
+										<Link
+											key={relation.id}
+											className="series-chip"
+											to={`/anime/${relation.id}`}
+										>
+											<span className="series-chip-type">{normalizeRelationTypeLabel(relation.relationType)}</span>
+											<span className="series-chip-title">{relation.title}</span>
+										</Link>
+									))}
+								</div>
+							) : titleClusterFallback.length > 0 ? (
+								<div className="series-fallback-list">
+									<p className="series-note">
+										No explicit relation graph links are available for this entry. Try title-cluster lookup:
+									</p>
+									<div className="series-chip-list">
+										{titleClusterFallback.map((clusterTitle) => (
+											<button
+												type="button"
+												className="series-chip series-chip-button"
+												key={clusterTitle}
+												onClick={() => navigate('/search', { state: { prefillQuery: clusterTitle } })}
+											>
+												<span className="series-chip-type">Search</span>
+												<span className="series-chip-title">{clusterTitle}</span>
+											</button>
+										))}
+									</div>
+								</div>
 							) : (
-								<button className="btn-primary" onClick={handleAddToList}>Add to List</button>
-							)
-						) : (
-							<Link className="btn-primary" to="/login">Login to Add to List</Link>
-						)}
+								<p className="series-note">No known related entries for this anime yet.</p>
+							)}
+						</div>
 
-						<a
-							className="btn-outline"
-							href={`https://anilist.co/anime/${anime.id}`}
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							View on AniList
-						</a>
+						{error && <p className="error-message">{error}</p>}
+						{message && <p className="success-message">{message}</p>}
+
+						<div className="detail-actions">
+							{isLoggedIn ? (
+								onList ? (
+									<span className="on-list-badge">On Your List</span>
+								) : (
+									<button className="btn-primary" onClick={handleAddToList}>Add to List</button>
+								)
+							) : (
+								<Link className="btn-primary" to="/login">Login to Add to List</Link>
+							)}
+
+							<a
+								className="btn-outline"
+								href={`https://anilist.co/anime/${anime.id}`}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								View on AniList
+							</a>
+						</div>
 					</div>
 				</div>
 			</div>

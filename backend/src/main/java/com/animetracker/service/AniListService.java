@@ -521,6 +521,30 @@ public class AniListService {
         return getAnimeByIdInternal(id, true);
     }
 
+    public List<AniListResponse.AnimeInfo> getPopularAnime(Integer limit) {
+        int safeLimit = Math.min(40, Math.max(1, limit == null ? 20 : limit));
+        try {
+            List<Object[]> rows = catalogRepository.findPopularCatalogMetadata(safeLimit);
+            if (rows == null || rows.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<AniListResponse.AnimeInfo> results = new ArrayList<>(rows.size());
+            for (Object[] row : rows) {
+                AniListResponse.AnimeInfo anime = mapMetadataRowToAnimeInfo(row);
+                if (anime != null) {
+                    if (anime.getGenres() != null && anime.getGenres().size() > 2) {
+                        anime.setGenres(new ArrayList<>(anime.getGenres().subList(0, 2)));
+                    }
+                    results.add(anime);
+                }
+            }
+            return results;
+        } catch (Exception ex) {
+            log.debug("Popular anime lookup failed: {}", ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
     /**
      * Fetch directly from AniList GraphQL regardless of runtime fallback setting.
      * Used by explicit population/retry jobs.
@@ -1063,6 +1087,9 @@ public class AniListService {
             if (target.getCoverImage() == null) {
                 target.setCoverImage(parsed.getCoverImage());
             }
+            if (target.getBannerImage() == null || target.getBannerImage().isBlank()) {
+                target.setBannerImage(parsed.getBannerImage());
+            }
             if (target.getIdMal() == null) {
                 target.setIdMal(parsed.getIdMal());
             }
@@ -1182,6 +1209,9 @@ public class AniListService {
                 || merged.getCoverImage().getLarge() == null
                 || merged.getCoverImage().getLarge().isBlank()) {
             merged.setCoverImage(copyCoverImage(fetched.getCoverImage()));
+        }
+        if (merged.getBannerImage() == null || merged.getBannerImage().isBlank()) {
+            merged.setBannerImage(fetched.getBannerImage());
         }
         if (merged.getGenres() == null || merged.getGenres().isEmpty()) {
             merged.setGenres(fetched.getGenres() == null ? null : new ArrayList<>(fetched.getGenres()));
@@ -1366,6 +1396,7 @@ public class AniListService {
         copy.setStatus(source.getStatus());
         copy.setTitle(copyTitle(source.getTitle()));
         copy.setCoverImage(copyCoverImage(source.getCoverImage()));
+        copy.setBannerImage(source.getBannerImage());
         copy.setGenres(source.getGenres() == null ? null : new ArrayList<>(source.getGenres()));
         copy.setSynonyms(source.getSynonyms() == null ? null : new ArrayList<>(source.getSynonyms()));
         copy.setTags(copyTags(source.getTags()));

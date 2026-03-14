@@ -72,7 +72,7 @@ function AnimeRecItem({ anime, children }) {
 				</div>
 
 				{recommendationReason && (
-					<p className="anime-rec-item-reason">{recommendationReason}</p>
+					<p className="anime-rec-item-reason rec-reason">{recommendationReason}</p>
 				)}
 
 				<p className="anime-rec-item-desc">{description}</p>

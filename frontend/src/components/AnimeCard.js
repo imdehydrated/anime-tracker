@@ -12,22 +12,34 @@ function AnimeCard({ anime, children }) {
 
 	return (
 		<div className="anime-card">
-			{showCover ? (
-				<Link to={`/anime/${anime.id}`} state={detailState}>
-					<img
-						src={coverUrl}
-						alt={anime.title?.romaji || title}
-						onError={(e) => {
-							e.currentTarget.style.display = 'none';
-							setCoverFailed(true);
-						}}
-					/>
-				</Link>
-			) : (
-				<Link to={`/anime/${anime.id}`} state={detailState} className="anime-card-cover-fallback">
-					<span>No Cover</span>
-				</Link>
-			)}
+			<div className="anime-card-poster">
+				{showCover ? (
+					<Link to={`/anime/${anime.id}`} state={detailState} className="anime-card-poster-link">
+						<img
+							src={coverUrl}
+							alt={anime.title?.romaji || title}
+							loading="lazy"
+							onError={(e) => {
+								e.currentTarget.style.display = 'none';
+								setCoverFailed(true);
+							}}
+						/>
+					</Link>
+				) : (
+					<Link
+						to={`/anime/${anime.id}`}
+						state={detailState}
+						className="anime-card-cover-fallback anime-card-poster-link"
+					>
+						<span>No Cover</span>
+					</Link>
+				)}
+				<div className="anime-card-poster-overlay">
+					{anime.averageScore ? (
+						<span className="anime-card-score">{anime.averageScore}/100</span>
+					) : null}
+				</div>
+			</div>
 
 			<div className="card-body">
 				<h3><Link to={`/anime/${anime.id}`} state={detailState}>{title}</Link></h3>

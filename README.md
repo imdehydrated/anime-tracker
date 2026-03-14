@@ -10,6 +10,7 @@ AniRec is a full-stack anime recommendation and tracking platform. It combines i
 - List import from AniList and MyAnimeList
 - Recommendation modes: `Smart Search`, `Similar Shows`, `For You`
 - Search/detail pages with configurable result filters
+- Home page popular strip sourced from the local popular-anime catalog
 - Ongoing local catalog refresh so recommendations are not tied to live third-party API reliability
 
 ## Tech

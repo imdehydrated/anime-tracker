@@ -207,8 +207,14 @@ Fetch by AniList ID:
 curl.exe http://localhost:8080/api/anime/16498
 ```
 
+Fetch locally ranked popular anime for the Home trending strip:
+```powershell
+curl.exe "http://localhost:8080/api/anime/popular?limit=10"
+```
+
 Tip:
 - `GET /api/anime/{id}` is local-catalog first; detail UI sanitizes description text client-side and shows relation-driven series links when available.
+- `GET /api/anime/popular?limit=N` is also local-catalog only and is intended for lightweight cover-art strips; server-side limit is capped to `40`.
 - detail relation links are filtered to anime present in local catalog; manga-only adaptation nodes are excluded from series navigation.
 - if series links are unexpectedly empty for known franchises after a full populate, rebuild the local graph once:
 ```powershell
@@ -404,6 +410,7 @@ Key knobs:
 
 Notes:
 - Track A backfills sparse/unreleased catalog rows by ID with a fixed cap per run.
+- Track A also treats missing AniList `bannerImage` metadata as low-quality catalog state, so detail-page hero art backfills during routine refreshes.
 - Track A cooldown windows prevent repeated refresh churn on the same sparse rows.
 - Track B does incremental full-catalog page scans and wraps back to page 1 on exhaustion.
 - Track A and Track B are overlap-protected by a shared scheduler lock.
@@ -792,6 +799,10 @@ powershell -ExecutionPolicy Bypass -File .\infra\scripts\smoke-test.ps1 -BaseUrl
 ## 25) Frontend Vite Migration Maintenance
 
 Frontend tooling now uses Vite instead of `react-scripts`.
+
+Design-system note:
+- `frontend/src/index.css` loads `DM Serif Display` and `Inter` from Google Fonts via CSS `@import`.
+- In local dev, the browser needs internet access to fetch those fonts; otherwise it will fall back to the local serif/sans stacks.
 
 Common recovery flow when lock/dependency state is out of sync:
 

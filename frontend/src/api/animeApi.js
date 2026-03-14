@@ -37,3 +37,9 @@ export async function getAnimeById(id) {
 	const { data } = await api.get(`/api/anime/${id}`);
 	return data;
 }
+
+export async function getPopularAnime(limit = 20) {
+	const safeLimit = Math.min(40, Math.max(1, Number.isFinite(limit) ? limit : 20));
+	const { data } = await api.get(`/api/anime/popular?limit=${safeLimit}`);
+	return Array.isArray(data) ? data : [];
+}
