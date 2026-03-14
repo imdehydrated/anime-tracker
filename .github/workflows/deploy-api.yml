@@ -40,6 +40,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Determine sidecar rebuild requirement
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "SIDECAR_REBUILD_REQUIRED=true" >> "$GITHUB_ENV"
+            echo "Manual run: sidecar rebuild enabled."
+            exit 0
+          fi
+
+          BEFORE_SHA="${{ github.event.before }}"
+          if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+            echo "SIDECAR_REBUILD_REQUIRED=true" >> "$GITHUB_ENV"
+            echo "No valid base SHA found: sidecar rebuild enabled."
+            exit 0
+          fi
+
+          CHANGED_FILES="$(git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}" || true)"
+          if echo "${CHANGED_FILES}" | grep -qE '^ml-sidecar/'; then
+            echo "SIDECAR_REBUILD_REQUIRED=true" >> "$GITHUB_ENV"
+            echo "Detected ml-sidecar changes: sidecar rebuild enabled."
+          else
+            echo "SIDECAR_REBUILD_REQUIRED=false" >> "$GITHUB_ENV"
+            echo "No ml-sidecar changes detected: sidecar rebuild skipped."
+          fi
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -113,12 +138,13 @@ jobs:
             "ECR_BACKEND_REPO"
             "ECR_SIDECAR_REPO"
             "API_HEALTH_URL"
-            "MODEL_BUCKET"
-            "MODEL_KEY"
             "ECS_EXECUTION_ROLE_NAME"
             "ECS_TASK_ROLE_NAME"
             "RDS_HOST"
           )
+          if [ "${SIDECAR_REBUILD_REQUIRED:-false}" = "true" ]; then
+            required_vars+=("MODEL_BUCKET" "MODEL_KEY")
+          fi
           for var_name in "${required_vars[@]}"; do
             if [ -z "${!var_name:-}" ]; then
               echo "Missing required variable: ${var_name}"
@@ -145,6 +171,7 @@ jobs:
           echo "BACKEND_IMAGE=${ECR_REGISTRY}/${ECR_BACKEND_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
 
       - name: Build and push ml-sidecar image
+        if: env.SIDECAR_REBUILD_REQUIRED == 'true'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
@@ -157,6 +184,19 @@ jobs:
           docker build -f ml-sidecar/Dockerfile.prod -t ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG} .
           docker push ${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}
           echo "SIDECAR_IMAGE=${ECR_REGISTRY}/${ECR_SIDECAR_REPO}:${IMAGE_TAG}" >> $GITHUB_ENV
+
+      - name: Reuse currently deployed sidecar image (skip rebuild path)
+        if: env.SIDECAR_REBUILD_REQUIRED != 'true'
+        run: |
+          set -euo pipefail
+          CURRENT_TASKDEF_ARN=$(aws ecs describe-services --cluster "${ECS_CLUSTER}" --services "${ECS_SERVICE_API}" --query "services[0].taskDefinition" --output text)
+          CURRENT_SIDECAR_IMAGE=$(aws ecs describe-task-definition --task-definition "${CURRENT_TASKDEF_ARN}" --query "taskDefinition.containerDefinitions[?name=='ml-sidecar'].image | [0]" --output text)
+          if [ -z "${CURRENT_SIDECAR_IMAGE}" ] || [ "${CURRENT_SIDECAR_IMAGE}" = "None" ]; then
+            echo "Could not resolve currently deployed ml-sidecar image."
+            exit 1
+          fi
+          echo "SIDECAR_IMAGE=${CURRENT_SIDECAR_IMAGE}" >> "$GITHUB_ENV"
+          echo "Reusing deployed sidecar image: ${CURRENT_SIDECAR_IMAGE}"
 
       - name: Prepare API task definition from template
         run: |
