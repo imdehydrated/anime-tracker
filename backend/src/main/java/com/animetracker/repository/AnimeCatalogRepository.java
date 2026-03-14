@@ -172,7 +172,6 @@ public interface AnimeCatalogRepository extends JpaRepository<AnimeCatalog, Long
                     OR average_score IS NULL
                     OR anilist_popularity IS NULL
                     OR episodes IS NULL
-                    OR NULLIF(TRIM(COALESCE((metadata_json::jsonb ->> 'bannerImage'), '')), '') IS NULL
                     OR status = 'NOT_YET_RELEASED'
                   )
               AND (

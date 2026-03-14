@@ -95,7 +95,6 @@ Design reason:
 
 Runs tiered metadata refresh jobs:
 - Track A: sparse/unreleased metadata backfill by catalog ID (bounded IDs per run)
-  - rows missing persisted AniList `bannerImage` are also eligible so detail-page hero art can backfill without a schema migration
 - Track B: incremental full-catalog rolling refresh (cursor-based, page-budgeted)
 - optional weekly relation-graph rebuild from local catalog metadata (no AniList calls)
 
@@ -103,7 +102,7 @@ State is persisted in `anilist_sync_state` so jobs resume across restarts.
 Track B wraps cursor back to page `1` when AniList returns no more pages, so full-catalog coverage continues over time instead of pinning at end-of-catalog.
 Track A and Track B use a shared scheduler lock so they do not overlap and spike AniList calls in the same window.
 Cluster-wide lease locks (`lock_metadata_lane`, `lock_weekly_relation_graph_rebuild`) are persisted in `anilist_sync_state` so only one API task in ECS executes each scheduled lane at a time.
-Track A also applies cooldown windows for sparse rows so unreleased/low-metadata titles, including rows missing `bannerImage`, are revisited on cadence instead of being churned every run.
+Track A also applies cooldown windows for sparse rows so unreleased/low-metadata titles are revisited on cadence instead of being churned every run.
 Weekly relation-graph rebuild uses staged temp-table upsert/delete (instead of table truncate) to reduce lock contention against read traffic.
 Scheduler adjusts page budgets downward when AniList rate-limit pressure is detected (429/retry-heavy windows), then recovers gradually on clean runs.
 

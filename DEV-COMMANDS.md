@@ -410,7 +410,6 @@ Key knobs:
 
 Notes:
 - Track A backfills sparse/unreleased catalog rows by ID with a fixed cap per run.
-- Track A also treats missing AniList `bannerImage` metadata as low-quality catalog state, so detail-page hero art backfills during routine refreshes.
 - Track A cooldown windows prevent repeated refresh churn on the same sparse rows.
 - Track B does incremental full-catalog page scans and wraps back to page 1 on exhaustion.
 - Track A and Track B are overlap-protected by a shared scheduler lock.
