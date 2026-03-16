@@ -748,6 +748,96 @@ CF popularity attenuation:
 - `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_RATIO`
 - `RECOMMENDATIONS_FILTERS_UNDERFILL_MIN_FLOOR`
 
+## 19) Mobile App (Expo / React Native) Commands
+
+Mobile app root:
+
+```powershell
+cd .\mobile
+```
+
+Typecheck the mobile workspace:
+
+```powershell
+.\node_modules\.bin\tsc.cmd --noEmit
+```
+
+Install mobile dependencies after pulling changes:
+
+```powershell
+npm.cmd install
+```
+
+Install native dev-client dependency (required before building a development build):
+
+```powershell
+npx expo install expo-dev-client
+```
+
+Start Expo in browser preview:
+
+```powershell
+npx expo start --web
+```
+
+Start Metro for the installed development client:
+
+```powershell
+npx expo start --dev-client
+```
+
+If the device cannot reach the local Metro server over LAN, retry with tunnel mode:
+
+```powershell
+npx expo start --dev-client --tunnel
+```
+
+Clear Metro cache when route or bundler state gets stuck:
+
+```powershell
+npx expo start --dev-client --clear
+```
+
+Configure EAS in the mobile app directory:
+
+```powershell
+eas build:configure
+```
+
+Build a physical-device iOS development client:
+
+```powershell
+eas build --platform ios --profile development
+```
+
+Build an iOS simulator preview build:
+
+```powershell
+eas build --platform ios --profile preview
+```
+
+List recent EAS builds:
+
+```powershell
+eas build:list
+```
+
+Open a specific EAS build record in the terminal:
+
+```powershell
+eas build:view <BUILD_ID>
+```
+
+Development-build workflow notes:
+- For day-to-day JS/TS/UI changes in `mobile/app/` or `mobile/src/`, do **not** rebuild the native client. Restart Metro with `npx expo start --dev-client` and reload the installed app.
+- Rebuild the iOS dev client after native-affecting changes:
+  - `mobile/app.json`
+  - installing/removing Expo native modules (for example `expo-secure-store`, `expo-dev-client`)
+  - bundle identifier / plugin / splash / icon native config changes
+- Expo Go compatibility may lag the latest SDK. If Expo Go says the project is incompatible, prefer the development-build path above instead of blocking on Expo Go.
+- Web preview uses browser storage fallback for auth token persistence; native dev builds continue using `expo-secure-store`.
+- Physical-device iOS builds require Apple signing setup. If the Apple Developer account is still pending, continue implementation with web preview and defer `eas build --platform ios --profile development` until signing is available.
+
 ## 24) Container-First AWS CI/CD Workflows
 
 Active workflows are now versioned under `.github/workflows`:

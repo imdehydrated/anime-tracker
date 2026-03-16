@@ -70,6 +70,8 @@ infra/ecs/*
 *.json
 !**/package.json
 !**/package-lock.json
+!mobile/app.json
+!mobile/eas.json
 !notebooks/eval/semantic_query_testset.json
 !infra/ecs/taskdef.api.json
 !infra/ecs/taskdef.web.json
