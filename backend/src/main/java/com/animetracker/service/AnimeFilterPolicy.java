@@ -2,9 +2,11 @@ package com.animetracker.service;
 
 import com.animetracker.dto.AniListResponse;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Shared filter heuristics for anime format/adult/season classification.
@@ -44,7 +46,7 @@ public final class AnimeFilterPolicy {
                     continue;
                 }
                 String lowered = tag.getName().toLowerCase();
-                if (ADULT_BLOCKLIST_TAG_KEYWORDS.stream().anyMatch(lowered::contains)) {
+                if (containsAdultTagKeyword(lowered)) {
                     return true;
                 }
                 if (ecchiGenre && lowered.contains("ecchi")
@@ -61,6 +63,19 @@ public final class AnimeFilterPolicy {
         return text.contains(" explicit ")
                 || text.contains(" erotic ")
                 || text.contains(" sexual ");
+    }
+
+    private static boolean containsAdultTagKeyword(String tagName) {
+        if (tagName == null || tagName.isBlank()) {
+            return false;
+        }
+        Set<String> tokens = Arrays.stream(tagName.split("[^a-z0-9]+"))
+                .filter(token -> token != null && !token.isBlank())
+                .collect(Collectors.toSet());
+        if (tokens.isEmpty()) {
+            return false;
+        }
+        return ADULT_BLOCKLIST_TAG_KEYWORDS.stream().anyMatch(tokens::contains);
     }
 
     public static boolean isMovieCandidate(AniListResponse.AnimeInfo anime) {
