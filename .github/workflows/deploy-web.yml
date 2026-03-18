@@ -7,7 +7,6 @@ on:
     paths:
       - "frontend/**"
       - "infra/ecs/taskdef.web.json"
-      - ".github/workflows/deploy-web.yml"
 
 concurrency:
   group: deploy-web-prod
