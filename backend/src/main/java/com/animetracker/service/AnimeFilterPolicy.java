@@ -16,7 +16,6 @@ public final class AnimeFilterPolicy {
 
     private static final Set<String> ADULT_BLOCKLIST_TAG_KEYWORDS = Set.of(
             "hentai", "nudity", "sex", "sexual", "erotic", "porn", "explicit");
-    private static final Set<String> MUSIC_KEYWORDS = Set.of("music", "song", "idol", "concert");
     private static final Set<String> ENTRYPOINT_RELATION_TYPES = Set.of(
             "PREQUEL",
             "PARENT",
@@ -110,20 +109,7 @@ public final class AnimeFilterPolicy {
             return false;
         }
         String format = anime.getFormat();
-        if (format != null && "MUSIC".equalsIgnoreCase(format.trim())) {
-            return true;
-        }
-        Set<String> genres = parseGenreSet(anime.getGenres());
-        if (genres.contains("music")) {
-            return true;
-        }
-        String text = animeTextBlob(anime);
-        for (String keyword : MUSIC_KEYWORDS) {
-            if (text.contains(" " + keyword + " ")) {
-                return true;
-            }
-        }
-        return false;
+        return format != null && "MUSIC".equalsIgnoreCase(format.trim());
     }
 
     public static boolean isExtraSeasonCandidate(AniListResponse.AnimeInfo anime) {

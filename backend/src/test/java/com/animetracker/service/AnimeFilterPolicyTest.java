@@ -29,6 +29,25 @@ class AnimeFilterPolicyTest {
         assertTrue(AnimeFilterPolicy.isAdultCandidate(anime, 70));
     }
 
+    @Test
+    void isMusicCandidate_doesNotTreatMusicGenreTvSeriesAsMusicEntry() {
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setFormat("TV");
+        anime.setGenres(List.of("Comedy", "Music", "Slice of Life"));
+        anime.setDescription("A coming-of-age band anime.");
+
+        assertFalse(AnimeFilterPolicy.isMusicCandidate(anime));
+    }
+
+    @Test
+    void isMusicCandidate_flagsMusicFormatEntries() {
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setFormat("MUSIC");
+        anime.setGenres(List.of("Drama"));
+
+        assertTrue(AnimeFilterPolicy.isMusicCandidate(anime));
+    }
+
     private AniListResponse.AnimeTag tag(String name, Integer rank) {
         AniListResponse.AnimeTag tag = new AniListResponse.AnimeTag();
         tag.setName(name);
