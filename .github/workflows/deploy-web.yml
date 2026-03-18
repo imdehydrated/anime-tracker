@@ -43,9 +43,11 @@ jobs:
           set -euo pipefail
           SHA="${GITHUB_SHA}"
           REPO="${GITHUB_REPOSITORY}"
+          POLL_SECONDS=60
+          MAX_ATTEMPTS=15
           echo "Waiting for Security Scan check on commit ${SHA}..."
 
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
             response=$(curl -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
@@ -55,14 +57,14 @@ jobs:
             conclusion=$(echo "${response}" | jq -r '[.check_runs[] | select(.name=="container-scan")] | sort_by(.started_at) | last | .conclusion // ""')
 
             if [ -z "${status}" ]; then
-              echo "Security scan check not created yet (attempt ${attempt}/90)."
-              sleep 10
+              echo "Security scan check not created yet (attempt ${attempt}/${MAX_ATTEMPTS})."
+              sleep "${POLL_SECONDS}"
               continue
             fi
 
             if [ "${status}" != "completed" ]; then
-              echo "Security scan is ${status} (attempt ${attempt}/90)."
-              sleep 10
+              echo "Security scan is ${status} (attempt ${attempt}/${MAX_ATTEMPTS})."
+              sleep "${POLL_SECONDS}"
               continue
             fi
 
