@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApiError } from '../api/client';
 import {
@@ -83,13 +84,53 @@ function CustomSelect({
 }) {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef(null);
+	const triggerRef = useRef(null);
+	const menuRef = useRef(null);
+	const [menuStyle, setMenuStyle] = useState(null);
 	const selectedOption = options.find((option) => String(option.value) === String(value)) || options[0];
+
+	const updateMenuPosition = useCallback(() => {
+		if (!open || !triggerRef.current) {
+			return;
+		}
+
+		const viewportPadding = 12;
+		const menuGap = 6;
+		const triggerRect = triggerRef.current.getBoundingClientRect();
+		const measuredMenuHeight = menuRef.current?.offsetHeight || 0;
+		const availableBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
+		const shouldOpenAbove = measuredMenuHeight > 0
+			&& measuredMenuHeight > availableBelow
+			&& triggerRect.top > availableBelow;
+		const top = shouldOpenAbove
+			? Math.max(viewportPadding, triggerRect.top - measuredMenuHeight - menuGap)
+			: Math.min(
+				window.innerHeight - viewportPadding - measuredMenuHeight,
+				triggerRect.bottom + menuGap
+			);
+		const width = Math.min(
+			Math.max(triggerRect.width, menuRef.current?.offsetWidth || 0),
+			window.innerWidth - viewportPadding * 2
+		);
+		const left = Math.min(
+			Math.max(viewportPadding, triggerRect.left),
+			window.innerWidth - viewportPadding - width
+		);
+
+		setMenuStyle({
+			top: `${Math.max(viewportPadding, top)}px`,
+			left: `${left}px`,
+			width: `${width}px`,
+		});
+	}, [open]);
 
 	useEffect(() => {
 		if (!open) return undefined;
 
 		const handlePointerDown = (event) => {
-			if (rootRef.current && !rootRef.current.contains(event.target)) {
+			const clickedTrigger = rootRef.current?.contains(event.target);
+			const clickedMenu = menuRef.current?.contains(event.target);
+			if (!clickedTrigger && !clickedMenu) {
 				setOpen(false);
 			}
 		};
@@ -107,7 +148,25 @@ function CustomSelect({
 			document.removeEventListener('mousedown', handlePointerDown);
 			document.removeEventListener('keydown', handleKeyDown);
 		};
-	}, [open, rootRef]);
+	}, [open]);
+
+	useLayoutEffect(() => {
+		if (!open) {
+			setMenuStyle(null);
+			return undefined;
+		}
+
+		updateMenuPosition();
+		const handleViewportChange = () => updateMenuPosition();
+
+		window.addEventListener('resize', handleViewportChange);
+		window.addEventListener('scroll', handleViewportChange, true);
+
+		return () => {
+			window.removeEventListener('resize', handleViewportChange);
+			window.removeEventListener('scroll', handleViewportChange, true);
+		};
+	}, [open, updateMenuPosition]);
 
 	return (
 		<div
@@ -115,20 +174,26 @@ function CustomSelect({
 				rootRef.current = node;
 			}}
 			className={`custom-select ${className}${open ? ' is-open' : ''}`}
-		>
-			<button
-				type="button"
-				className={`custom-select-trigger ${triggerClassName}`}
-				onClick={() => setOpen((prev) => !prev)}
+			>
+				<button
+					ref={triggerRef}
+					type="button"
+					className={`custom-select-trigger ${triggerClassName}`}
+					onClick={() => setOpen((prev) => !prev)}
 				aria-haspopup="listbox"
 				aria-expanded={open}
 				aria-label={ariaLabel}
-			>
-				<span className="custom-select-label">{selectedOption?.label || ''}</span>
-				<span className="custom-select-chevron" aria-hidden="true">v</span>
-			</button>
-			{open && (
-				<div className={`custom-select-menu ${menuClassName}`} role="listbox">
+				>
+					<span className="custom-select-label">{selectedOption?.label || ''}</span>
+					<span className="custom-select-chevron" aria-hidden="true">v</span>
+				</button>
+			{open && createPortal(
+				<div
+					ref={menuRef}
+					className={`custom-select-menu portal-menu ${menuClassName}`}
+					role="listbox"
+					style={menuStyle || { visibility: 'hidden' }}
+				>
 					{options.map((option) => (
 						<button
 							key={option.value || 'blank'}
@@ -142,7 +207,8 @@ function CustomSelect({
 							{option.label}
 						</button>
 					))}
-				</div>
+				</div>,
+				document.body
 			)}
 		</div>
 	);

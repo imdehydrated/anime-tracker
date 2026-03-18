@@ -1615,6 +1615,16 @@ textarea:focus,
 	border-radius: var(--radius-lg);
 	background: #181420;
 	box-shadow: var(--shadow-card-hover);
+	max-height: min(320px, calc(100vh - 24px));
+	overflow-y: auto;
+}
+
+.custom-select-menu.portal-menu {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: auto;
+	z-index: 1100;
 }
 
 .custom-select-option {
