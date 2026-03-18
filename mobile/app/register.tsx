@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,10 +12,12 @@ import {
 } from 'react-native';
 import { registerUser } from '../src/api/authApi';
 import { getApiError } from '../src/api/client';
+import { useResponsiveLayout } from '../src/ui/useResponsiveLayout';
 
 const LOGIN_ROUTE = '/login' as any;
 
 export default function RegisterScreen() {
+  const layout = useResponsiveLayout();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,86 +60,111 @@ export default function RegisterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.screen}
     >
-      <View style={styles.shell}>
-        <Pressable onPress={handleClose} style={styles.closeButton}>
-          <Text style={styles.closeButtonText}>Close</Text>
-        </Pressable>
-
-        <View style={styles.card}>
-          <Text style={styles.eyebrow}>AniRec Account</Text>
-          <Text style={styles.title}>Register</Text>
-          <Text style={styles.subtitle}>
-            Create an account to track anime, keep progress, and unlock personalized recommendations.
-          </Text>
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          <View style={styles.form}>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Username</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setUsername}
-                placeholder="Username"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                style={styles.input}
-                value={username}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                style={styles.input}
-                value={email}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                autoCapitalize="none"
-                onChangeText={setPassword}
-                placeholder="Password"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                secureTextEntry
-                style={styles.input}
-                value={password}
-              />
-            </View>
-
-            <Pressable
-              disabled={submitting}
-              onPress={handleSubmit}
-              style={({ pressed }) => [
-                styles.submitButton,
-                pressed && !submitting ? styles.submitButtonPressed : null,
-                submitting ? styles.submitButtonDisabled : null,
-              ]}
-            >
-              <Text style={styles.submitButtonText}>
-                {submitting ? 'Creating account...' : 'Register'}
-              </Text>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingHorizontal: layout.horizontalPadding,
+            paddingTop: layout.topPadding,
+            paddingBottom: layout.bottomPadding,
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[styles.contentInner, { maxWidth: layout.authMaxWidth }]}>
+          <View style={styles.topBar}>
+            <Pressable onPress={handleClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Close</Text>
             </Pressable>
           </View>
 
-          <View style={styles.footerBlock}>
-            <Text style={styles.trustLine}>
-              After registration you will return to login so the auth flow stays explicit.
+          <View style={[styles.card, { paddingHorizontal: layout.cardPadding, paddingVertical: layout.cardPadding + 4 }]}>
+            <Text style={styles.eyebrow}>AniRec Account</Text>
+            <Text style={[styles.title, { fontSize: layout.titleSize, lineHeight: layout.titleLineHeight }]}>
+              Register
             </Text>
-            <Link href={LOGIN_ROUTE} style={styles.footerLink}>
-              Already have an account? Login
-            </Link>
+            <Text style={[styles.subtitle, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
+              Create an account to track anime, keep progress, and unlock personalized recommendations.
+            </Text>
+
+            {error ? <Text style={[styles.errorText, { fontSize: layout.bodySize }]}>{error}</Text> : null}
+
+            <View style={styles.form}>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Username</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setUsername}
+                  placeholder="Username"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={[
+                    styles.input,
+                    { paddingVertical: layout.inputVerticalPadding, fontSize: layout.inputSize },
+                  ]}
+                  value={username}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={[
+                    styles.input,
+                    { paddingVertical: layout.inputVerticalPadding, fontSize: layout.inputSize },
+                  ]}
+                  value={email}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={setPassword}
+                  placeholder="Password"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  secureTextEntry
+                  style={[
+                    styles.input,
+                    { paddingVertical: layout.inputVerticalPadding, fontSize: layout.inputSize },
+                  ]}
+                  value={password}
+                />
+              </View>
+
+              <Pressable
+                disabled={submitting}
+                onPress={handleSubmit}
+                style={({ pressed }) => [
+                  styles.submitButton,
+                  pressed && !submitting ? styles.submitButtonPressed : null,
+                  submitting ? styles.submitButtonDisabled : null,
+                ]}
+              >
+                <Text style={[styles.submitButtonText, { fontSize: layout.buttonTextSize }]}>
+                  {submitting ? 'Creating account...' : 'Register'}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.footerBlock}>
+              <Text style={[styles.trustLine, { fontSize: layout.helperSize, lineHeight: layout.bodyLineHeight }]}>
+                After registration you will return to login so the auth flow stays explicit.
+              </Text>
+              <Link href={LOGIN_ROUTE} style={styles.footerLink}>
+                Already have an account? Login
+              </Link>
+            </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -146,18 +174,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f1a',
   },
-  shell: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
+  },
+  contentInner: {
+    width: '100%',
+    alignSelf: 'center',
+    flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 28,
-    backgroundColor: '#0f0f1a',
+  },
+  topBar: {
+    alignItems: 'flex-end',
+    marginBottom: 12,
   },
   closeButton: {
-    position: 'absolute',
-    top: 28,
-    right: 20,
-    zIndex: 2,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
@@ -170,8 +200,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
     backgroundColor: '#12122a',
   },
   eyebrow: {
@@ -184,14 +212,11 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 8,
-    fontSize: 30,
     fontWeight: '700',
     color: '#ffffff',
   },
   subtitle: {
     marginBottom: 20,
-    fontSize: 15,
-    lineHeight: 22,
     color: 'rgba(255,255,255,0.72)',
   },
   errorText: {
@@ -220,8 +245,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    fontSize: 16,
     color: '#ffffff',
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
@@ -240,7 +263,6 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   submitButtonText: {
-    fontSize: 16,
     fontWeight: '700',
     color: '#ffffff',
   },
@@ -249,8 +271,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   trustLine: {
-    fontSize: 13,
-    lineHeight: 20,
     color: 'rgba(255,255,255,0.58)',
   },
   footerLink: {

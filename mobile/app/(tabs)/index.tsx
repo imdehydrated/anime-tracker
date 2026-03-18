@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,7 +19,7 @@ import { AnimeSummary } from '../../src/types/anime';
 const QUICK_ACTIONS = [
   {
     title: 'Search',
-    copy: 'Look up a title and refine it with format filters.',
+    copy: 'Look up a title you know.',
     route: '/search',
   },
   {
@@ -44,32 +45,40 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [featured, setFeatured] = useState<AnimeSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+
+  const loadFeatured = useCallback(async (refresh = false) => {
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const items = await getPopularAnime(12);
+      setFeatured(items);
+      setError('');
+    } catch {
+      setError('Could not load the popular anime strip.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadFeatured() {
-      try {
-        const items = await getPopularAnime(12);
-        if (!isMounted) return;
-        setFeatured(items);
-        setError('');
-      } catch {
-        if (!isMounted) return;
-        setError('Could not load the popular anime strip.');
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    }
+    void (async () => {
+      if (!isMounted) return;
+      await loadFeatured();
+    })();
 
-    void loadFeatured();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [loadFeatured]);
 
   const greeting = useMemo(() => {
     if (isLoggedIn) {
@@ -117,6 +126,9 @@ export default function HomeScreen() {
   return (
     <ScrollView
       style={styles.screen}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={() => void loadFeatured(true)} tintColor="#e94560" />
+      }
       contentContainerStyle={[
         styles.content,
         {
@@ -185,15 +197,27 @@ export default function HomeScreen() {
         </View>
 
         {loading ? (
-          <View style={styles.loadingCard}>
-            <ActivityIndicator color="#e94560" />
-            <Text style={[styles.loadingText, { fontSize: layout.bodySize }]}>
-              Loading popular anime...
+          <View style={styles.stateCard}>
+            <Text style={styles.stateKicker}>Popular Catalog</Text>
+            <View style={styles.loadingCard}>
+              <ActivityIndicator color="#e94560" />
+              <Text style={[styles.loadingText, { fontSize: layout.bodySize }]}>
+                Loading popular anime...
+              </Text>
+            </View>
+            <Text style={[styles.stateCopy, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
+              Pulling the same popular strip used by the web app.
             </Text>
           </View>
         ) : null}
 
-        {error ? <Text style={[styles.errorText, { fontSize: layout.bodySize }]}>{error}</Text> : null}
+        {error ? (
+          <View style={styles.stateCard}>
+            <Text style={styles.stateKicker}>Popular Catalog</Text>
+            <Text style={[styles.stateTitle, { fontSize: layout.sectionTitleSize }]}>Could not load featured anime.</Text>
+            <Text style={[styles.errorText, { fontSize: layout.bodySize, marginBottom: 0 }]}>{error}</Text>
+          </View>
+        ) : null}
 
         {featured.length > 0 ? (
           <ScrollView
@@ -206,7 +230,17 @@ export default function HomeScreen() {
               const coverUrl = getCoverUrl(anime);
 
               return (
-                <View key={anime.id} style={[styles.posterCard, { width: layout.posterWidth }]}>
+                <Pressable
+                  key={anime.id}
+                  onPress={() =>
+                    router.push({ pathname: '/anime/[id]', params: { id: String(anime.id) } } as any)
+                  }
+                  style={({ pressed }) => [
+                    styles.posterCard,
+                    { width: layout.posterWidth },
+                    pressed ? styles.posterCardPressed : null,
+                  ]}
+                >
                   {coverUrl ? (
                     <Image
                       contentFit="cover"
@@ -227,10 +261,20 @@ export default function HomeScreen() {
                   <Text style={[styles.posterMeta, { fontSize: Math.max(layout.bodySize - 1, 13) }]}>
                     {anime.averageScore ? `${anime.averageScore}/100` : 'Unscored'}
                   </Text>
-                </View>
+                </Pressable>
               );
             })}
           </ScrollView>
+        ) : null}
+
+        {!loading && !error && featured.length === 0 ? (
+          <View style={styles.stateCard}>
+            <Text style={styles.stateKicker}>Popular Catalog</Text>
+            <Text style={[styles.stateTitle, { fontSize: layout.sectionTitleSize }]}>Nothing is featured right now.</Text>
+            <Text style={[styles.stateCopy, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
+              Use Search or Smart Rec for now while the popular strip repopulates.
+            </Text>
+          </View>
         ) : null}
       </View>
     </ScrollView>
@@ -310,15 +354,34 @@ const styles = StyleSheet.create({
   sectionCopy: {
     color: 'rgba(255,255,255,0.62)',
   },
-  loadingCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  stateCard: {
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 18,
     padding: 16,
     backgroundColor: '#12122a',
+  },
+  stateKicker: {
+    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: '#e94560',
+  },
+  stateTitle: {
+    marginBottom: 8,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  stateCopy: {
+    color: 'rgba(255,255,255,0.68)',
+  },
+  loadingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
   },
   loadingText: {
     color: 'rgba(255,255,255,0.7)',
@@ -338,6 +401,9 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   posterCard: {
+  },
+  posterCardPressed: {
+    opacity: 0.92,
   },
   posterImage: {
     width: '100%',

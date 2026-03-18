@@ -51,6 +51,13 @@ function RootNavigation() {
       <Stack screenOptions={{ headerShown: false, contentStyle: styles.stackContent }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
+          name="anime/[id]"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+        <Stack.Screen
           name="login"
           options={{
             presentation: 'modal',

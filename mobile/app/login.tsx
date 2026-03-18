@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,11 +13,13 @@ import {
 import { loginUser } from '../src/api/authApi';
 import { getApiError } from '../src/api/client';
 import { useAuth } from '../src/context/AuthContext';
+import { useResponsiveLayout } from '../src/ui/useResponsiveLayout';
 
 const REGISTER_ROUTE = '/register' as any;
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const layout = useResponsiveLayout();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -58,71 +61,95 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.screen}
     >
-      <View style={styles.shell}>
-        <Pressable onPress={handleClose} style={styles.closeButton}>
-          <Text style={styles.closeButtonText}>Close</Text>
-        </Pressable>
-
-        <View style={styles.card}>
-          <Text style={styles.eyebrow}>AniRec Account</Text>
-          <Text style={styles.title}>Login</Text>
-          <Text style={styles.subtitle}>
-            Sign in to save your list, recommendation feedback, and progress across devices.
-          </Text>
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          <View style={styles.form}>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                style={styles.input}
-                value={email}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                autoCapitalize="none"
-                onChangeText={setPassword}
-                placeholder="Password"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                secureTextEntry
-                style={styles.input}
-                value={password}
-              />
-            </View>
-
-            <Pressable
-              disabled={submitting}
-              onPress={handleSubmit}
-              style={({ pressed }) => [
-                styles.submitButton,
-                pressed && !submitting ? styles.submitButtonPressed : null,
-                submitting ? styles.submitButtonDisabled : null,
-              ]}
-            >
-              <Text style={styles.submitButtonText}>
-                {submitting ? 'Signing in...' : 'Login'}
-              </Text>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingHorizontal: layout.horizontalPadding,
+            paddingTop: layout.topPadding,
+            paddingBottom: layout.bottomPadding,
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[styles.contentInner, { maxWidth: layout.authMaxWidth }]}>
+          <View style={styles.topBar}>
+            <Pressable onPress={handleClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Close</Text>
             </Pressable>
           </View>
 
-          <View style={styles.trustBlock}>
-            <Text style={styles.trustLine}>Tracks your anime list and recommendation history.</Text>
-            <Link href={REGISTER_ROUTE} style={styles.footerLink}>
-              Need an account? Register
-            </Link>
+          <View style={[styles.card, { paddingHorizontal: layout.cardPadding, paddingVertical: layout.cardPadding + 4 }]}>
+            <Text style={styles.eyebrow}>AniRec Account</Text>
+            <Text style={[styles.title, { fontSize: layout.titleSize, lineHeight: layout.titleLineHeight }]}>
+              Login
+            </Text>
+            <Text style={[styles.subtitle, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
+              Sign in to save your list, recommendation feedback, and progress across devices.
+            </Text>
+
+            {error ? <Text style={[styles.errorText, { fontSize: layout.bodySize }]}>{error}</Text> : null}
+
+            <View style={styles.form}>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={[
+                    styles.input,
+                    { paddingVertical: layout.inputVerticalPadding, fontSize: layout.inputSize },
+                  ]}
+                  value={email}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  onChangeText={setPassword}
+                  placeholder="Password"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  secureTextEntry
+                  style={[
+                    styles.input,
+                    { paddingVertical: layout.inputVerticalPadding, fontSize: layout.inputSize },
+                  ]}
+                  value={password}
+                />
+              </View>
+
+              <Pressable
+                disabled={submitting}
+                onPress={handleSubmit}
+                style={({ pressed }) => [
+                  styles.submitButton,
+                  pressed && !submitting ? styles.submitButtonPressed : null,
+                  submitting ? styles.submitButtonDisabled : null,
+                ]}
+              >
+                <Text style={[styles.submitButtonText, { fontSize: layout.buttonTextSize }]}>
+                  {submitting ? 'Signing in...' : 'Login'}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.trustBlock}>
+              <Text style={[styles.trustLine, { fontSize: layout.helperSize, lineHeight: layout.bodyLineHeight }]}>
+                Tracks your anime list and recommendation history.
+              </Text>
+              <Link href={REGISTER_ROUTE} style={styles.footerLink}>
+                Need an account? Register
+              </Link>
+            </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -132,18 +159,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f1a',
   },
-  shell: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
+  },
+  contentInner: {
+    width: '100%',
+    alignSelf: 'center',
+    flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 28,
-    backgroundColor: '#0f0f1a',
+  },
+  topBar: {
+    alignItems: 'flex-end',
+    marginBottom: 12,
   },
   closeButton: {
-    position: 'absolute',
-    top: 28,
-    right: 20,
-    zIndex: 2,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
@@ -156,8 +185,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
     backgroundColor: '#12122a',
   },
   eyebrow: {
@@ -170,14 +197,11 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: 8,
-    fontSize: 30,
     fontWeight: '700',
     color: '#ffffff',
   },
   subtitle: {
     marginBottom: 20,
-    fontSize: 15,
-    lineHeight: 22,
     color: 'rgba(255,255,255,0.72)',
   },
   errorText: {
@@ -206,8 +230,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    fontSize: 16,
     color: '#ffffff',
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
@@ -226,7 +248,6 @@ const styles = StyleSheet.create({
     opacity: 0.65,
   },
   submitButtonText: {
-    fontSize: 16,
     fontWeight: '700',
     color: '#ffffff',
   },
@@ -235,8 +256,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   trustLine: {
-    fontSize: 13,
-    lineHeight: 20,
     color: 'rgba(255,255,255,0.58)',
   },
   footerLink: {
