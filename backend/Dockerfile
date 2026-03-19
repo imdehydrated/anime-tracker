@@ -28,13 +28,15 @@ COPY src ./src
 RUN mvn package -DskipTests
 
 # === STAGE 2: RUN ===
-# Use a slim Java 17 runtime (no Maven, no build tools)
-FROM eclipse-temurin:17-jre-alpine
+# Use a slim Java 17 runtime (no Maven, no build tools).
+# Pin Alpine 3.23 so the build can pick up patched runtime packages like
+# libexpat 2.7.5-r0 from the current 3.23 repositories during apk upgrade.
+FROM eclipse-temurin:17-jre-alpine-3.23
 
 # Set working directory
 WORKDIR /app
 
-# Pull latest patched Alpine packages at build time to reduce OS CVEs
+# Pull the latest patched OS packages at build time to reduce runtime CVEs.
 RUN apk upgrade --no-cache
 
 # Copy only the JAR file from the build stage

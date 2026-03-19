@@ -12,11 +12,13 @@ AniRec is a full-stack anime recommendation and tracking platform. It combines i
 - Search/detail pages with configurable result filters and stat-rich anime detail layouts
 - Dashboard-style My List view with inline edits, quick filters, and visible summary stats
 - Home page popular strip sourced from the local popular-anime catalog
+- Native mobile app with Home, Search, Smart Rec, anime detail, and My List flows backed by the same API
 - Ongoing local catalog refresh so recommendations are not tied to live third-party API reliability
 
 ## Tech
 
 - Frontend: React
+- Mobile app: Expo / React Native
 - Backend API: Spring Boot (Java)
 - ML serving sidecar: FastAPI (Python)
 - Database: PostgreSQL
@@ -44,6 +46,7 @@ AniRec is a full-stack anime recommendation and tracking platform. It combines i
 ## Repository Structure
 
 - `frontend/`: React client
+- `mobile/`: Expo / React Native app
 - `backend/`: Spring Boot API and business logic
 - `ml-sidecar/`: Python model serving service
 - `db/`: local database setup and migration support
@@ -64,6 +67,31 @@ docker-compose up --build
 
 - Frontend: `http://localhost:3000`
 - Backend health: `http://localhost:8080/api/health`
+
+## Mobile App
+
+- The native app lives in `mobile/` and uses the same backend/search/recommendation/list APIs as the web app.
+- Current mobile flows include Home, Search, Smart Rec (`Smart Search`, `Similar Shows`, `For You`), anime detail, login/register, and My List with import/edit support.
+- Mobile content screens support pull-to-refresh, shared list membership state, and the same default newest-first My List sorting used on web.
+- Adult content remains filtered by default on mobile and requires explicit local opt-in before `18+ Content` can be enabled.
+
+### Run Mobile Locally
+
+1. Make sure the backend is running.
+2. In a separate terminal:
+
+```bash
+cd mobile
+npm install
+npx expo start --dev-client
+```
+
+3. Type-check the mobile app when changing shared/backend behavior:
+
+```bash
+cd mobile
+./node_modules/.bin/tsc --noEmit
+```
 
 4. Stop services:
 

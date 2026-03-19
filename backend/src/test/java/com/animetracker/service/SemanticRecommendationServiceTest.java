@@ -911,6 +911,7 @@ class SemanticRecommendationServiceTest {
         tag.setName("Ecchi");
         tag.setRank(80);
         anime.setTags(List.of(tag));
+        anime.setIsAdult(true);
         com.animetracker.dto.RecommendationResponse row = new com.animetracker.dto.RecommendationResponse(
                 anime,
                 0.55d,

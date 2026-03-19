@@ -60,6 +60,7 @@ notebooks/NOTEBOOK-BLOCK-GUIDE.local.md
 ml-models.tar.gz
 
 # Local-only deployment artifacts (do not commit)
+.m2repo
 infra/*
 !infra/ecs/
 infra/ecs/*
