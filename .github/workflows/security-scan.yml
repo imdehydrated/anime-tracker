@@ -57,8 +57,10 @@ jobs:
         with:
           context: .
           file: frontend/Dockerfile.prod
+          pull: true
           load: true
           tags: animetracker-frontend:scan
+          no-cache-filters: runtime
           cache-from: type=gha,scope=frontend-scan
           cache-to: type=gha,scope=frontend-scan,mode=max
 
