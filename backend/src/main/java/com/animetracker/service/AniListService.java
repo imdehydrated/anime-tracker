@@ -33,6 +33,7 @@ import com.animetracker.dto.AniListResponse;
 import com.animetracker.dto.AnimeSearchPageResponse;
 import com.animetracker.repository.AnimeCatalogRepository;
 import com.animetracker.repository.AnimeEmbeddingRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.animetracker.repository.AnimeRelationGraphRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -1062,6 +1063,7 @@ public class AniListService {
             return;
         }
         try {
+            JsonNode root = objectMapper.readTree(metadataJson);
             AniListResponse.AnimeInfo parsed = objectMapper.readValue(metadataJson, AniListResponse.AnimeInfo.class);
             if (parsed == null) {
                 return;
@@ -1093,6 +1095,10 @@ public class AniListService {
             if (target.getIdMal() == null) {
                 target.setIdMal(parsed.getIdMal());
             }
+            Boolean adultFlag = extractAdultFlag(root, parsed);
+            if (adultFlag != null) {
+                target.setIsAdult(adultFlag);
+            }
             if ((target.getExtraFields() == null || target.getExtraFields().isEmpty())
                     && parsed.getExtraFields() != null
                     && !parsed.getExtraFields().isEmpty()) {
@@ -1101,6 +1107,20 @@ public class AniListService {
         } catch (Exception ex) {
             log.debug("Failed to parse metadata_json for anime {}: {}", target.getId(), ex.getMessage());
         }
+    }
+
+    private Boolean extractAdultFlag(JsonNode root, AniListResponse.AnimeInfo parsed) {
+        if (root != null) {
+            JsonNode isAdultNode = root.get("isAdult");
+            if (isAdultNode != null && !isAdultNode.isNull()) {
+                return isAdultNode.asBoolean();
+            }
+            JsonNode snakeCaseNode = root.get("is_adult");
+            if (snakeCaseNode != null && !snakeCaseNode.isNull()) {
+                return snakeCaseNode.asBoolean();
+            }
+        }
+        return parsed == null ? null : parsed.getIsAdult();
     }
 
     private List<String> parseGenres(String genresCsv) {
@@ -1249,7 +1269,7 @@ public class AniListService {
         if (merged.getTags() == null || merged.getTags().isEmpty()) {
             merged.setTags(copyTags(fetched.getTags()));
         }
-        if (merged.getIsAdult() == null) {
+        if (fetched.getIsAdult() != null) {
             merged.setIsAdult(fetched.getIsAdult());
         }
         if (merged.getStudios() == null || merged.getStudios().isEmpty()) {

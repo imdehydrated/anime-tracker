@@ -33,6 +33,7 @@ import com.animetracker.dto.RecommendationPageResponse;
 import com.animetracker.dto.RecommendationFeedbackRequest;
 import com.animetracker.dto.RecommendationResponse;
 import com.animetracker.dto.SemanticRequest;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.animetracker.entity.AnimeListEntry;
 import com.animetracker.entity.RecommendationFeedback;
 import com.animetracker.entity.User;
@@ -3049,6 +3050,7 @@ public class SemanticRecommendationService {
             return;
         }
         try {
+            JsonNode root = explanationObjectMapper.readTree(metadataJson);
             AniListResponse.AnimeInfo parsed = explanationObjectMapper.readValue(metadataJson, AniListResponse.AnimeInfo.class);
             if (parsed == null) {
                 return;
@@ -3065,6 +3067,10 @@ public class SemanticRecommendationService {
             if (anime.getRelations() == null || anime.getRelations().isEmpty()) {
                 anime.setRelations(parsed.getRelations());
             }
+            Boolean adultFlag = extractAdultFlag(root, parsed);
+            if (adultFlag != null) {
+                anime.setIsAdult(adultFlag);
+            }
             if ((anime.getExtraFields() == null || anime.getExtraFields().isEmpty())
                     && parsed.getExtraFields() != null
                     && !parsed.getExtraFields().isEmpty()) {
@@ -3073,6 +3079,20 @@ public class SemanticRecommendationService {
         } catch (Exception e) {
             log.debug("Failed to parse metadata_json for anime {}: {}", anime.getId(), e.getMessage());
         }
+    }
+
+    private Boolean extractAdultFlag(JsonNode root, AniListResponse.AnimeInfo parsed) {
+        if (root != null) {
+            JsonNode isAdultNode = root.get("isAdult");
+            if (isAdultNode != null && !isAdultNode.isNull()) {
+                return isAdultNode.asBoolean();
+            }
+            JsonNode snakeCaseNode = root.get("is_adult");
+            if (snakeCaseNode != null && !snakeCaseNode.isNull()) {
+                return snakeCaseNode.asBoolean();
+            }
+        }
+        return parsed == null ? null : parsed.getIsAdult();
     }
 
     private AniListResponse.AnimeInfo hydrateMetadataIfMissing(AniListResponse.AnimeInfo anime, boolean allowAniListHydration) {
@@ -3184,7 +3204,7 @@ public class SemanticRecommendationService {
         if (current.getEpisodes() == null) {
             current.setEpisodes(fetched.getEpisodes());
         }
-        if (current.getIsAdult() == null) {
+        if (fetched.getIsAdult() != null) {
             current.setIsAdult(fetched.getIsAdult());
         }
         if (current.getFormat() == null || current.getFormat().isBlank()) {

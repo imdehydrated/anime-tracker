@@ -27,41 +27,7 @@ public final class AnimeFilterPolicy {
     }
 
     public static boolean isAdultCandidate(AniListResponse.AnimeInfo anime, int ecchiRankThreshold) {
-        if (anime == null) {
-            return false;
-        }
-        if (Boolean.TRUE.equals(anime.getIsAdult())) {
-            return true;
-        }
-        Set<String> genres = parseGenreSet(anime.getGenres());
-        boolean ecchiGenre = genres.contains("ecchi");
-        if (genres.contains("hentai")) {
-            return true;
-        }
-
-        if (anime.getTags() != null) {
-            for (AniListResponse.AnimeTag tag : anime.getTags()) {
-                if (tag == null || tag.getName() == null || tag.getName().isBlank()) {
-                    continue;
-                }
-                String lowered = tag.getName().toLowerCase();
-                if (containsAdultTagKeyword(lowered)) {
-                    return true;
-                }
-                if (ecchiGenre && lowered.contains("ecchi")
-                        && tag.getRank() != null
-                        && tag.getRank() >= Math.max(0, ecchiRankThreshold)) {
-                    return true;
-                }
-            }
-        }
-        if (!ecchiGenre) {
-            return false;
-        }
-        String text = animeTextBlob(anime);
-        return text.contains(" explicit ")
-                || text.contains(" erotic ")
-                || text.contains(" sexual ");
+        return anime != null && Boolean.TRUE.equals(anime.getIsAdult());
     }
 
     private static boolean containsAdultTagKeyword(String tagName) {

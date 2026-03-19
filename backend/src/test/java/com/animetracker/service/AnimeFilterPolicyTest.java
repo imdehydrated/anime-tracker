@@ -16,15 +16,26 @@ class AnimeFilterPolicyTest {
         anime.setGenres(List.of("Mystery", "Psychological", "Thriller"));
         anime.setTags(List.of(tag("Asexual", 20), tag("Crime", 90)));
         anime.setDescription("A psychological cat-and-mouse story.");
+        anime.setIsAdult(false);
 
         assertFalse(AnimeFilterPolicy.isAdultCandidate(anime, 70));
     }
 
     @Test
-    void isAdultCandidate_flagsExplicitAdultTags() {
+    void isAdultCandidate_onlyUsesAniListAdultFlag() {
         AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
-        anime.setGenres(List.of("Drama"));
+        anime.setGenres(List.of("Ecchi", "Drama"));
         anime.setTags(List.of(tag("Sexual Content", 90)));
+        anime.setDescription("Contains explicit erotic scenes.");
+        anime.setIsAdult(false);
+
+        assertFalse(AnimeFilterPolicy.isAdultCandidate(anime, 70));
+    }
+
+    @Test
+    void isAdultCandidate_flagsAniListAdultTitles() {
+        AniListResponse.AnimeInfo anime = new AniListResponse.AnimeInfo();
+        anime.setIsAdult(true);
 
         assertTrue(AnimeFilterPolicy.isAdultCandidate(anime, 70));
     }
