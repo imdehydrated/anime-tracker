@@ -31,7 +31,7 @@ RUN mvn package -DskipTests
 # Use a slim Java 17 runtime (no Maven, no build tools).
 # Pin Alpine 3.23 so the build can pick up patched runtime packages like
 # libexpat 2.7.5-r0 from the current 3.23 repositories during apk upgrade.
-FROM eclipse-temurin:17-jre-alpine-3.23
+FROM eclipse-temurin:17-jre-alpine-3.23 AS runtime
 
 # Set working directory
 WORKDIR /app

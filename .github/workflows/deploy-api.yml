@@ -172,8 +172,10 @@ jobs:
         with:
           context: backend
           file: backend/Dockerfile
+          pull: true
           push: true
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_BACKEND_REPO }}:${{ github.sha }}
+          no-cache-filters: runtime
           cache-from: type=gha,scope=backend-prod
           cache-to: type=gha,scope=backend-prod,mode=max
 

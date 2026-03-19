@@ -45,8 +45,10 @@ jobs:
         with:
           context: backend
           file: backend/Dockerfile
+          pull: true
           load: true
           tags: animetracker-backend:scan
+          no-cache-filters: runtime
           cache-from: type=gha,scope=backend-scan
           cache-to: type=gha,scope=backend-scan,mode=max
 
