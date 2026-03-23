@@ -290,6 +290,25 @@ export default function MyListScreen() {
     await handleEntryUpdate(entry, { episodesWatched: nextValue });
   };
 
+  const handleProgressStep = async (entry: UserListEntry, delta: number) => {
+    const currentValue = normalizeProgressDraft(entry);
+    const nextValue = Math.max(
+      0,
+      Math.min(entry.totalEpisodes ?? Number.MAX_SAFE_INTEGER, currentValue + delta)
+    );
+
+    setEpisodesDrafts((prev) => ({
+      ...prev,
+      [entry.id]: String(nextValue),
+    }));
+
+    if (nextValue === (entry.episodesWatched || 0)) {
+      return;
+    }
+
+    await handleEntryUpdate(entry, { episodesWatched: nextValue });
+  };
+
   const confirmDelete = async (entry: UserListEntry) => {
     const runDelete = async () => {
       const previousEntries = entries;
@@ -767,6 +786,17 @@ export default function MyListScreen() {
                         <View style={styles.editorSection}>
                           <Text style={[styles.editorLabel, { fontSize: layout.helperSize }]}>Progress</Text>
                           <View style={styles.progressRow}>
+                            <Pressable
+                              disabled={updatingEntryId === entry.id}
+                              onPress={() => void handleProgressStep(entry, -1)}
+                              style={({ pressed }) => [
+                                styles.progressStepper,
+                                pressed && updatingEntryId !== entry.id ? styles.progressStepperPressed : null,
+                                updatingEntryId === entry.id ? styles.disabledButton : null,
+                              ]}
+                            >
+                              <Text style={[styles.progressStepperText, { fontSize: layout.buttonTextSize }]}>-</Text>
+                            </Pressable>
                             <TextInput
                               keyboardType="number-pad"
                               onChangeText={(value) =>
@@ -787,6 +817,17 @@ export default function MyListScreen() {
                               ]}
                               value={episodesDrafts[entry.id] ?? String(entry.episodesWatched || 0)}
                             />
+                            <Pressable
+                              disabled={updatingEntryId === entry.id}
+                              onPress={() => void handleProgressStep(entry, 1)}
+                              style={({ pressed }) => [
+                                styles.progressStepper,
+                                pressed && updatingEntryId !== entry.id ? styles.progressStepperPressed : null,
+                                updatingEntryId === entry.id ? styles.disabledButton : null,
+                              ]}
+                            >
+                              <Text style={[styles.progressStepperText, { fontSize: layout.buttonTextSize }]}>+</Text>
+                            </Pressable>
                             <Text style={[styles.progressSuffix, { fontSize: layout.bodySize }]}>
                               {entry.totalEpisodes != null ? `/ ${entry.totalEpisodes}` : 'eps'}
                             </Text>
@@ -1243,6 +1284,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     color: '#ffffff',
     backgroundColor: '#171733',
+  },
+  progressStepper: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    backgroundColor: '#171733',
+  },
+  progressStepperPressed: {
+    opacity: 0.9,
+  },
+  progressStepperText: {
+    fontWeight: '700',
+    color: '#ffffff',
   },
   progressSuffix: {
     fontWeight: '600',
