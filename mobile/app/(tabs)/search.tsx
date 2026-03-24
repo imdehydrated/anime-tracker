@@ -221,34 +221,48 @@ export default function SearchScreen() {
         ]}
         ListHeaderComponent={
           <View style={[styles.contentInner, styles.header, { maxWidth: layout.contentMaxWidth }]}>
-            <Text style={styles.eyebrow}>Catalog Search</Text>
-            <Text style={[styles.title, { fontSize: layout.titleSize, lineHeight: layout.titleLineHeight }]}>
-              Search the anime catalog.
-            </Text>
-            <Text style={[styles.subtitle, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
-              Start with a known title or franchise fragment, then refine the result set with the
-              same core filters used by the web app.
-            </Text>
+            <View style={[styles.heroCard, { padding: layout.cardPadding }]}>
+              <View style={styles.heroGlow} />
+              <View style={styles.heroContent}>
+                <Text style={styles.eyebrow}>Catalog Search</Text>
+                <Text style={[styles.title, { fontSize: layout.titleSize, lineHeight: layout.titleLineHeight }]}>
+                  Search the anime catalog.
+                </Text>
+                <Text style={[styles.subtitle, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
+                  Start with a known title or franchise fragment, then refine the result set with the
+                  same core filters used by the web app.
+                </Text>
 
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setQuery}
-              placeholder="Search anime..."
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              style={[
-                styles.searchInput,
-                {
-                  paddingVertical: layout.inputVerticalPadding,
-                  fontSize: layout.inputSize,
-                },
-              ]}
-              value={query}
-            />
+                <View style={styles.heroBadgeRow}>
+                  <View style={styles.heroBadge}>
+                    <Text style={[styles.heroBadgeText, { fontSize: layout.helperSize }]}>Local Catalog</Text>
+                  </View>
+                  <View style={[styles.heroBadge, styles.heroBadgeMuted]}>
+                    <Text style={[styles.heroBadgeText, { fontSize: layout.helperSize }]}>Live Filters</Text>
+                  </View>
+                </View>
 
-            <Text style={[styles.helperText, { fontSize: layout.helperSize, lineHeight: layout.bodyLineHeight }]}>
-              {helperText}
-            </Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setQuery}
+                  placeholder="Search anime..."
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  style={[
+                    styles.searchInput,
+                    {
+                      paddingVertical: layout.inputVerticalPadding,
+                      fontSize: layout.inputSize,
+                    },
+                  ]}
+                  value={query}
+                />
+
+                <Text style={[styles.helperText, { fontSize: layout.helperSize, lineHeight: layout.bodyLineHeight }]}>
+                  {helperText}
+                </Text>
+              </View>
+            </View>
 
             <View style={styles.filterPanel}>
               <View style={[styles.filterPanelHeader, { paddingHorizontal: layout.compactCardPadding }]}>
@@ -327,6 +341,27 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 20,
   },
+  heroCard: {
+    position: 'relative',
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#12122a',
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -34,
+    right: -18,
+    width: 140,
+    height: 140,
+    borderRadius: 999,
+    backgroundColor: 'rgba(233,69,96,0.18)',
+  },
+  heroContent: {
+    position: 'relative',
+  },
   eyebrow: {
     marginBottom: 10,
     fontSize: 12,
@@ -344,13 +379,35 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     color: 'rgba(255,255,255,0.72)',
   },
+  heroBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  heroBadge: {
+    borderWidth: 1,
+    borderColor: 'rgba(233,69,96,0.24)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(233,69,96,0.12)',
+  },
+  heroBadgeMuted: {
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  heroBadgeText: {
+    fontWeight: '700',
+    color: '#ffffff',
+  },
   searchInput: {
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 16,
     paddingHorizontal: 16,
     color: '#ffffff',
-    backgroundColor: '#12122a',
+    backgroundColor: '#171733',
   },
   helperText: {
     marginTop: 10,

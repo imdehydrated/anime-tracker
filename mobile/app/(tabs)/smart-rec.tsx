@@ -312,13 +312,29 @@ export default function SmartRecScreen() {
       ]}
     >
       <View style={[styles.contentInner, { maxWidth: layout.contentMaxWidth }]}>
-        <Text style={styles.eyebrow}>Recommendation Workspace</Text>
-        <Text style={[styles.title, { fontSize: layout.titleSize, lineHeight: layout.titleLineHeight }]}>
-          Smart Rec
-        </Text>
-        <Text style={[styles.copy, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
-          {modeSubtitle}
-        </Text>
+        <View style={[styles.heroCard, { padding: layout.cardPadding }]}>
+          <View style={styles.heroGlow} />
+          <View style={styles.heroContent}>
+            <Text style={styles.eyebrow}>Recommendation Workspace</Text>
+            <Text style={[styles.title, { fontSize: layout.titleSize, lineHeight: layout.titleLineHeight }]}>
+              Smart Rec
+            </Text>
+            <Text style={[styles.copy, { fontSize: layout.bodySize, lineHeight: layout.bodyLineHeight }]}>
+              {modeSubtitle}
+            </Text>
+
+            <View style={styles.heroBadgeRow}>
+              <View style={styles.heroBadge}>
+                <Text style={[styles.heroBadgeText, { fontSize: layout.helperSize }]}>
+                  {isCfMode ? 'For You' : isSimilarMode ? 'Similar Shows' : 'Smart Search'}
+                </Text>
+              </View>
+              <View style={[styles.heroBadge, styles.heroBadgeMuted]}>
+                <Text style={[styles.heroBadgeText, { fontSize: layout.helperSize }]}>Pull to Refresh</Text>
+              </View>
+            </View>
+          </View>
+        </View>
 
         <View style={styles.modeGrid}>
           {visibleModeCards.map((card) => {
@@ -777,6 +793,27 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  heroCard: {
+    position: 'relative',
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#12122a',
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -42,
+    right: -14,
+    width: 150,
+    height: 150,
+    borderRadius: 999,
+    backgroundColor: 'rgba(233,69,96,0.18)',
+  },
+  heroContent: {
+    position: 'relative',
+  },
   eyebrow: {
     marginBottom: 10,
     fontSize: 12,
@@ -793,6 +830,27 @@ const styles = StyleSheet.create({
   copy: {
     marginBottom: 18,
     color: 'rgba(255,255,255,0.72)',
+  },
+  heroBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  heroBadge: {
+    borderWidth: 1,
+    borderColor: 'rgba(233,69,96,0.24)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(233,69,96,0.12)',
+  },
+  heroBadgeMuted: {
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  heroBadgeText: {
+    fontWeight: '700',
+    color: '#ffffff',
   },
   modeGrid: {
     gap: 12,
